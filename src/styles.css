@@ -227,3 +227,5 @@ a.btn{text-decoration:none;color:inherit}
   nav{flex:1 1 auto;min-height:0;overflow-y:auto;scrollbar-width:thin}
   .aside-foot{flex:none;margin-top:10px}
 }
+
+.ava.mini{width:28px;height:28px;font-size:11px;margin-right:8px}

@@ -1,64 +1,74 @@
 rules_version = '2';
-// Reglas de seguridad: el administrador ve y edita todo;
-// cada cobrador solo ve sus clientes, préstamos, pagos y entregas.
+// Kuota — roles: CEO (dueño, el primero que se registró), Admin y Cobrador.
+// CEO: todo. Admin: ve todo y registra, pero no edita ni borra. Cobrador: solo su ruta.
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
     function userDoc() { return /databases/$(database)/documents/users/$(request.auth.uid); }
+    function adminDoc() { return /databases/$(database)/documents/meta/admin; }
     function isUser() { return signedIn() && exists(userDoc()) && get(userDoc()).data.activo == true; }
-    function isAdmin() { return isUser() && get(userDoc()).data.rol == 'admin'; }
+    function isAdmin() { return isUser() && get(userDoc()).data.rol == 'admin'; }      // CEO o Admin
+    function isCeo() { return isAdmin() && get(adminDoc()).data.uid == request.auth.uid; }
     function isCobrador() { return isUser() && get(userDoc()).data.rol == 'cobrador'; }
     function own() { return resource.data.cobradorId == request.auth.uid; }
     function ownNew() { return request.resource.data.cobradorId == request.auth.uid; }
-    function adminDoc() { return /databases/$(database)/documents/meta/admin; }
+    function firma() { return request.resource.data.creadoPor == request.auth.uid; }  // queda quién lo hizo
+    function soloCambiaRuta() { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['cobradorId']); }
 
-    // Marca de que ya existe un administrador (solo se crea una vez)
     match /meta/admin {
       allow read: if true;
       allow create: if signedIn() && !exists(adminDoc()) && request.resource.data.uid == request.auth.uid;
       allow update, delete: if false;
     }
-
     match /users/{uid} {
       allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
-      allow create: if isAdmin()
+      allow create: if isCeo()
         || (signedIn() && request.auth.uid == uid && request.resource.data.rol == 'admin'
             && !exists(adminDoc()) && getAfter(adminDoc()).data.uid == request.auth.uid);
-      allow update, delete: if isAdmin();
+      allow update, delete: if isCeo() && uid != request.auth.uid;
     }
-
     match /config/{id} {
       allow read: if isUser();
-      allow write: if isAdmin();
+      allow write: if isCeo();
     }
-
     match /clientes/{id} {
       allow read: if isAdmin() || (isCobrador() && own());
-      allow create: if isAdmin() || (isCobrador() && ownNew());
+      allow create: if (isAdmin() || (isCobrador() && ownNew())) && firma();
       allow update: if isAdmin() || (isCobrador() && own() && ownNew());
-      allow delete: if isAdmin();
+      allow delete: if isCeo();
     }
-
     match /prestamos/{id} {
       allow read: if isAdmin() || (isCobrador() && own());
-      allow write: if isAdmin();
+      allow create: if isAdmin() && firma();
+      allow update: if isCeo() || (isAdmin() && soloCambiaRuta());
+      allow delete: if isCeo();
     }
-
     match /pagos/{id} {
       allow read: if isAdmin() || (isCobrador() && own());
-      allow create: if isAdmin()
+      allow create: if firma() && (isAdmin()
         || (isCobrador() && ownNew() && request.resource.data.registradoPor == request.auth.uid
-            && get(/databases/$(database)/documents/prestamos/$(request.resource.data.prestamoId)).data.cobradorId == request.auth.uid);
-      allow update, delete: if isAdmin();
+            && get(/databases/$(database)/documents/prestamos/$(request.resource.data.prestamoId)).data.cobradorId == request.auth.uid));
+      allow update: if isCeo() || (isAdmin() && soloCambiaRuta());
+      allow delete: if isCeo();
     }
-
     match /entregas/{id} {
       allow read: if isAdmin() || (isCobrador() && own());
-      allow write: if isAdmin();
+      allow create: if isAdmin() && firma();
+      allow update, delete: if isCeo();
     }
-
-    match /salidas/{id} { allow read, write: if isAdmin(); }
-    match /capital/{id} { allow read, write: if isAdmin(); }
-    match /ingresos/{id} { allow read, write: if isAdmin(); }
+    match /salidas/{id} {
+      allow read: if isAdmin();
+      allow create: if isAdmin() && firma();
+      allow update, delete: if isCeo();
+    }
+    match /ingresos/{id} {
+      allow read: if isAdmin();
+      allow create: if isAdmin() && firma();
+      allow update, delete: if isCeo();
+    }
+    match /capital/{id} {
+      allow read: if isAdmin();
+      allow write: if isCeo();
+    }
   }
 }

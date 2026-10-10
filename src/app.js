@@ -15,7 +15,11 @@ let ME = null;            // perfil del usuario: {uid, nombre, email, rol, activ
 let view = 'panel';
 let viewState = {};
 let unsub = null;
-const isAdmin = () => ME && ME.rol==='admin';
+const isAdmin = () => ME && ME.rol==='admin';            // CEO y Admin ven todo el negocio
+const isCeo = () => !!(ME && ME.rol==='admin' && ME.esCeo); // solo el CEO edita, borra y configura
+let CEO_UID = '';
+const rolDe = u => !u ? '' : (u.id===CEO_UID || u.uid===CEO_UID) ? 'CEO' : u.rol==='admin' ? 'Admin' : 'Cobrador';
+const horaDe = t => t ? new Date(t).toLocaleString('es-CO',{day:'2-digit',month:'short',hour:'numeric',minute:'2-digit'}) : '';
 const isNative = () => !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
 
 function migrateConfig(c){
@@ -181,11 +185,11 @@ const NAV_COB = [['cobros','Mi ruta','Ruta'],['clientes','Mis clientes','Cliente
 const PERMITIDAS_COB = ['cobros','clientes','prestamos','cuadre'];
 function renderNav(){
   const n = cobrosDelDia().filter(c=>c.cobrar>0.5).length;
-  const NAV = isAdmin()?NAV_ADMIN:NAV_COB;
+  const NAV = isAdmin()? NAV_ADMIN.filter(([k])=>isCeo() || !['usuarios','ajustes'].includes(k)) : NAV_COB;
   document.getElementById('nav').innerHTML = NAV.map(([k,t,c])=>
     `<button class="${view===k?'on':''}" data-go="${k}"><svg viewBox="0 0 24 24" fill="currentColor">${ICONS[k]}</svg><span class="nl">${t}</span><span class="ns">${c}</span>${k==='cobros'&&n?`<span class="badge">${n}</span>`:''}</button>`).join('');
   document.getElementById('logoName').innerHTML = esc(DB.config.negocio)+'<small>Control de créditos</small>';
-  const who = `<div class="who" style="margin-bottom:8px">${ava(ME.nombre)}<div style="min-width:0"><b style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(ME.nombre||ME.email)}</b><span>${isAdmin()?'Administrador':'Cobrador'}</span></div></div>`;
+  const who = `<div class="who" style="margin-bottom:8px">${ava(ME.nombre)}<div style="min-width:0"><b style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(ME.nombre||ME.email)}</b><span>${rolDe(ME)}</span></div></div>`;
   document.getElementById('userBox').innerHTML = who + `<button onclick="cerrarSesion()">Cerrar sesión</button>`;
   document.getElementById('topUser').innerHTML = `<b>${esc(DB.config.negocio)}</b><span class="spacer"></span>${ava(ME.nombre)}<button class="btn sm" onclick="cerrarSesion()">Salir</button>`;
 }
@@ -199,6 +203,7 @@ document.addEventListener('click', e=>{
 function render(){
   if(!ME) return;
   if(!isAdmin() && !PERMITIDAS_COB.includes(view)) view='cobros';
+  if(!isCeo() && ['usuarios','ajustes'].includes(view)) view='panel';
   renderNav();
   const m = document.getElementById('main');
   m.innerHTML = (VIEWS[view]||VIEWS.panel)();
@@ -424,8 +429,8 @@ VIEWS.salidas = () => {
   <div class="row"><button class="btn" onclick="exportCSV('salidas')">Exportar a Excel</button><button class="btn pri" onclick="modalSalida()">+ Registrar salida</button></div></div>
   <div class="kpis"><div class="kpi cream"><div class="l">Total salidas</div><div class="v">${fmt(total)}</div></div><div class="kpi sky"><div class="l">Este mes</div><div class="v">${fmt(totalMes)}</div></div></div>
   <div class="card">
-  ${rows.length? `<div class="tablewrap"><table><thead><tr><th>Fecha</th><th>Concepto</th><th class="num">Valor</th><th></th></tr></thead><tbody>
-  ${rows.map(s=>`<tr><td>${fdate(s.fecha)}</td><td>${esc(s.concepto)}</td><td class="num">${fmt(s.valor)}</td><td class="right"><button class="btn sm" onclick="modalSalida('${s.id}')">Editar</button></td></tr>`).join('')}
+  ${rows.length? `<div class="tablewrap"><table><thead><tr><th>Fecha</th><th>Concepto</th><th class="num">Valor</th><th>Registró</th><th></th></tr></thead><tbody>
+  ${rows.map(s=>`<tr><td>${fdate(s.fecha)}</td><td>${esc(s.concepto)}</td><td class="num">${fmt(s.valor)}</td><td class="muted">${esc(nombreUsuario(s.creadoPor))}</td><td class="right">${isCeo()?`<button class="btn sm" onclick="modalSalida('${s.id}')">Editar</button>`:''}</td></tr>`).join('')}
   </tbody></table></div>`:`<div class="empty">No hay salidas registradas.</div>`}
   </div>`;
 };
@@ -515,28 +520,30 @@ function primeraFecha(){
 function movimientos(){
   const L=[];
   const cap = Number(DB.config.capitalInicial)||0;
-  if(cap) L.push({key:'cap0',fecha:DB.config.fechaCapital||primeraFecha(),orden:0,creado:0,tipo:'capital',concepto:'Capital inicial',detalle:'Plata con la que empezó el negocio',ent:cap,sal:0});
+  if(cap) L.push({key:'cap0',fecha:DB.config.fechaCapital||primeraFecha(),orden:0,creado:0,tipo:'capital',concepto:'Capital inicial',detalle:'Plata con la que empezó el negocio',ent:cap,sal:0,por:CEO_UID});
   for(const x of DB.capital){
-    if(x.valor>=0) L.push({key:'k'+x.id,id:x.id,fecha:x.fecha,orden:1,creado:x.creado||0,tipo:'aporte',concepto:'Aporte de capital',detalle:x.concepto,ent:x.valor,sal:0});
-    else L.push({key:'k'+x.id,id:x.id,fecha:x.fecha,orden:4,creado:x.creado||0,tipo:'retiro',concepto:'Retiro de capital',detalle:x.concepto,ent:0,sal:-x.valor});
+    if(x.valor>=0) L.push({key:'k'+x.id,id:x.id,fecha:x.fecha,orden:1,creado:x.creado||0,tipo:'aporte',concepto:'Aporte de capital',detalle:x.concepto,ent:x.valor,sal:0,por:x.creadoPor});
+    else L.push({key:'k'+x.id,id:x.id,fecha:x.fecha,orden:4,creado:x.creado||0,tipo:'retiro',concepto:'Retiro de capital',detalle:x.concepto,ent:0,sal:-x.valor,por:x.creadoPor});
   }
   for(const p of DB.prestamos){
     const per={DIARIO:'diarias',SEMANAL:'semanales',QUINCENAL:'quincenales',MENSUAL:'mensuales'}[p.periodo]||'';
-    L.push({key:'p'+p.id,id:p.id,fecha:p.fecha,orden:3,creado:p.creado||0,tipo:'prestamo',concepto:'Préstamo a '+nombreCliente(p.clienteId),detalle:`${fmtN(p.tasa)}% mensual, ${p.cuotas} cuotas ${per} de ${fmt(p.valorCuota)}`,ent:0,sal:p.monto});
+    L.push({key:'p'+p.id,id:p.id,fecha:p.fecha,orden:3,creado:p.creado||0,tipo:'prestamo',concepto:'Préstamo a '+nombreCliente(p.clienteId),detalle:`${fmtN(p.tasa)}% mensual, ${p.cuotas} cuotas ${per} de ${fmt(p.valorCuota)}`,ent:0,sal:p.monto,por:p.creadoPor});
   }
   for(const x of DB.pagos){
     const p=DB.prestamos.find(y=>y.id===x.prestamoId); if(!p) continue;
     const tot=p.valorCuota*p.cuotas, fr= tot>0?(tot-p.monto)/tot:0, int=x.monto*fr;
-    L.push({key:'g'+x.id,id:x.id,prestamoId:p.id,fecha:x.fecha,orden:2,creado:x.creado||0,tipo:'pago',concepto:'Pago de '+nombreCliente(p.clienteId),detalle:`Capital ${fmt(x.monto-int)} + interés ${fmt(int)}${x.registradoPor&&x.registradoPor!==ME.uid?' · cobró '+nombreUsuario(x.registradoPor):''}${x.nota?' — '+x.nota:''}`,ent:x.monto,sal:0,interes:int});
+    L.push({key:'g'+x.id,id:x.id,prestamoId:p.id,fecha:x.fecha,orden:2,creado:x.creado||0,tipo:'pago',concepto:'Pago de '+nombreCliente(p.clienteId),detalle:`Capital ${fmt(x.monto-int)} + interés ${fmt(int)}${x.nota?' — '+x.nota:''}`,ent:x.monto,sal:0,interes:int,por:x.registradoPor||x.creadoPor});
   }
-  for(const x of DB.salidas) L.push({key:'s'+x.id,id:x.id,fecha:x.fecha,orden:4,creado:x.creado||0,tipo:'gasto',concepto:x.concepto,detalle:'Salida de dinero',ent:0,sal:x.valor});
-  for(const x of DB.ingresos) L.push({key:'i'+x.id,id:x.id,fecha:x.fecha,orden:2,creado:x.creado||0,tipo:'ingreso',concepto:x.concepto,detalle:'Ingreso extra',ent:x.valor,sal:0});
+  for(const x of DB.salidas) L.push({key:'s'+x.id,id:x.id,fecha:x.fecha,orden:4,creado:x.creado||0,tipo:'gasto',concepto:x.concepto,detalle:'Salida de dinero',ent:0,sal:x.valor,por:x.creadoPor});
+  for(const x of DB.ingresos) L.push({key:'i'+x.id,id:x.id,fecha:x.fecha,orden:2,creado:x.creado||0,tipo:'ingreso',concepto:x.concepto,detalle:'Ingreso extra',ent:x.valor,sal:0,por:x.creadoPor});
   L.sort((a,b)=>a.fecha.localeCompare(b.fecha)||a.orden-b.orden||a.creado-b.creado);
   let s=0; for(const m of L){ s+=m.ent-m.sal; m.saldo=s; }
   return L;
 }
 function abrirMov(key){
   const m=movimientos().find(x=>x.key===key); if(!m) return;
+  if(m.tipo==='prestamo') return modalDetalle(m.id);
+  if(!isCeo()) return modalVerMov(m);
   if(m.tipo==='capital') return go('ajustes');
   if(m.tipo==='prestamo') return modalDetalle(m.id);
   if(m.tipo==='pago') return modalPago(null,m.id);
@@ -547,12 +554,29 @@ function abrirMov(key){
 const flecha = ent => ent
   ? '<span class="mv-ic in"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12l7 7 7-7"/></svg></span>'
   : '<span class="mv-ic out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></span>';
+function quienHizo(m){
+  return m.por ? `<div class="who" style="white-space:nowrap">${ava(nombreUsuario(m.por)).replace('class="ava"','class="ava mini"')}<div><span>${esc(nombreUsuario(m.por))}</span><div class="muted" style="font-size:11.5px">${esc(rolDe(userById(m.por)||{id:m.por}))}${m.creado?' · '+horaDe(m.creado):''}</div></div></div>` : '<span class="muted">—</span>';
+}
+function modalVerMov(m){
+  const tp=TIPOS_MOV[m.tipo];
+  openModal(`<div class="row" style="margin-bottom:14px">${flecha(m.ent>0)}<h3 style="margin:0">${esc(m.concepto)}</h3><span class="pill ${tp.c}">${tp.t}</span></div>
+  <div class="detail-grid">
+    <div><div class="l">Fecha</div><div class="v">${fdate(m.fecha)}</div></div>
+    <div><div class="l">${m.ent?'Entrada':'Salida'}</div><div class="v" style="color:${m.ent?'var(--green)':'var(--red)'}">${fmt(m.ent||m.sal)}</div></div>
+    <div><div class="l">Saldo en caja después</div><div class="v">${fmt(m.saldo)}</div></div>
+  </div>
+  <p class="muted">${esc(m.detalle||'')}</p>
+  <div class="calcbox" style="grid-template-columns:1fr"><div><div class="l">Registrado por</div><div style="margin-top:6px">${quienHizo(m)}</div></div></div>
+  <p class="muted" style="font-size:12.5px;margin-top:14px">Solo el CEO puede editar o borrar movimientos.</p>
+  <div class="actions"><button class="btn" onclick="closeModal()">Cerrar</button></div>`);
+}
 function filaMov(m){
   const tp=TIPOS_MOV[m.tipo];
   return `<tr class="click" onclick="abrirMov('${m.key}')">
     <td style="white-space:nowrap">${fdate(m.fecha)}</td>
     <td><div class="who">${flecha(m.ent>0)}<div><b>${esc(m.concepto)}</b><div class="muted" style="font-size:12px">${esc(m.detalle||'')}</div></div></div></td>
     <td><span class="pill ${tp.c}">${tp.t}</span></td>
+    <td>${quienHizo(m)}</td>
     <td class="num" style="color:var(--green)">${m.ent?'+ '+fmt(m.ent):''}</td>
     <td class="num" style="color:var(--red)">${m.sal?'− '+fmt(m.sal):''}</td>
     <td class="num"><b>${fmt(m.saldo)}</b></td></tr>`;
@@ -618,7 +642,7 @@ VIEWS.movimientos = () => {
     <span class="muted" style="margin-left:auto;font-size:13px">${rows.length} movimiento${rows.length===1?'':'s'}</span>
   </div>
   <div class="card">
-  ${rows.length?`<div class="tablewrap"><table><thead><tr><th>Fecha</th><th>Movimiento</th><th>Tipo</th><th class="num">Entrada</th><th class="num">Salida</th><th class="num">Saldo en caja</th></tr></thead><tbody>
+  ${rows.length?`<div class="tablewrap"><table><thead><tr><th>Fecha</th><th>Movimiento</th><th>Tipo</th><th>Registró</th><th class="num">Entrada</th><th class="num">Salida</th><th class="num">Saldo en caja</th></tr></thead><tbody>
   ${rows.map(filaMov).join('')}</tbody></table></div>`:`<div class="empty">No hay movimientos en ${nombreRango}. Cuando prestes, cobres o registres un gasto aparecerá aquí.</div>`}
   </div>`;
 };
@@ -630,7 +654,7 @@ AFTER.movimientos = () => {
 function modalMovimiento(tipo='ingreso', id){
   let rec=null;
   if(id){ rec = tipo==='ingreso' ? DB.ingresos.find(x=>x.id===id) : DB.capital.find(x=>x.id===id); }
-  const opts=[['ingreso','Ingreso extra (entra plata)'],['gasto','Gasto (sale plata)'],['aporte','Aporte de capital (entra plata)'],['retiro','Retiro de capital (sale plata)'],['prestamo','Nuevo préstamo'],['pago','Pago de un cliente']];
+  const opts=[['ingreso','Ingreso extra (entra plata)'],['gasto','Gasto (sale plata)'],...(isCeo()?[['aporte','Aporte de capital (entra plata)'],['retiro','Retiro de capital (sale plata)']]:[]),['prestamo','Nuevo préstamo'],['pago','Pago de un cliente']];
   openModal(`<h3>${id?'Editar movimiento':'Registrar movimiento'}</h3>
   <div class="form">
     <label class="f full">Tipo de movimiento<select class="input" id="mvTip" ${id?'disabled':''}>${opts.map(([k,t])=>`<option value="${k}" ${k===tipo?'selected':''}>${t}</option>`).join('')}</select></label>
@@ -690,7 +714,7 @@ function modalCliente(id, onSaved){
     <label class="f full">Observaciones<textarea class="input" id="mObs" rows="2">${esc(c.obs)}</textarea></label>
     ${cobSel}
   </div>
-  <div class="actions">${id&&isAdmin()?`<button class="btn danger" style="margin-right:auto" onclick="borrarCliente('${id}')">Borrar</button>`:''}<button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="mSave">Guardar</button></div>`);
+  <div class="actions">${id&&isCeo()?`<button class="btn danger" style="margin-right:auto" onclick="borrarCliente('${id}')">Borrar</button>`:''}<button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="mSave">Guardar</button></div>`);
   document.getElementById('mSave').onclick = ()=>{
     const v = k=>document.getElementById(k).value.trim();
     if(!v('mNom')) return toast('Escribe el nombre del cliente');
@@ -792,7 +816,7 @@ function modalPago(prestamoId, pagoId, fecha){
     <label class="f full">Nota<input class="input" id="gNot" value="${esc(pago?pago.nota:'')}" placeholder="Opcional"></label>
   </div>
   <div id="gInfo" class="calcbox" style="margin-top:14px"></div>
-  <div class="actions">${pago&&isAdmin()?`<button class="btn danger" style="margin-right:auto" onclick="borrarPago('${pago.id}')">Borrar pago</button>`:''}<button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="gSave">Guardar pago</button></div>`);
+  <div class="actions">${pago&&isCeo()?`<button class="btn danger" style="margin-right:auto" onclick="borrarPago('${pago.id}')">Borrar pago</button>`:''}<button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="gSave">Guardar pago</button></div>`);
   const info = ()=>{
     const id=document.getElementById('gPre').value; const box=document.getElementById('gInfo');
     if(!id){ box.style.display='none'; return; }
@@ -839,10 +863,10 @@ function modalDetalle(id, tab='cuotas'){
     let st = cubierta?'<span class="cuota-ok">Pagada</span>': parcial? '<span style="color:var(--amber)">Abono parcial</span>' : venc?'<span class="cuota-venc">Vencida</span>':'<span class="muted">Pendiente</span>';
     return `<tr><td>${q.n}</td><td>${fdate(q.fecha)}${q.fecha===hoy?' <span class="pill p-hoy">hoy</span>':''}</td><td class="num">${fmt(p.valorCuota)}</td><td class="num">${fmt(p.monto/p.cuotas)}</td><td class="num">${fmt(p.valorCuota - p.monto/p.cuotas)}</td><td>${st}</td></tr>`;
   }).join('');
-  const pagosHtml = e.pagos.length? e.pagos.map(x=>`<tr><td>${fdate(x.fecha)}</td><td class="num">${fmt(x.monto)}</td><td>${esc(x.nota||'')}</td><td class="muted" style="font-size:12px">${esc(nombreUsuario(x.registradoPor))}</td><td class="right no-print">${isAdmin()?`<button class="btn sm" onclick="viewState._reopen=1;modalPago(null,'${x.id}')">Editar</button>`:''}</td></tr>`).join('') : `<tr><td colspan="5" class="muted">Sin pagos todavía.</td></tr>`;
+  const pagosHtml = e.pagos.length? e.pagos.map(x=>`<tr><td>${fdate(x.fecha)}</td><td class="num">${fmt(x.monto)}</td><td>${esc(x.nota||'')}</td><td class="muted" style="font-size:12px">${esc(nombreUsuario(x.registradoPor))}</td><td class="right no-print">${isCeo()?`<button class="btn sm" onclick="viewState._reopen=1;modalPago(null,'${x.id}')">Editar</button>`:''}</td></tr>`).join('') : `<tr><td colspan="5" class="muted">Sin pagos todavía.</td></tr>`;
   openModal(`
   <div class="row" style="margin-bottom:6px">${ava(c.nombre)}<h3 style="margin:0">${esc(c.nombre||'(sin cliente)')}</h3>${pill(e)}<span class="spacer"></span>
-    ${isNative()?'':'<button class="btn sm" onclick="window.print()">Imprimir</button>'}${isAdmin()?`<button class="btn sm" onclick="modalPrestamo('${p.id}')">Editar</button>`:''}<button class="btn sm pri" onclick="viewState._reopen=1;modalPago('${p.id}')">Registrar pago</button><button class="btn sm ghost" onclick="closeModal()">✕</button></div>
+    ${isNative()?'':'<button class="btn sm" onclick="window.print()">Imprimir</button>'}${isCeo()?`<button class="btn sm" onclick="modalPrestamo('${p.id}')">Editar</button>`:''}<button class="btn sm pri" onclick="viewState._reopen=1;modalPago('${p.id}')">Registrar pago</button><button class="btn sm ghost" onclick="closeModal()">✕</button></div>
   <p class="muted" style="margin:0 0 14px">${esc(c.cedula||'')} ${c.tel1?'· '+esc(c.tel1):''} ${c.direccion?'· '+esc(c.direccion):''}${p.nota?'<br>Nota: '+esc(p.nota):''}</p>
   <div class="detail-grid">
     <div><div class="l">Fecha</div><div class="v">${fdate(p.fecha)}</div></div>
@@ -931,8 +955,8 @@ function exportCSV(tipo){
     rows=[['NOMBRE','# DE IDENTIFICACION','TELEFONO 1','TELEFONO 2','DIRECCION','CIUDAD','OBSERVACIONES']];
     for(const c of DB.clientes) rows.push([c.nombre,c.cedula,c.tel1,c.tel2,c.direccion,c.ciudad,c.obs]);
   } else if(tipo==='movimientos'){
-    rows=[['FECHA','TIPO','MOVIMIENTO','DETALLE','ENTRADA','SALIDA','SALDO EN CAJA']];
-    for(const m of movimientos()) rows.push([m.fecha,TIPOS_MOV[m.tipo].t,m.concepto,m.detalle,Math.round(m.ent)||'',Math.round(m.sal)||'',Math.round(m.saldo)]);
+    rows=[['FECHA','TIPO','MOVIMIENTO','DETALLE','REGISTRÓ','ENTRADA','SALIDA','SALDO EN CAJA']];
+    for(const m of movimientos()) rows.push([m.fecha,TIPOS_MOV[m.tipo].t,m.concepto,m.detalle,m.por?nombreUsuario(m.por):'',Math.round(m.ent)||'',Math.round(m.sal)||'',Math.round(m.saldo)]);
   } else {
     rows=[['FECHA','CONCEPTO','VALOR']];
     for(const s of DB.salidas) rows.push([s.fecha,s.concepto,Math.round(s.valor)]);
@@ -948,10 +972,10 @@ VIEWS.usuarios = () => {
   <div class="card"><div class="tablewrap"><table><thead><tr><th>Nombre</th><th>Correo</th><th>Rol</th><th class="num">Clientes</th><th class="num">Plata en mano</th><th>Estado</th><th></th></tr></thead><tbody>
   ${us.map(u=>{const nc=DB.clientes.filter(c=>c.cobradorId===u.id).length; const cu=cuadreCobrador(u.id); return `<tr>
     <td><div class="who">${ava(u.nombre)}<b>${esc(u.nombre)}</b>${u.id===ME.uid?' <span class="muted" style="margin-left:6px">(tú)</span>':''}</div></td>
-    <td>${esc(u.email)}</td><td>${u.rol==='admin'?'<span class="pill p-pag">Administrador</span>':'<span class="pill p-ok">Cobrador</span>'}</td>
+    <td>${esc(u.email)}</td><td>${rolDe(u)==='CEO'?'<span class="pill p-hoy">CEO</span>':u.rol==='admin'?'<span class="pill p-pag">Admin</span>':'<span class="pill p-ok">Cobrador</span>'}</td>
     <td class="num">${u.rol==='cobrador'?nc:'—'}</td><td class="num">${u.rol==='cobrador'?fmt(cu.enMano):'—'}</td>
     <td>${u.activo===false?'<span class="pill p-mora">Bloqueado</span>':'<span class="pill p-ok">Activo</span>'}</td>
-    <td class="right" style="white-space:nowrap">${u.id!==ME.uid?`<button class="btn sm" onclick="modalUsuario('${u.id}')">Editar</button>`:''}</td></tr>`}).join('')}
+    <td class="right" style="white-space:nowrap">${u.id!==ME.uid&&u.id!==CEO_UID?`<button class="btn sm" onclick="modalUsuario('${u.id}')">Editar</button>`:''}</td></tr>`}).join('')}
   </tbody></table></div></div>
   <p class="muted" style="font-size:13px;margin-top:14px">Para quitarle el acceso a alguien, edítalo y márcalo como bloqueado. Si un cobrador olvida su contraseña, edítalo y envíale el correo para cambiarla.</p>`;
 };
@@ -963,7 +987,7 @@ function modalUsuario(id){
     ${u?`<label class="f full">Correo<input class="input" value="${esc(u.email)}" disabled></label>`:`
     <label class="f">Correo<input class="input" id="uMail" type="email" autocomplete="off" placeholder="pedro@gmail.com"></label>
     <label class="f">Contraseña inicial<input class="input" id="uPass" type="text" autocomplete="off" placeholder="Mínimo 6 caracteres"></label>`}
-    <label class="f">Rol<select class="input" id="uRol"><option value="cobrador" ${!u||u.rol==='cobrador'?'selected':''}>Cobrador</option><option value="admin" ${u&&u.rol==='admin'?'selected':''}>Administrador</option></select></label>
+    <label class="f">Rol<select class="input" id="uRol"><option value="cobrador" ${!u||u.rol==='cobrador'?'selected':''}>Cobrador</option><option value="admin" ${u&&u.rol==='admin'?'selected':''}>Admin (registra, no edita ni borra)</option></select></label>
     ${u?`<label class="chk" style="align-self:end;padding-bottom:10px"><input type="checkbox" id="uBlq" ${u.activo===false?'checked':''}> Bloqueado (no puede entrar)</label>`:''}
   </div>
   ${u?`<p class="muted" style="font-size:13px">¿Olvidó la contraseña? <button class="btn sm" id="uReset">Enviarle correo para cambiarla</button></p>`:'<p class="muted" style="font-size:13px">Dale al cobrador su correo y esta contraseña para que entre a la app.</p>'}
@@ -1006,7 +1030,7 @@ VIEWS.cuadre = () => {
     </div>
     ${tablaPagosDia(c.pagosDia)}`;
   }
-  const filas = [{id:ME.uid,nombre:(ME.nombre||'Yo')+' (administrador)'}, ...cobradores()].map(u=>({u,c:cuadreCobrador(u.id,fecha)}));
+  const filas = [{id:ME.uid,nombre:(ME.nombre||'Yo')+' ('+rolDe(ME)+')'}, ...cobradores()].map(u=>({u,c:cuadreCobrador(u.id,fecha)}));
   const tot = k=>filas.reduce((s,f)=>s+f.c[k],0);
   const todosPagos = DB.pagos.filter(x=>x.fecha===fecha);
   return `
@@ -1021,7 +1045,7 @@ VIEWS.cuadre = () => {
     <td class="num"><b style="color:${i&&c.enMano>0.5?'var(--amber)':'inherit'}">${i?fmt(c.enMano):'—'}</b></td>
     <td class="right">${i?`<button class="btn sm pri" onclick="modalEntrega('${u.id}','${fecha}')">Recibir plata</button>`:''}</td></tr>`).join('')}
   </tbody></table></div></div>
-  ${(()=>{const es=DB.entregas.filter(x=>x.fecha===fecha); return es.length?`<div class="card pad" style="margin-bottom:16px"><h2>Entregas recibidas ese día</h2><table><tbody>${es.map(x=>`<tr><td>${esc(nombreUsuario(x.cobradorId))}</td><td>${esc(x.nota||'')}</td><td class="num">${fmt(x.valor)}</td><td class="right"><button class="btn sm danger" onclick="borrarEntrega('${x.id}')">Borrar</button></td></tr>`).join('')}</tbody></table></div>`:'';})()}
+  ${(()=>{const es=DB.entregas.filter(x=>x.fecha===fecha); return es.length?`<div class="card pad" style="margin-bottom:16px"><h2>Entregas recibidas ese día</h2><table><tbody>${es.map(x=>`<tr><td>${esc(nombreUsuario(x.cobradorId))}</td><td>${esc(x.nota||'')}</td><td class="num">${fmt(x.valor)}</td><td class="muted">${esc(nombreUsuario(x.creadoPor))}</td><td class="right">${isCeo()?`<button class="btn sm danger" onclick="borrarEntrega('${x.id}')">Borrar</button>`:''}</td></tr>`).join('')}</tbody></table></div>`:'';})()}
   ${tablaPagosDia(todosPagos,true)}`;
 };
 function tablaPagosDia(pagos, conCobrador){
@@ -1128,7 +1152,7 @@ function verRegistroAdmin(){
 }
 function iniciarSesion(prof){
   if(ME && ME.uid===prof.uid && unsub) return;
-  ME = prof; DB = emptyDB();
+  ME = prof; DB = emptyDB(); CEO_UID = prof.ceoUid||'';
   if(!isAdmin()) DB.users=[{id:ME.uid,...prof}];
   document.getElementById('login').style.display='none';
   document.getElementById('appShell').style.display='';

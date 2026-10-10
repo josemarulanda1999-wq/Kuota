@@ -22,7 +22,10 @@ if (configured) {
 const clean = o => { const r = {}; for (const [k, v] of Object.entries(o)) if (k !== 'id' && v !== undefined) r[k] = v; return r; };
 async function perfil(u) {
   const s = await getDoc(doc(db, 'users', u.uid));
-  return s.exists() ? { uid: u.uid, id: u.uid, ...s.data() } : null;
+  if (!s.exists()) return null;
+  const m = await getDoc(doc(db, 'meta', 'admin')).catch(() => null);
+  const ceoUid = m && m.exists() ? m.data().uid : '';
+  return { uid: u.uid, id: u.uid, ...s.data(), ceoUid, esCeo: ceoUid === u.uid };
 }
 
 window.S = {
@@ -43,7 +46,7 @@ window.S = {
     b.set(doc(db, 'meta', 'admin'), { uid: cred.user.uid });
     b.set(doc(db, 'users', cred.user.uid), { nombre, email, rol: 'admin', activo: true, creado: Date.now() });
     try { await b.commit(); } catch (e) { await cred.user.delete().catch(() => {}); throw e; }
-    return { uid: cred.user.uid, id: cred.user.uid, nombre, email, rol: 'admin', activo: true };
+    return { uid: cred.user.uid, id: cred.user.uid, nombre, email, rol: 'admin', activo: true, ceoUid: cred.user.uid, esCeo: true };
   },
   async createUser(nombre, email, pass, rol) {
     // App secundaria para crear el usuario sin cerrar la sesión del administrador

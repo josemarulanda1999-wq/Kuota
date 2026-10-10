@@ -1,74 +1,117 @@
 rules_version = '2';
-// Kuota — roles: CEO (dueño, el primero que se registró), Admin y Cobrador.
-// CEO: todo. Admin: ve todo y registra, pero no edita ni borra. Cobrador: solo su ruta.
+// KUOTA — reglas multiempresa
+//  · Equipo Kuota (superadmins): todo, desde el portal.
+//  · Cada empresa solo ve sus datos, y solo mientras su suscripción esté vigente.
+//  · CEO: todo dentro de su empresa (edita y borra). Admin: ve y registra, no edita ni borra.
+//    Cobrador: solo su ruta (pagos y clientes).
+//  · Los usuarios nuevos los activa el equipo Kuota (el CEO solo puede solicitarlos).
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
-    function userDoc() { return /databases/$(database)/documents/users/$(request.auth.uid); }
-    function adminDoc() { return /databases/$(database)/documents/meta/admin; }
-    function isUser() { return signedIn() && exists(userDoc()) && get(userDoc()).data.activo == true; }
-    function isAdmin() { return isUser() && get(userDoc()).data.rol == 'admin'; }      // CEO o Admin
-    function isCeo() { return isAdmin() && get(adminDoc()).data.uid == request.auth.uid; }
-    function isCobrador() { return isUser() && get(userDoc()).data.rol == 'cobrador'; }
-    function own() { return resource.data.cobradorId == request.auth.uid; }
-    function ownNew() { return request.resource.data.cobradorId == request.auth.uid; }
-    function firma() { return request.resource.data.creadoPor == request.auth.uid; }  // queda quién lo hizo
+    function uid() { return request.auth.uid; }
+    function isSuper() { return signedIn() && exists(/databases/$(database)/documents/superadmins/$(uid())); }
+    function meDoc() { return /databases/$(database)/documents/users/$(uid()); }
+    function hasMe() { return signedIn() && exists(meDoc()); }
+    function me() { return get(meDoc()).data; }
+    function emp(eid) { return get(/databases/$(database)/documents/empresas/$(eid)).data; }
+    function vigente(eid) { return emp(eid).estado == 'activa' && request.time.toMillis() < emp(eid).venceMs; }
+    function enEmpresa(eid) { return hasMe() && me().activo == true && me().empresaId == eid; }
+    function isAdm(eid) { return enEmpresa(eid) && me().rol in ['ceo', 'admin'] && vigente(eid); }
+    function isCeo(eid) { return enEmpresa(eid) && me().rol == 'ceo' && vigente(eid); }
+    function isCob(eid) { return enEmpresa(eid) && me().rol == 'cobrador' && vigente(eid); }
+    function own() { return resource.data.cobradorId == uid(); }
+    function ownNew() { return request.resource.data.cobradorId == uid(); }
+    function firma() { return request.resource.data.creadoPor == uid(); }
     function soloCambiaRuta() { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['cobradorId']); }
 
-    match /meta/admin {
-      allow read: if true;
-      allow create: if signedIn() && !exists(adminDoc()) && request.resource.data.uid == request.auth.uid;
-      allow update, delete: if false;
+    // ---- Kuota ----
+    match /meta/super { allow read: if true;
+      allow create: if signedIn() && !exists(/databases/$(database)/documents/meta/super) && request.resource.data.uid == uid(); }
+    match /superadmins/{sid} {
+      allow read: if signedIn() && (sid == uid() || isSuper());
+      allow create: if isSuper() || (signedIn() && sid == uid()
+        && !exists(/databases/$(database)/documents/meta/super)
+        && getAfter(/databases/$(database)/documents/meta/super).data.uid == uid());
+      allow update, delete: if isSuper();
     }
-    match /users/{uid} {
-      allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
-      allow create: if isCeo()
-        || (signedIn() && request.auth.uid == uid && request.resource.data.rol == 'admin'
-            && !exists(adminDoc()) && getAfter(adminDoc()).data.uid == request.auth.uid);
-      allow update, delete: if isCeo() && uid != request.auth.uid;
+    match /meta/kuota { allow read: if signedIn(); allow write: if isSuper(); }
+    match /meta/admin { allow read: if true; }
+    match /facturacion/{id} {
+      allow read: if isSuper() || (hasMe() && me().rol == 'ceo' && resource.data.empresaId == me().empresaId);
+      allow write: if isSuper();
     }
-    match /config/{id} {
-      allow read: if isUser();
-      allow write: if isCeo();
+
+    // ---- usuarios ----
+    match /users/{u} {
+      allow read: if isSuper() || (signedIn() && u == uid())
+        || (hasMe() && resource.data.empresaId == me().empresaId && isAdm(me().empresaId));
+      // el CEO solo puede SOLICITAR usuarios (quedan inactivos hasta que Kuota los active)
+      allow create: if isSuper()
+        || (hasMe() && isCeo(me().empresaId) && request.resource.data.empresaId == me().empresaId
+            && request.resource.data.activo == false && request.resource.data.estado == 'pendiente'
+            && request.resource.data.rol in ['admin', 'cobrador']);
+      // el CEO puede cambiar el nombre o desactivar a su gente, pero no activar ni cambiar roles
+      allow update: if isSuper()
+        || (hasMe() && isCeo(me().empresaId) && resource.data.empresaId == me().empresaId && resource.data.rol != 'ceo'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nombre', 'activo', 'estado'])
+            && (request.resource.data.activo == resource.data.activo || request.resource.data.activo == false)
+            && (request.resource.data.estado == resource.data.estado || request.resource.data.estado == 'desactivado'));
+      allow delete: if isSuper();
     }
-    match /clientes/{id} {
-      allow read: if isAdmin() || (isCobrador() && own());
-      allow create: if (isAdmin() || (isCobrador() && ownNew())) && firma();
-      allow update: if isAdmin() || (isCobrador() && own() && ownNew());
-      allow delete: if isCeo();
+
+    // ---- empresas ----
+    match /empresas/{eid} {
+      allow read: if isSuper() || (hasMe() && me().empresaId == eid);
+      allow write: if isSuper();
+
+      match /config/{id} {
+        allow read: if isSuper() || (enEmpresa(eid) && vigente(eid));
+        allow write: if isSuper() || isCeo(eid);
+      }
+      match /clientes/{id} {
+        allow read: if isSuper() || isAdm(eid) || (isCob(eid) && own());
+        allow create: if isSuper() || ((isAdm(eid) || (isCob(eid) && ownNew())) && firma());
+        allow update: if isSuper() || isAdm(eid) || (isCob(eid) && own() && ownNew());
+        allow delete: if isSuper() || isCeo(eid);
+      }
+      match /prestamos/{id} {
+        allow read: if isSuper() || isAdm(eid) || (isCob(eid) && own());
+        allow create: if isSuper() || (isAdm(eid) && firma());
+        allow update: if isSuper() || isCeo(eid) || (isAdm(eid) && soloCambiaRuta());
+        allow delete: if isSuper() || isCeo(eid);
+      }
+      match /pagos/{id} {
+        allow read: if isSuper() || isAdm(eid) || (isCob(eid) && own());
+        allow create: if isSuper() || (firma() && (isAdm(eid)
+          || (isCob(eid) && ownNew() && request.resource.data.registradoPor == uid()
+              && get(/databases/$(database)/documents/empresas/$(eid)/prestamos/$(request.resource.data.prestamoId)).data.cobradorId == uid())));
+        allow update: if isSuper() || isCeo(eid) || (isAdm(eid) && soloCambiaRuta());
+        allow delete: if isSuper() || isCeo(eid);
+      }
+      match /entregas/{id} {
+        allow read: if isSuper() || isAdm(eid) || (isCob(eid) && own());
+        allow create: if isSuper() || (isAdm(eid) && firma());
+        allow update, delete: if isSuper() || isCeo(eid);
+      }
+      match /salidas/{id} {
+        allow read: if isSuper() || isAdm(eid);
+        allow create: if isSuper() || (isAdm(eid) && firma());
+        allow update, delete: if isSuper() || isCeo(eid);
+      }
+      match /ingresos/{id} {
+        allow read: if isSuper() || isAdm(eid);
+        allow create: if isSuper() || (isAdm(eid) && firma());
+        allow update, delete: if isSuper() || isCeo(eid);
+      }
+      match /capital/{id} {
+        allow read: if isSuper() || isAdm(eid);
+        allow write: if isSuper() || isCeo(eid);
+      }
     }
-    match /prestamos/{id} {
-      allow read: if isAdmin() || (isCobrador() && own());
-      allow create: if isAdmin() && firma();
-      allow update: if isCeo() || (isAdmin() && soloCambiaRuta());
-      allow delete: if isCeo();
-    }
-    match /pagos/{id} {
-      allow read: if isAdmin() || (isCobrador() && own());
-      allow create: if firma() && (isAdmin()
-        || (isCobrador() && ownNew() && request.resource.data.registradoPor == request.auth.uid
-            && get(/databases/$(database)/documents/prestamos/$(request.resource.data.prestamoId)).data.cobradorId == request.auth.uid));
-      allow update: if isCeo() || (isAdmin() && soloCambiaRuta());
-      allow delete: if isCeo();
-    }
-    match /entregas/{id} {
-      allow read: if isAdmin() || (isCobrador() && own());
-      allow create: if isAdmin() && firma();
-      allow update, delete: if isCeo();
-    }
-    match /salidas/{id} {
-      allow read: if isAdmin();
-      allow create: if isAdmin() && firma();
-      allow update, delete: if isCeo();
-    }
-    match /ingresos/{id} {
-      allow read: if isAdmin();
-      allow create: if isAdmin() && firma();
-      allow update, delete: if isCeo();
-    }
-    match /capital/{id} {
-      allow read: if isAdmin();
-      allow write: if isCeo();
+
+    // ---- datos de la primera versión (solo para moverlos desde el portal) ----
+    match /{col}/{id} {
+      allow read, delete: if isSuper() && col in ['clientes', 'prestamos', 'pagos', 'salidas', 'capital', 'ingresos', 'entregas', 'config'];
     }
   }
 }

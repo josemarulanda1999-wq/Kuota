@@ -229,3 +229,13 @@ a.btn{text-decoration:none;color:inherit}
 }
 
 .ava.mini{width:28px;height:28px;font-size:11px;margin-right:8px}
+
+/* ---------- logo Kuota ---------- */
+.logo:before{display:none}
+.logo{display:block;padding:2px 8px 24px}
+.brand-img{display:block;height:34px;width:auto}
+.brand-img.sm{height:26px}
+.logo small{display:block;margin-top:8px;color:var(--muted);font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.login-brand{display:block;height:46px;width:auto;margin:0 0 14px}
+#login > .login-brand{height:56px}
+:root[data-theme="light"] .brand-img, :root[data-theme="light"] .login-brand{content:url(logo_light.png)}

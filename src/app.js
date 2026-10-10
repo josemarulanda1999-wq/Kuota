@@ -15,10 +15,9 @@ let ME = null;            // perfil del usuario: {uid, nombre, email, rol, activ
 let view = 'panel';
 let viewState = {};
 let unsub = null;
-const isAdmin = () => ME && ME.rol==='admin';            // CEO y Admin ven todo el negocio
-const isCeo = () => !!(ME && ME.rol==='admin' && ME.esCeo); // solo el CEO edita, borra y configura
-let CEO_UID = '';
-const rolDe = u => !u ? '' : (u.id===CEO_UID || u.uid===CEO_UID) ? 'CEO' : u.rol==='admin' ? 'Admin' : 'Cobrador';
+const isAdmin = () => !!ME && (ME.rol==='ceo' || ME.rol==='admin');  // CEO y Admin ven todo el negocio
+const isCeo = () => !!ME && ME.rol==='ceo';                            // solo el CEO edita, borra y configura
+const rolDe = u => !u ? '' : u.rol==='ceo' ? 'CEO' : u.rol==='admin' ? 'Admin' : 'Cobrador';
 const horaDe = t => t ? new Date(t).toLocaleString('es-CO',{day:'2-digit',month:'short',hour:'numeric',minute:'2-digit'}) : '';
 const isNative = () => !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
 
@@ -179,19 +178,21 @@ const ICONS = {
   ajustes:'<path d="M19.4 13a7.5 7.5 0 000-2l2.1-1.6-2-3.5-2.5 1a7.6 7.6 0 00-1.7-1L15 3h-4l-.4 2.7a7.6 7.6 0 00-1.7 1l-2.5-1-2 3.5L6.6 11a7.5 7.5 0 000 2l-2.1 1.6 2 3.5 2.5-1a7.6 7.6 0 001.7 1L11 21h4l.4-2.7a7.6 7.6 0 001.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 110-7 3.5 3.5 0 010 7z"/>'
 };
 ICONS.cuadre='<path d="M3 6h18v12H3zm2 2v8h14V8zm7 1.5a2.5 2.5 0 110 5 2.5 2.5 0 010-5z"/>';
+ICONS.suscripcion='<path d="M20 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V6a2 2 0 00-2-2zm0 14H4v-6h16zm0-10H4V6h16z"/>';
 ICONS.usuarios='<path d="M12 12a4 4 0 100-8 4 4 0 000 8zm0 2c-3.3 0-8 1.7-8 5v1h16v-1c0-3.3-4.7-5-8-5zm7-6h2v2h2v2h-2v2h-2v-2h-2v-2h2z"/>';
-const NAV_ADMIN = [['panel','Panel','Panel'],['cobros','Cobros del día','Cobros'],['movimientos','Movimientos','Caja'],['cuadre','Cuadre de caja','Cuadre'],['prestamos','Préstamos','Préstamos'],['clientes','Clientes','Clientes'],['salidas','Salidas de dinero','Gastos'],['usuarios','Usuarios','Usuarios'],['calculadora','Calculadora','Calcular'],['ajustes','Ajustes y respaldo','Ajustes']];
+const NAV_ADMIN = [['panel','Panel','Panel'],['cobros','Cobros del día','Cobros'],['movimientos','Movimientos','Caja'],['cuadre','Cuadre de caja','Cuadre'],['prestamos','Préstamos','Préstamos'],['clientes','Clientes','Clientes'],['salidas','Salidas de dinero','Gastos'],['usuarios','Usuarios','Usuarios'],['suscripcion','Mi suscripción','Plan'],['calculadora','Calculadora','Calcular'],['ajustes','Ajustes y respaldo','Ajustes']];
 const NAV_COB = [['cobros','Mi ruta','Ruta'],['clientes','Mis clientes','Clientes'],['prestamos','Préstamos','Préstamos'],['cuadre','Mi cuadre','Cuadre']];
 const PERMITIDAS_COB = ['cobros','clientes','prestamos','cuadre'];
+const SOLO_CEO = ['usuarios','ajustes','suscripcion'];
 function renderNav(){
   const n = cobrosDelDia().filter(c=>c.cobrar>0.5).length;
-  const NAV = isAdmin()? NAV_ADMIN.filter(([k])=>isCeo() || !['usuarios','ajustes'].includes(k)) : NAV_COB;
+  const NAV = isAdmin()? NAV_ADMIN.filter(([k])=>isCeo() || !SOLO_CEO.includes(k)) : NAV_COB;
   document.getElementById('nav').innerHTML = NAV.map(([k,t,c])=>
     `<button class="${view===k?'on':''}" data-go="${k}"><svg viewBox="0 0 24 24" fill="currentColor">${ICONS[k]}</svg><span class="nl">${t}</span><span class="ns">${c}</span>${k==='cobros'&&n?`<span class="badge">${n}</span>`:''}</button>`).join('');
-  document.getElementById('logoName').innerHTML = esc(DB.config.negocio)+'<small>Control de créditos</small>';
+  document.getElementById('logoName').innerHTML = `<img src="logo_dark.png" class="brand-img" alt="Kuota"><small>${esc((EMPRESA&&EMPRESA.nombre)||DB.config.negocio||'')}</small>`;
   const who = `<div class="who" style="margin-bottom:8px">${ava(ME.nombre)}<div style="min-width:0"><b style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(ME.nombre||ME.email)}</b><span>${rolDe(ME)}</span></div></div>`;
   document.getElementById('userBox').innerHTML = who + `<button onclick="cerrarSesion()">Cerrar sesión</button>`;
-  document.getElementById('topUser').innerHTML = `<b>${esc(DB.config.negocio)}</b><span class="spacer"></span>${ava(ME.nombre)}<button class="btn sm" onclick="cerrarSesion()">Salir</button>`;
+  document.getElementById('topUser').innerHTML = `<img src="logo_dark.png" class="brand-img sm" alt="Kuota"><span class="spacer"></span>${ava(ME.nombre)}<button class="btn sm" onclick="cerrarSesion()">Salir</button>`;
 }
 const movil = () => window.innerWidth < 760;
 let _eraMovil = movil();
@@ -203,10 +204,10 @@ document.addEventListener('click', e=>{
 function render(){
   if(!ME) return;
   if(!isAdmin() && !PERMITIDAS_COB.includes(view)) view='cobros';
-  if(!isCeo() && ['usuarios','ajustes'].includes(view)) view='panel';
+  if(!isCeo() && SOLO_CEO.includes(view)) view='panel';
   renderNav();
   const m = document.getElementById('main');
-  m.innerHTML = (VIEWS[view]||VIEWS.panel)();
+  m.innerHTML = avisoSuscripcion() + (VIEWS[view]||VIEWS.panel)();
   if(AFTER[view]) AFTER[view]();
 }
 
@@ -520,7 +521,7 @@ function primeraFecha(){
 function movimientos(){
   const L=[];
   const cap = Number(DB.config.capitalInicial)||0;
-  if(cap) L.push({key:'cap0',fecha:DB.config.fechaCapital||primeraFecha(),orden:0,creado:0,tipo:'capital',concepto:'Capital inicial',detalle:'Plata con la que empezó el negocio',ent:cap,sal:0,por:CEO_UID});
+  if(cap) L.push({key:'cap0',fecha:DB.config.fechaCapital||primeraFecha(),orden:0,creado:0,tipo:'capital',concepto:'Capital inicial',detalle:'Plata con la que empezó el negocio',ent:cap,sal:0,por:(DB.users.find(u=>u.rol==='ceo')||{}).id});
   for(const x of DB.capital){
     if(x.valor>=0) L.push({key:'k'+x.id,id:x.id,fecha:x.fecha,orden:1,creado:x.creado||0,tipo:'aporte',concepto:'Aporte de capital',detalle:x.concepto,ent:x.valor,sal:0,por:x.creadoPor});
     else L.push({key:'k'+x.id,id:x.id,fecha:x.fecha,orden:4,creado:x.creado||0,tipo:'retiro',concepto:'Retiro de capital',detalle:x.concepto,ent:0,sal:-x.valor,por:x.creadoPor});
@@ -965,46 +966,108 @@ function exportCSV(tipo){
 }
 /* ---------- usuarios (solo administrador) ---------- */
 VIEWS.usuarios = () => {
-  const us=[...DB.users].sort((a,b)=>(a.rol===b.rol?0:a.rol==='admin'?-1:1)||(a.nombre||'').localeCompare(b.nombre||''));
+  const us=[...DB.users].sort((a,b)=>({ceo:0,admin:1,cobrador:2}[a.rol]-({ceo:0,admin:1,cobrador:2}[b.rol]))||(a.nombre||'').localeCompare(b.nombre||''));
+  const c = cupos();
+  const barra = (usados,cupo)=>`<div class="progress" style="margin-top:8px"><i style="width:${Math.min(100,usados/Math.max(1,cupo)*100)}%"></i></div>`;
   return `
-  <div class="head"><div><h1>Usuarios</h1><p class="sub">Crea los usuarios de tus cobradores. Cada uno entra con su correo y contraseña y solo ve los clientes que le asignes.</p></div>
-  <div class="row"><button class="btn pri" onclick="modalUsuario()">+ Nuevo usuario</button></div></div>
+  <div class="head"><div><h1>Usuarios</h1><p class="sub">Las personas que usan Kuota en tu negocio. Los usuarios nuevos los activa Kuota y se suman a tu mensualidad.</p></div>
+  <div class="row"><button class="btn pri" onclick="modalUsuario()">+ Solicitar usuario</button></div></div>
+  <div class="kpis">
+    <div class="kpi sky"><div class="l">Administradores (incluye al CEO)</div><div class="v">${c.admins} de ${c.cupoAdmins}</div>${barra(c.admins,c.cupoAdmins)}</div>
+    <div class="kpi cream"><div class="l">Cobradores</div><div class="v">${c.cobradores} de ${c.cupoCobradores}</div>${barra(c.cobradores,c.cupoCobradores)}</div>
+    <div class="kpi hl"><div class="l">Tu mensualidad</div><div class="v">${fmt(planMensual(EMPRESA||{}))}</div><div class="n">Cobrador extra $20.000 · Admin extra $35.000</div></div>
+  </div>
   <div class="card"><div class="tablewrap"><table><thead><tr><th>Nombre</th><th>Correo</th><th>Rol</th><th class="num">Clientes</th><th class="num">Plata en mano</th><th>Estado</th><th></th></tr></thead><tbody>
-  ${us.map(u=>{const nc=DB.clientes.filter(c=>c.cobradorId===u.id).length; const cu=cuadreCobrador(u.id); return `<tr>
+  ${us.map(u=>{const nc=DB.clientes.filter(x=>x.cobradorId===u.id).length; const cu=cuadreCobrador(u.id); return `<tr>
     <td><div class="who">${ava(u.nombre)}<b>${esc(u.nombre)}</b>${u.id===ME.uid?' <span class="muted" style="margin-left:6px">(tú)</span>':''}</div></td>
-    <td>${esc(u.email)}</td><td>${rolDe(u)==='CEO'?'<span class="pill p-hoy">CEO</span>':u.rol==='admin'?'<span class="pill p-pag">Admin</span>':'<span class="pill p-ok">Cobrador</span>'}</td>
+    <td>${esc(u.email)}</td><td>${u.rol==='ceo'?'<span class="pill p-hoy">CEO</span>':u.rol==='admin'?'<span class="pill p-pag">Admin</span>':'<span class="pill p-ok">Cobrador</span>'}</td>
     <td class="num">${u.rol==='cobrador'?nc:'—'}</td><td class="num">${u.rol==='cobrador'?fmt(cu.enMano):'—'}</td>
-    <td>${u.activo===false?'<span class="pill p-mora">Bloqueado</span>':'<span class="pill p-ok">Activo</span>'}</td>
-    <td class="right" style="white-space:nowrap">${u.id!==ME.uid&&u.id!==CEO_UID?`<button class="btn sm" onclick="modalUsuario('${u.id}')">Editar</button>`:''}</td></tr>`}).join('')}
+    <td>${u.estado==='pendiente'?'<span class="pill p-hoy">Pendiente de activar</span>':u.activo===false?'<span class="pill p-mora">Desactivado</span>':'<span class="pill p-ok">Activo</span>'}</td>
+    <td class="right" style="white-space:nowrap">${u.id!==ME.uid&&u.rol!=='ceo'?`<button class="btn sm" onclick="modalUsuario('${u.id}')">Editar</button>`:''}</td></tr>`}).join('')}
   </tbody></table></div></div>
-  <p class="muted" style="font-size:13px;margin-top:14px">Para quitarle el acceso a alguien, edítalo y márcalo como bloqueado. Si un cobrador olvida su contraseña, edítalo y envíale el correo para cambiarla.</p>`;
+  <p class="muted" style="font-size:13px;margin-top:14px">Al solicitar un usuario, Kuota lo revisa y lo activa; desde ese momento se cobra en tu mensualidad. Si desactivas a alguien, para volver a activarlo debes pedírselo a Kuota.</p>`;
 };
+function cupos(){
+  const act = DB.users.filter(u=>u.activo!==false);
+  return { admins: act.filter(u=>u.rol==='ceo'||u.rol==='admin').length, cobradores: act.filter(u=>u.rol==='cobrador').length,
+           cupoAdmins: Number((EMPRESA||{}).cupoAdmins)||1, cupoCobradores: Number((EMPRESA||{}).cupoCobradores)||1 };
+}
 function modalUsuario(id){
   const u = id ? userById(id) : null;
-  openModal(`<h3>${u?'Editar usuario':'Nuevo usuario'}</h3>
+  if(u){
+    openModal(`<h3>${esc(u.nombre)}</h3>
+    <div class="form"><label class="f full">Nombre<input class="input" id="uNom" value="${esc(u.nombre)}"></label>
+    <label class="f full">Correo<input class="input" value="${esc(u.email)}" disabled></label></div>
+    <p class="muted" style="font-size:13px">¿Olvidó la contraseña? <button class="btn sm" id="uReset">Enviarle correo para cambiarla</button></p>
+    ${u.activo!==false?`<p class="muted" style="font-size:13px">Si esta persona ya no trabaja contigo, desactívala. Deja de poder entrar de inmediato.</p>`:''}
+    <div class="actions">${u.activo!==false?`<button class="btn danger" style="margin-right:auto" id="uOff">Desactivar</button>`:''}<button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="uSave">Guardar</button></div>`);
+    document.getElementById('uReset').onclick=()=>S.resetPassword(u.email).then(()=>toast('Correo enviado a '+u.email)).catch(()=>toast('No se pudo enviar el correo'));
+    if(u.activo!==false) document.getElementById('uOff').onclick=()=>{ if(!confirm('¿Desactivar a '+u.nombre+'? Para reactivarlo tendrás que pedírselo a Kuota.')) return; dbUpd('users',u.id,{activo:false,estado:'desactivado'}); closeModal(); render(); toast('Usuario desactivado'); };
+    document.getElementById('uSave').onclick=()=>{ const n=document.getElementById('uNom').value.trim(); if(!n) return toast('Escribe el nombre'); dbUpd('users',u.id,{nombre:n}); closeModal(); render(); toast('Usuario actualizado'); };
+    return;
+  }
+  openModal(`<h3>Solicitar usuario</h3>
+  <p class="muted" style="margin-top:-8px">Kuota lo activa y se suma a tu mensualidad: cobrador adicional ${fmt(PRECIOS.cobradorExtra)}/mes, administrador adicional ${fmt(PRECIOS.adminExtra)}/mes (tu plan incluye 1 de cada uno).</p>
   <div class="form">
-    <label class="f full">Nombre<input class="input" id="uNom" value="${esc(u?u.nombre:'')}" placeholder="Ej: Pedro cobrador"></label>
-    ${u?`<label class="f full">Correo<input class="input" value="${esc(u.email)}" disabled></label>`:`
-    <label class="f">Correo<input class="input" id="uMail" type="email" autocomplete="off" placeholder="pedro@gmail.com"></label>
-    <label class="f">Contraseña inicial<input class="input" id="uPass" type="text" autocomplete="off" placeholder="Mínimo 6 caracteres"></label>`}
-    <label class="f">Rol<select class="input" id="uRol"><option value="cobrador" ${!u||u.rol==='cobrador'?'selected':''}>Cobrador</option><option value="admin" ${u&&u.rol==='admin'?'selected':''}>Admin (registra, no edita ni borra)</option></select></label>
-    ${u?`<label class="chk" style="align-self:end;padding-bottom:10px"><input type="checkbox" id="uBlq" ${u.activo===false?'checked':''}> Bloqueado (no puede entrar)</label>`:''}
+    <label class="f full">Nombre<input class="input" id="uNom" placeholder="Ej: Pedro cobrador"></label>
+    <label class="f">Correo<input class="input" id="uMail" type="email" autocomplete="off"></label>
+    <label class="f">Contraseña inicial<input class="input" id="uPass" type="text" autocomplete="off" placeholder="Mínimo 6 caracteres"></label>
+    <label class="f full">Rol<select class="input" id="uRol"><option value="cobrador">Cobrador (solo su ruta: cobra y crea clientes)</option><option value="admin">Admin (ve todo y registra, no edita ni borra)</option></select></label>
   </div>
-  ${u?`<p class="muted" style="font-size:13px">¿Olvidó la contraseña? <button class="btn sm" id="uReset">Enviarle correo para cambiarla</button></p>`:'<p class="muted" style="font-size:13px">Dale al cobrador su correo y esta contraseña para que entre a la app.</p>'}
-  <div class="actions"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="uSave">${u?'Guardar':'Crear usuario'}</button></div>`);
-  if(u) document.getElementById('uReset').onclick=()=>S.resetPassword(u.email).then(()=>toast('Correo enviado a '+u.email)).catch(()=>toast('No se pudo enviar el correo'));
+  <div class="actions"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="uSave">Enviar solicitud</button></div>`);
   document.getElementById('uSave').onclick=async ()=>{
     const nombre=document.getElementById('uNom').value.trim(), rol=document.getElementById('uRol').value;
-    if(!nombre) return toast('Escribe el nombre');
-    if(u){ dbUpd('users',u.id,{nombre,rol,activo:!document.getElementById('uBlq').checked}); closeModal(); render(); toast('Usuario actualizado'); return; }
     const email=document.getElementById('uMail').value.trim().toLowerCase(), pass=document.getElementById('uPass').value;
+    if(!nombre) return toast('Escribe el nombre');
     if(!/^\S+@\S+\.\S+$/.test(email)) return toast('Escribe un correo válido');
     if(pass.length<6) return toast('La contraseña debe tener mínimo 6 caracteres');
-    const btn=document.getElementById('uSave'); btn.disabled=true; btn.textContent='Creando…';
-    try{ await S.createUser(nombre,email,pass,rol); closeModal(); toast('Usuario creado'); }
-    catch(e){ btn.disabled=false; btn.textContent='Crear usuario';
-      toast(e.code==='auth/email-already-in-use'?'Ese correo ya tiene un usuario':e.code==='auth/invalid-email'?'Correo no válido':'No se pudo crear el usuario'); }
+    const btn=document.getElementById('uSave'); btn.disabled=true; btn.textContent='Enviando…';
+    try{ await S.solicitarUsuario(nombre,email,pass,rol); closeModal(); toast('Solicitud enviada a Kuota'); }
+    catch(e){ btn.disabled=false; btn.textContent='Enviar solicitud';
+      toast(e.code==='auth/email-already-in-use'?'Ese correo ya tiene un usuario':e.code==='auth/invalid-email'?'Correo no válido':'No se pudo enviar la solicitud'); }
   };
+}
+
+/* ---------- suscripción a Kuota ---------- */
+VIEWS.suscripcion = () => {
+  const emp = EMPRESA||{}, st = estadoSuscripcion(emp), c = cupos();
+  const pagos = [...FACTURAS].sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||''));
+  const col = {activa:'var(--green)',gracia:'var(--amber)',vencida:'var(--red)',bloqueada:'var(--red)',pendiente:'var(--amber)'}[st.estado];
+  return `
+  <div class="head"><div><h1>Mi suscripción</h1><p class="sub">Tu plan de Kuota, cuándo vence y tus pagos.</p></div></div>
+  <div class="kpis">
+    <div class="kpi card"><div class="l">Estado</div><div class="v" style="color:${col};font-size:22px">${esc(st.texto)}</div><div class="n">${emp.pagadoHasta?'Pagado hasta el '+fdate(emp.pagadoHasta):''}</div></div>
+    <div class="kpi hl"><div class="l">Mensualidad</div><div class="v">${fmt(planMensual(emp))}</div><div class="n">${c.cupoAdmins} admin · ${c.cupoCobradores} cobrador${c.cupoCobradores>1?'es':''}</div></div>
+    <div class="kpi sky"><div class="l">Próximo pago</div><div class="v" style="font-size:22px">${emp.pagadoHasta?fdate(sumarDias(emp.pagadoHasta,1)):'—'}</div><div class="n">Días de gracia: ${emp.diasGracia??5}</div></div>
+  </div>
+  <div class="grid2">
+    <div class="card pad"><h2>Cómo pagar</h2>${instruccionesPago()}
+      <h2 style="margin-top:20px">Detalle de tu mensualidad</h2>
+      <table><tbody>${planDetalle(emp).map(([t,v])=>`<tr><td>${esc(t)}</td><td class="num">${fmt(v)}</td></tr>`).join('')}<tr><td><b>Total mensual</b></td><td class="num"><b>${fmt(planMensual(emp))}</b></td></tr></tbody></table></div>
+    <div class="card pad"><h2>Pagos realizados</h2>
+      ${pagos.length?`<table><tbody>${pagos.map(x=>`<tr><td>${fdate(x.fecha)}</td><td>${esc(x.concepto||'')}</td><td class="num">${fmt(x.valor)}</td></tr>`).join('')}</tbody></table>`:'<div class="empty">Aún no hay pagos registrados.</div>'}</div>
+  </div>`;
+};
+function instruccionesPago(){
+  const k = KUOTA||{};
+  const filas = [['WhatsApp',k.whatsapp],['Nequi',k.nequi],['Cuenta bancaria',k.banco],['Correo',k.correo]].filter(x=>x[1]);
+  return (filas.length?`<table><tbody>${filas.map(([t,v])=>`<tr><td class="muted">${t}</td><td><b>${esc(v)}</b></td></tr>`).join('')}</tbody></table>`:'<p class="muted">Comunícate con Kuota para conocer los medios de pago.</p>')
+    + (k.notaPago?`<p class="muted" style="font-size:13px">${esc(k.notaPago)}</p>`:'')
+    + (k.whatsapp?`<p><a class="btn pri" target="_blank" href="https://wa.me/${esc(String(k.whatsapp).replace(/\D/g,''))}?text=${encodeURIComponent('Hola, quiero pagar la suscripción de Kuota de '+((EMPRESA||{}).nombre||''))}">Escribir por WhatsApp</a></p>`:'');
+}
+function avisoSuscripcion(){
+  const st = estadoSuscripcion(EMPRESA);
+  if(st.estado==='gracia') return `<div class="banner">Tu suscripción de Kuota venció. ${isCeo()?`Paga antes del ${fdate(st.limite)} para que el sistema no se bloquee. <button class="btn sm" data-go="suscripcion">Ver cómo pagar</button>`:`Avísale al dueño del negocio: el sistema se bloquea el ${fdate(st.limite)}.`}</div>`;
+  if(st.estado==='activa' && st.dias<=3 && isCeo()) return `<div class="banner">Tu mensualidad vence ${st.dias===0?'hoy':'en '+st.dias+' día'+(st.dias===1?'':'s')}. <button class="btn sm" data-go="suscripcion">Ver cómo pagar</button></div>`;
+  return '';
+}
+function pantallaBloqueo(){
+  const st = estadoSuscripcion(EMPRESA);
+  const titulo = st.estado==='pendiente' ? 'Tu cuenta está pendiente de activación' : st.estado==='bloqueada' ? 'El sistema está suspendido' : 'El sistema está bloqueado por falta de pago';
+  pantalla(`<img src="logo_dark.png" class="login-brand" alt="Kuota"><h1 style="font-size:22px">${titulo}</h1>
+    <p class="sub">${ME.rol==='ceo'?'Para volver a usar Kuota, realiza el pago de tu suscripción y avísanos.':'Habla con el dueño del negocio para que reactive la suscripción.'}</p>
+    ${ME.rol==='ceo'?`<div class="calcbox" style="grid-template-columns:1fr 1fr;margin:14px 0"><div><div class="l">Mensualidad</div><div class="v">${fmt(planMensual(EMPRESA||{}))}</div></div><div><div class="l">Pagado hasta</div><div class="v" style="font-size:15px">${EMPRESA&&EMPRESA.pagadoHasta?fdate(EMPRESA.pagadoHasta):'—'}</div></div></div>${instruccionesPago()}`:''}
+    <p style="text-align:center;margin-top:16px"><button class="btn" onclick="cerrarSesion()">Cerrar sesión</button></p>`);
 }
 
 /* ---------- cuadre de caja por cobrador ---------- */
@@ -1114,15 +1177,14 @@ function pantalla(html){
   const l=document.getElementById('login'); l.style.display='flex'; l.innerHTML=`<div class="login-card card">${html}</div>`;
 }
 function verLogin(msg){
-  pantalla(`<div class="login-logo">$</div><h1>Kuota</h1><p class="sub">Control de préstamos y cobros. Entra con tu usuario.</p>
+  pantalla(`<img src="logo_dark.png" class="login-brand" alt="Kuota"><p class="sub">Control de préstamos y cobros. Entra con tu usuario.</p>
     ${msg?`<div class="banner">${esc(msg)}</div>`:''}
     <form id="fLogin" class="form" style="grid-template-columns:1fr">
       <label class="f">Correo<input class="input" id="lMail" type="email" autocomplete="username" required></label>
       <label class="f">Contraseña<input class="input" id="lPass" type="password" autocomplete="current-password" required></label>
       <button class="btn pri" style="justify-content:center;padding:12px" id="lBtn">Entrar</button>
     </form>
-    <p style="text-align:center;margin:14px 0 0"><button class="btn ghost sm" id="lOlvido">Olvidé mi contraseña</button></p>
-    <p id="lAdmin" style="text-align:center;margin:6px 0 0"></p>`);
+    <p style="text-align:center;margin:14px 0 0"><button class="btn ghost sm" id="lOlvido">Olvidé mi contraseña</button></p>`);
   document.getElementById('fLogin').onsubmit=async e=>{
     e.preventDefault(); const b=document.getElementById('lBtn'); b.disabled=true; b.textContent='Entrando…';
     try{ await S.login(document.getElementById('lMail').value.trim(), document.getElementById('lPass').value); }
@@ -1133,36 +1195,36 @@ function verLogin(msg){
     const m=document.getElementById('lMail').value.trim(); if(!m) return toast('Escribe tu correo primero');
     S.resetPassword(m).then(()=>toast('Te enviamos un correo para cambiar la contraseña')).catch(()=>toast('No se pudo enviar el correo'));
   };
-  S.adminExists().then(ex=>{ if(!ex){ document.getElementById('lAdmin').innerHTML='<button class="btn sm" onclick="verRegistroAdmin()">Primera vez: crear cuenta de administrador</button>'; } }).catch(()=>{});
 }
-function verRegistroAdmin(){
-  pantalla(`<div class="login-logo">$</div><h1>Crear administrador</h1><p class="sub">Esta cuenta controla todo el negocio. Solo se puede crear una vez.</p>
-    <form id="fReg" class="form" style="grid-template-columns:1fr">
-      <label class="f">Tu nombre<input class="input" id="rNom" required></label>
-      <label class="f">Correo<input class="input" id="rMail" type="email" required></label>
-      <label class="f">Contraseña<input class="input" id="rPass" type="password" minlength="6" required></label>
-      <button class="btn pri" style="justify-content:center;padding:12px" id="rBtn">Crear y entrar</button>
-    </form>
-    <p style="text-align:center;margin:14px 0 0"><button class="btn ghost sm" onclick="verLogin()">Volver</button></p>`);
-  document.getElementById('fReg').onsubmit=async e=>{
-    e.preventDefault(); const b=document.getElementById('rBtn'); b.disabled=true; b.textContent='Creando…';
-    try{ const prof = await S.registerAdmin(document.getElementById('rNom').value.trim(), document.getElementById('rMail').value.trim().toLowerCase(), document.getElementById('rPass').value); iniciarSesion(prof); }
-    catch(err){ b.disabled=false; b.textContent='Crear y entrar'; toast(err.code==='auth/email-already-in-use'?'Ese correo ya está registrado':err.code==='permission-denied'?'Ya existe un administrador':'No se pudo crear la cuenta'); }
-  };
-}
+let EMPRESA=null, KUOTA={}, FACTURAS=[], unsubEmp=[], datosActivos=false;
+function detenerTodo(){ if(unsub) unsub(); unsub=null; unsubEmp.forEach(u=>u()); unsubEmp=[]; datosActivos=false; }
 function iniciarSesion(prof){
-  if(ME && ME.uid===prof.uid && unsub) return;
-  ME = prof; DB = emptyDB(); CEO_UID = prof.ceoUid||'';
-  if(!isAdmin()) DB.users=[{id:ME.uid,...prof}];
+  if(ME && ME.uid===prof.uid && unsubEmp.length) return;
+  detenerTodo();
+  ME = prof; DB = emptyDB(); EMPRESA=null; FACTURAS=[];
+  if(!ME.empresaId){ pantalla(`<img src="logo_dark.png" class="login-brand" alt="Kuota"><h1 style="font-size:22px">Tu usuario no tiene un negocio asignado</h1><p class="sub">Comunícate con Kuota.</p><p style="text-align:center"><button class="btn" onclick="cerrarSesion()">Cerrar sesión</button></p>`); return; }
+  if(ME.activo===false){ pantalla(`<img src="logo_dark.png" class="login-brand" alt="Kuota"><h1 style="font-size:22px">${ME.estado==='pendiente'?'Tu usuario está pendiente de activación':'Tu usuario está desactivado'}</h1><p class="sub">${ME.estado==='pendiente'?'Kuota lo activará en cuanto el negocio confirme el pago.':'Habla con el dueño del negocio.'}</p><p style="text-align:center"><button class="btn" onclick="cerrarSesion()">Cerrar sesión</button></p>`); return; }
+  S.setEmpresa(ME.empresaId);
+  unsubEmp.push(S.watchKuota(k=>{ KUOTA=k||{}; }));
+  if(ME.rol==='ceo') unsubEmp.push(S.watchFacturas(ME.empresaId, f=>{ FACTURAS=f; if(view==='suscripcion') scheduleRender(); }));
+  unsubEmp.push(S.watchEmpresa(ME.empresaId, emp=>{
+    EMPRESA = emp;
+    const st = estadoSuscripcion(emp);
+    const ok = st.estado==='activa' || st.estado==='gracia';
+    if(!ok){ if(unsub){unsub();unsub=null;} datosActivos=false; pantallaBloqueo(); return; }
+    if(!datosActivos){ arrancarDatos(); } else scheduleRender();
+  }, err=>{ console.error(err); pantalla(`<img src="logo_dark.png" class="login-brand" alt="Kuota"><h1 style="font-size:22px">No se pudo cargar tu negocio</h1><p class="sub">Revisa tu conexión o comunícate con Kuota.</p><p style="text-align:center"><button class="btn" onclick="cerrarSesion()">Cerrar sesión</button></p>`); }));
+}
+function arrancarDatos(){
+  datosActivos=true;
   document.getElementById('login').style.display='none';
   document.getElementById('appShell').style.display='';
   view = isAdmin() ? 'panel' : 'cobros'; viewState={};
-  if(unsub) unsub();
   unsub = S.subscribe(ME, (col, data)=>{
     if(col==='config') DB.config = migrateConfig(data);
-    else if(col==='error'){ console.error(data); toast('Error de conexión con la nube'); return; }
+    else if(col==='error'){ console.error(data); if(String(data&&data.code)==='permission-denied') return; toast('Error de conexión con la nube'); return; }
     else DB[col] = data;
-    if(col==='users'){ const me=data.find(u=>u.id===ME.uid); if(me && me.activo===false){ S.logout(); return; } if(me) ME=Object.assign(ME,me); }
+    if(col==='users'){ const me=data.find(u=>u.id===ME.uid); if(me && me.activo===false){ detenerTodo(); S.logout(); return; } if(me) ME=Object.assign(ME,me); }
     scheduleRender();
   });
   render();
@@ -1171,7 +1233,7 @@ function cerrarSesion(){
   openModal(`<h3>¿Cerrar sesión?</h3><p class="muted" style="margin-top:-8px">Para volver a entrar necesitas tu correo y contraseña.</p>
   <div class="actions"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="btnSalir">Cerrar sesión</button></div>`);
   document.getElementById('btnSalir').onclick=async ()=>{
-    closeModal(); if(unsub) unsub(); unsub=null; ME=null;
+    closeModal(); detenerTodo(); ME=null;
     try{ await S.logout(); }catch(e){ console.error(e); }
     verLogin();
   };
@@ -1192,9 +1254,8 @@ if(!S.configured){
   pantalla(`<div class="login-logo">$</div><h1>Falta conectar Firebase</h1><p class="sub">Pega la configuración de tu proyecto en <b>src/firebase-config.js</b> y vuelve a compilar.</p>`);
 } else {
   S.watchAuth((user, prof)=>{
-    if(!user){ if(unsub){unsub();unsub=null;} ME=null; verLogin(); return; }
-    if(!prof){ return; } // registro en curso; iniciarSesion se llama al terminar
-    if(prof.activo===false){ S.logout(); verLogin('Tu usuario está bloqueado. Habla con el administrador.'); return; }
+    if(!user){ detenerTodo(); ME=null; verLogin(); return; }
+    if(!prof){ verLogin('Este usuario no tiene acceso a ningún negocio en Kuota.'); S.logout(); return; }
     iniciarSesion(prof);
   });
 }

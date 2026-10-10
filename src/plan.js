@@ -38,3 +38,21 @@ function estadoSuscripcion(emp){
   return { estado:'vencida', texto:'Bloqueada por falta de pago', dias, limite };
 }
 const fmtK = n => '$ ' + Math.round(Number(n)||0).toLocaleString('es-CO');
+
+/* Confirmaciones propias (sin ventanas del navegador, que algunos navegadores bloquean) */
+function confirmar(msg, opt){
+  opt = opt || {};
+  return new Promise(res=>{
+    const w=document.createElement('div'); w.className='modal-bg'; w.style.zIndex='80';
+    const h=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    w.innerHTML=`<div class="card modal" style="width:min(460px,100%)"><p style="white-space:pre-line;margin:0 0 4px;font-size:15px;line-height:1.5">${h(msg)}</p>
+      <div class="actions">${opt.solo?'':`<button class="btn" data-r="0">${h(opt.no||'Cancelar')}</button>`}<button class="btn ${opt.peligro?'danger':'pri'}" data-r="1">${h(opt.ok||'Aceptar')}</button></div></div>`;
+    const fin=v=>{ w.remove(); document.removeEventListener('keydown',kd,true); res(v); };
+    const kd=e=>{ if(e.key==='Escape'){ e.stopPropagation(); fin(false); } };
+    w.addEventListener('mousedown',e=>{ if(e.target===w) fin(false); });
+    w.querySelectorAll('[data-r]').forEach(b=>b.onclick=()=>fin(b.dataset.r==='1'));
+    document.addEventListener('keydown',kd,true);
+    document.body.appendChild(w); w.querySelector('[data-r="1"]').focus();
+  });
+}
+const avisar = (msg) => confirmar(msg, {solo:true, ok:'Entendido'});

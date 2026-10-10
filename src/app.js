@@ -680,8 +680,8 @@ function modalMovimiento(tipo='ingreso', id){
     if(sel.value==='pago') return modalPago();
   });
   const val=document.getElementById('mvVal'); val.addEventListener('blur',()=>{ const n=num(val.value); if(n) val.value=n.toLocaleString('es-CO'); });
-  if(id) document.getElementById('mvDel').onclick=()=>{
-    if(!confirm('¿Borrar este movimiento?')) return;
+  if(id) document.getElementById('mvDel').onclick=async ()=>{
+    if(!(await confirmar('¿Borrar este movimiento?',{peligro:true,ok:'Borrar'}))) return;
     dbDel(tipo==='ingreso'?'ingresos':'capital', id);
     closeModal(); render(); toast('Movimiento borrado');
   };
@@ -740,9 +740,9 @@ function modalCliente(id, onSaved){
     if(onSaved) onSaved(cid); else render();
   };
 }
-function borrarCliente(id){
+async function borrarCliente(id){
   if(DB.prestamos.some(p=>p.clienteId===id)) return toast('Este cliente tiene préstamos; bórralos primero');
-  if(!confirm('¿Borrar este cliente?')) return;
+  if(!await confirmar('¿Borrar este cliente?')) return;
   dbDel('clientes',id); closeModal(); render();
 }
 function reasignarCliente(clienteId, cob){
@@ -807,9 +807,9 @@ function modalPrestamo(id, clienteId, preset){
     if(!id && view!=='prestamos') go('prestamos'); else render();
   };
 }
-function borrarPrestamo(id){
+async function borrarPrestamo(id){
   const n = pagosDe(id).length;
-  if(!confirm(`¿Borrar este préstamo${n?` y sus ${n} pagos`:''}? Esta acción no se puede deshacer.`)) return;
+  if(!await confirmar(`¿Borrar este préstamo${n?` y sus ${n} pagos`:''}? Esta acción no se puede deshacer.`)) return;
   for(const x of pagosDe(id)) dbDel('pagos',x.id);
   dbDel('prestamos',id);
   closeModal(); render(); toast('Préstamo borrado');
@@ -842,13 +842,13 @@ function modalPago(prestamoId, pagoId, fecha){
   document.getElementById('gPre').addEventListener('change',()=>{ if(!pago) document.getElementById('gVal').value=''; info(); });
   const val=document.getElementById('gVal'); val.addEventListener('blur',()=>{ const n=num(val.value); if(n) val.value=n.toLocaleString('es-CO'); });
   info();
-  document.getElementById('gSave').onclick=()=>{
+  document.getElementById('gSave').onclick=async ()=>{
     const pid=document.getElementById('gPre').value, monto=num(val.value), f=document.getElementById('gFec').value||todayStr();
     if(!pid) return toast('Selecciona el préstamo');
     if(monto<=0) return toast('Escribe el valor pagado');
     const p=DB.prestamos.find(x=>x.id===pid), e=estadoPrestamo(p);
     const saldo = e.saldo + (pago&&pago.prestamoId===pid?pago.monto:0);
-    if(monto > saldo+0.5 && !confirm(`El pago (${fmt(monto)}) es mayor que el saldo (${fmt(saldo)}). ¿Guardar de todas formas?`)) return;
+    if(monto > saldo+0.5 && !await confirmar(`El pago (${fmt(monto)}) es mayor que el saldo (${fmt(saldo)}). ¿Guardar de todas formas?`)) return;
     const nota=document.getElementById('gNot').value.trim();
     if(pago) dbUpd('pagos',pago.id,{prestamoId:pid,fecha:f,monto,nota,cobradorId:p.cobradorId||''});
     else dbAdd('pagos',{prestamoId:pid,fecha:f,monto,nota,cobradorId:p.cobradorId||'',registradoPor:ME.uid});
@@ -856,8 +856,8 @@ function modalPago(prestamoId, pagoId, fecha){
     if(viewState._reopen){ viewState._reopen=0; modalDetalle(pid); }
   };
 }
-function borrarPago(id){
-  if(!confirm('¿Borrar este pago?')) return;
+async function borrarPago(id){
+  if(!await confirmar('¿Borrar este pago?')) return;
   dbDel('pagos',id); closeModal(); render(); toast('Pago borrado');
 }
 
@@ -917,7 +917,7 @@ function modalSalida(id){
     closeModal(); render(); toast('Salida guardada');
   };
 }
-function borrarSalida(id){ if(!confirm('¿Borrar esta salida?')) return; dbDel('salidas',id); closeModal(); render(); }
+async function borrarSalida(id){ if(!await confirmar('¿Borrar esta salida?')) return; dbDel('salidas',id); closeModal(); render(); }
 
 function modalCapital(){
   openModal(`<h3>Aporte o retiro de capital</h3>
@@ -935,7 +935,7 @@ function modalCapital(){
     save(); closeModal(); render();
   };
 }
-function borrarCapital(id){ if(!confirm('¿Borrar este movimiento?')) return; dbDel('capital',id); render(); }
+async function borrarCapital(id){ if(!await confirmar('¿Borrar este movimiento?')) return; dbDel('capital',id); render(); }
 
 function guardarAjustes(){
   const g=k=>document.getElementById(k).value;
@@ -1012,7 +1012,7 @@ function modalUsuario(id){
     ${u.activo!==false?`<p class="muted" style="font-size:13px">Si esta persona ya no trabaja contigo, desactívala. Deja de poder entrar de inmediato.</p>`:''}
     <div class="actions">${u.activo!==false?`<button class="btn danger" style="margin-right:auto" id="uOff">Desactivar</button>`:''}<button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="uSave">Guardar</button></div>`);
     document.getElementById('uReset').onclick=()=>S.resetPassword(u.email).then(()=>toast('Correo enviado a '+u.email)).catch(()=>toast('No se pudo enviar el correo'));
-    if(u.activo!==false) document.getElementById('uOff').onclick=()=>{ if(!confirm('¿Desactivar a '+u.nombre+'? Para reactivarlo tendrás que pedírselo a Kuota.')) return; dbUpd('users',u.id,{activo:false,estado:'desactivado'}); closeModal(); render(); toast('Usuario desactivado'); };
+    if(u.activo!==false) document.getElementById('uOff').onclick=async ()=>{ if(!await confirmar('¿Desactivar a '+u.nombre+'? Para reactivarlo tendrás que pedírselo a Kuota.',{peligro:true,ok:'Desactivar'})) return; dbUpd('users',u.id,{activo:false,estado:'desactivado'}); closeModal(); render(); toast('Usuario desactivado'); };
     document.getElementById('uSave').onclick=()=>{ const n=document.getElementById('uNom').value.trim(); if(!n) return toast('Escribe el nombre'); dbUpd('users',u.id,{nombre:n}); closeModal(); render(); toast('Usuario actualizado'); };
     return;
   }
@@ -1121,8 +1121,8 @@ function modalRenovacion(prestamoId, renovacionId){
   };
   ['rMon','rTas','rMes','rPer'].forEach(k=>$(k).addEventListener('input',calc)); calc();
   $('rMon').addEventListener('blur',()=>{ const n=num($('rMon').value); if(n) $('rMon').value=n.toLocaleString('es-CO'); });
-  if(aprobar) $('rNo').onclick=()=>{ if(!confirm('¿Rechazar esta solicitud de renovación?')) return; dbUpd('renovaciones',ren.id,{estado:'rechazada',revisadoPor:ME.uid,revisadoEn:Date.now()}); closeModal(); render(); toast('Renovación rechazada'); };
-  $('rOk').onclick=()=>{
+  if(aprobar) $('rNo').onclick=async ()=>{ if(!await confirmar('¿Rechazar esta solicitud de renovación?')) return; dbUpd('renovaciones',ren.id,{estado:'rechazada',revisadoPor:ME.uid,revisadoEn:Date.now()}); closeModal(); render(); toast('Renovación rechazada'); };
+  $('rOk').onclick=async ()=>{
     const {monto,exc}=calc();
     if(monto<=0) return toast('Escribe el valor del nuevo préstamo');
     if(exc<0) return toast('El nuevo préstamo debe ser mayor o igual a lo que debe ('+fmt(e.saldo)+')');
@@ -1132,7 +1132,7 @@ function modalRenovacion(prestamoId, renovacionId){
       dbAdd('renovaciones',{prestamoId:p.id,clienteId:p.clienteId,cobradorId:p.cobradorId||ME.uid,estado:'pendiente',saldoAlSolicitar:e.saldo,...datos});
       closeModal(); render(); toast('Solicitud de renovación enviada'); return;
     }
-    if(!confirm(`Renovar el crédito de ${cl.nombre}:\n\n• Se cancela lo que debe: ${fmt(e.saldo)}\n• Nuevo préstamo: ${fmt(monto)}\n• Entregar en efectivo: ${fmt(exc)}\n\n¿Continuar?`)) return;
+    if(!await confirmar(`Renovar el crédito de ${cl.nombre}:\n\n• Se cancela lo que debe: ${fmt(e.saldo)}\n• Nuevo préstamo: ${fmt(monto)}\n• Entregar en efectivo: ${fmt(exc)}\n\n¿Continuar?`)) return;
     ejecutarRenovacion(p, e.saldo, datos, ren);
     closeModal(); render(); toast(ren?'Renovación aprobada':'Crédito renovado');
   };
@@ -1149,9 +1149,9 @@ function ejecutarRenovacion(p, saldo, d, ren){
   if(ren) dbUpd('renovaciones',ren.id,info);
   else dbAdd('renovaciones',{prestamoId:p.id,clienteId:p.clienteId,cobradorId:'',...info,entregadoPor:ME.uid,entregadoEn:Date.now()});
 }
-function marcarEntregada(id){
+async function marcarEntregada(id){
   const r=DB.renovaciones.find(x=>x.id===id); if(!r) return;
-  if(!confirm(`¿Ya le entregaste ${fmt(r.excedente)} a ${nombreCliente(r.clienteId)}?`)) return;
+  if(!await confirmar(`¿Ya le entregaste ${fmt(r.excedente)} a ${nombreCliente(r.clienteId)}?`)) return;
   dbUpd('renovaciones',id,{estado:'entregada',entregadoPor:ME.uid,entregadoEn:Date.now()}); render(); toast('Entrega registrada');
 }
 function tarjetaRenov(r){
@@ -1248,7 +1248,7 @@ function modalEntrega(cobradorId, fecha){
     closeModal(); render(); toast('Entrega registrada');
   };
 }
-function borrarEntrega(id){ if(!confirm('¿Borrar esta entrega?')) return; dbDel('entregas',id); render(); }
+async function borrarEntrega(id){ if(!await confirmar('¿Borrar esta entrega?')) return; dbDel('entregas',id); render(); }
 
 /* ---------- respaldo / exportar ---------- */
 async function descargar(nombre, contenido, tipo){
@@ -1272,14 +1272,14 @@ function importar(file){
   const r=new FileReader();
   r.onload=async ()=>{
     let d; try{ d=JSON.parse(r.result); if(!d.prestamos||!d.clientes) throw 0; }catch(e){ return toast('El archivo no es una copia válida'); }
-    if(!confirm(`Se van a subir a la nube ${d.clientes.length} clientes, ${d.prestamos.length} préstamos y ${(d.pagos||[]).length} pagos de la copia. Lo que ya está en la nube se conserva. ¿Continuar?`)) return;
+    if(!await confirmar(`Se van a subir a la nube ${d.clientes.length} clientes, ${d.prestamos.length} préstamos y ${(d.pagos||[]).length} pagos de la copia. Lo que ya está en la nube se conserva. ¿Continuar?`)) return;
     const ops=[];
     for(const col of ['clientes','prestamos','pagos','salidas','capital','ingresos']) for(const x of (d[col]||[])){
       const o={...x, cobradorId:x.cobradorId||'', creadoPor:ME.uid, creado:x.creado||Date.now()};
       if(col==='pagos'){ o.registradoPor=x.registradoPor||ME.uid; }
       ops.push({col,id:x.id||S.newId(col),data:o});
     }
-    if(d.config && confirm('¿También quieres usar el capital inicial y los ajustes de la copia?')){ DB.config=migrateConfig(d.config); cfgSave(); }
+    if(d.config && await confirmar('¿También quieres usar el capital inicial y los ajustes de la copia?')){ DB.config=migrateConfig(d.config); cfgSave(); }
     toast('Subiendo información…');
     try{ await S.batchSet(ops); toast('Copia subida a la nube'); }catch(e){ falloNube(e); }
   };

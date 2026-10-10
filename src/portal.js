@@ -165,7 +165,7 @@ function modalEmpresa(id){
         await registrarPago({ empresaId:eid, empresaNombre:data.nombre, fecha:hoyK(), concepto:'Activación + primer mes', valor, meses:1, metodo:'', nota:'', anterior:'', nuevo:hasta, activacion:true, gracia:data.diasGracia });
       }
       closeModal(); toast('Empresa creada'); verEmpresa(eid);
-      setTimeout(()=>alert(`Datos de acceso para el CEO de ${data.nombre}:\n\nApp (celular): descargar Kuota.apk\nPC: ${location.origin}${location.pathname.replace(/portal\.html$/,'')}\nCorreo: ${ceo.email}\nContraseña: ${ceo.pass}`),300);
+      setTimeout(()=>avisar(`Datos de acceso para el CEO de ${data.nombre}:\n\nApp (celular): descargar Kuota.apk\nPC: ${location.origin}${location.pathname.replace(/portal\.html$/,'')}\nCorreo: ${ceo.email}\nContraseña: ${ceo.pass}`),300);
     }catch(err){ b.disabled=false; b.textContent='Crear empresa'; toast(err.code==='auth/email-already-in-use'?'Ese correo ya tiene un usuario en Kuota':'No se pudo crear la empresa'); console.error(err); }
   };
 }
@@ -249,17 +249,17 @@ async function registrarPago(p){
   if(p.activacion) upd.activacionPagada=true;
   await P().update('empresas/'+p.empresaId, upd);
 }
-function borrarPagoKuota(id){
+async function borrarPagoKuota(id){
   const f=D.facturacion.find(x=>x.id===id); if(!f) return;
   const e=empById(f.empresaId);
-  if(!confirm(`¿Borrar el pago de ${fmt(f.valor)} del ${fdate(f.fecha)}?${f.anterior!==undefined&&e&&e.pagadoHasta===f.nuevo?`\n\nLa empresa vuelve a quedar pagada hasta ${fdate(f.anterior)}.`:''}`)) return;
+  if(!await confirmar(`¿Borrar el pago de ${fmt(f.valor)} del ${fdate(f.fecha)}?${f.anterior!==undefined&&e&&e.pagadoHasta===f.nuevo?`\n\nLa empresa vuelve a quedar pagada hasta ${fdate(f.anterior)}.`:''}`)) return;
   P().remove('facturacion/'+id).catch(falla);
   if(e && e.pagadoHasta===f.nuevo){ P().update('empresas/'+e.id,{ pagadoHasta:f.anterior||'', venceMs:calcVenceMs(f.anterior||'', e.diasGracia??5) }).catch(falla); }
   toast('Pago borrado');
 }
-function bloquear(eid, si){
+async function bloquear(eid, si){
   const e=empById(eid);
-  if(si && !confirm(`¿Bloquear ${e.nombre}? Nadie del negocio podrá usar Kuota hasta que lo desbloquees.`)) return;
+  if(si && !await confirmar(`¿Bloquear ${e.nombre}? Nadie del negocio podrá usar Kuota hasta que lo desbloquees.`)) return;
   P().update('empresas/'+eid,{estado:si?'bloqueada':'activa'}).then(()=>toast(si?'Empresa bloqueada':'Empresa desbloqueada')).catch(falla);
 }
 V.pagos = () => {
@@ -292,33 +292,33 @@ V.solicitudes = () => {
     <td class="right" style="white-space:nowrap"><button class="btn sm pri" onclick="aprobarUsuario('${u.id}')">Activar</button> <button class="btn sm danger" onclick="eliminarUsuario('${u.id}',true)">Rechazar</button></td></tr>`;}).join('')}
   </tbody></table></div>`:'<div class="empty">No hay solicitudes pendientes.</div>'}</div>`;
 };
-function aprobarUsuario(uid){
+async function aprobarUsuario(uid){
   const u=D.users.find(x=>x.id===uid), e=empById(u.empresaId); if(!u||!e) return;
   const c=cuposUsados(e.id), ad=u.rol==='admin'||u.rol==='ceo';
   const usado=ad?c.admins:c.cobradores, cupo=ad?(e.cupoAdmins||1):(e.cupoCobradores||1);
   if(usado+1>cupo){
     const nuevo=Object.assign({},e, ad?{cupoAdmins:usado+1}:{cupoCobradores:usado+1});
-    if(!confirm(`${e.nombre} ya usa ${usado} de ${cupo} ${ad?'administradores':'cobradores'}.\n\nActivar a ${u.nombre} sube el cupo a ${usado+1} y la mensualidad de ${fmt(planMensual(e))} a ${fmt(planMensual(nuevo))}. ¿Continuar?`)) return;
+    if(!await confirmar(`${e.nombre} ya usa ${usado} de ${cupo} ${ad?'administradores':'cobradores'}.\n\nActivar a ${u.nombre} sube el cupo a ${usado+1} y la mensualidad de ${fmt(planMensual(e))} a ${fmt(planMensual(nuevo))}. ¿Continuar?`)) return;
     P().update('empresas/'+e.id, ad?{cupoAdmins:usado+1}:{cupoCobradores:usado+1}).catch(falla);
   }
   P().update('users/'+uid,{activo:true,estado:'activo'}).then(()=>toast(u.nombre+' activado')).catch(falla);
 }
-function preguntarBajarCupo(u){
+async function preguntarBajarCupo(u){
   const e=empById(u.empresaId); if(!e) return;
   const ad=u.rol==='admin', campo=ad?'cupoAdmins':'cupoCobradores', cupo=e[campo]||1;
   if(cupo<=1) return;
   const nuevo=Object.assign({},e,{[campo]:cupo-1});
-  if(confirm(`¿Bajar también el cupo de ${ad?'administradores':'cobradores'} de ${cupo} a ${cupo-1}? La mensualidad pasaría de ${fmt(planMensual(e))} a ${fmt(planMensual(nuevo))}.`))
+  if(await confirmar(`¿Bajar también el cupo de ${ad?'administradores':'cobradores'} de ${cupo} a ${cupo-1}? La mensualidad pasaría de ${fmt(planMensual(e))} a ${fmt(planMensual(nuevo))}.`))
     P().update('empresas/'+e.id,{[campo]:cupo-1}).catch(falla);
 }
-function desactivarUsuario(uid){
+async function desactivarUsuario(uid){
   const u=D.users.find(x=>x.id===uid); if(!u) return;
-  if(!confirm(`¿Desactivar a ${u.nombre}? No podrá entrar a Kuota.`)) return;
+  if(!await confirmar(`¿Desactivar a ${u.nombre}? No podrá entrar a Kuota.`)) return;
   P().update('users/'+uid,{activo:false,estado:'desactivado'}).then(()=>{ toast('Usuario desactivado'); preguntarBajarCupo(u); }).catch(falla);
 }
-function eliminarUsuario(uid, rechazo){
+async function eliminarUsuario(uid, rechazo){
   const u=D.users.find(x=>x.id===uid); if(!u) return;
-  if(!confirm(rechazo?`¿Rechazar la solicitud de ${u.nombre}?`:`¿Eliminar a ${u.nombre} de ${(empById(u.empresaId)||{}).nombre}? Pierde el acceso de inmediato. Sus clientes asignados quedan sin cobrador hasta que el negocio los reasigne.`)) return;
+  if(!await confirmar(rechazo?`¿Rechazar la solicitud de ${u.nombre}?`:`¿Eliminar a ${u.nombre} de ${(empById(u.empresaId)||{}).nombre}? Pierde el acceso de inmediato. Sus clientes asignados quedan sin cobrador hasta que el negocio los reasigne.`)) return;
   const eraActivo = u.activo!==false;
   P().remove('users/'+uid).then(()=>{ toast(rechazo?'Solicitud rechazada':'Usuario eliminado'); if(eraActivo && !rechazo) preguntarBajarCupo(u); }).catch(falla);
 }

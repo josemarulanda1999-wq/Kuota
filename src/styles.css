@@ -220,3 +220,10 @@ a.btn{text-decoration:none;color:inherit}
   .search{max-width:none}
 }
 @media (max-width:760px){ .toast{bottom:calc(92px + env(safe-area-inset-bottom))} }
+
+/* el menú lateral siempre deja ver "Cerrar sesión" aunque la ventana sea baja */
+@media (min-width:761px){
+  aside{overflow:hidden}
+  nav{flex:1 1 auto;min-height:0;overflow-y:auto;scrollbar-width:thin}
+  .aside-foot{flex:none;margin-top:10px}
+}

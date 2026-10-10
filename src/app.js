@@ -1143,7 +1143,15 @@ function iniciarSesion(prof){
   });
   render();
 }
-function cerrarSesion(){ if(!confirm('¿Cerrar sesión?')) return; if(unsub) unsub(); unsub=null; ME=null; S.logout(); }
+function cerrarSesion(){
+  openModal(`<h3>¿Cerrar sesión?</h3><p class="muted" style="margin-top:-8px">Para volver a entrar necesitas tu correo y contraseña.</p>
+  <div class="actions"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="btnSalir">Cerrar sesión</button></div>`);
+  document.getElementById('btnSalir').onclick=async ()=>{
+    closeModal(); if(unsub) unsub(); unsub=null; ME=null;
+    try{ await S.logout(); }catch(e){ console.error(e); }
+    verLogin();
+  };
+}
 
 /* tema */
 document.getElementById('themeBtn').onclick=()=>{

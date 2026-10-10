@@ -241,3 +241,17 @@ a.btn{text-decoration:none;color:inherit}
 :root[data-theme="light"] .brand-img, :root[data-theme="light"] .login-brand{content:url(logo_light.png)}
 @media (max-width:760px){ aside .logo{display:none!important} }
 .mov-desc{min-width:240px}
+
+/* calculadora y protección contra desbordes horizontales */
+html,body{overflow-x:hidden}
+.mainwrap,main{max-width:100%}
+.calc-form{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media (max-width:760px){ .calc-form{grid-template-columns:1fr} }
+
+/* menú "Más" y pestañas de Caja */
+.mas-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}
+.mas-item{all:unset;box-sizing:border-box;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:8px;padding:18px 10px;border-radius:16px;background:var(--panel-2);text-align:center;font-weight:600;font-size:13.5px;position:relative}
+.mas-item:hover{outline:2px solid var(--lime)}
+.mas-item svg{width:24px;height:24px;color:var(--lime)}
+.mas-item .badge{position:absolute;top:8px;right:10px;background:var(--red);color:#fff;font-size:11px;font-weight:700;border-radius:10px;padding:1px 7px}
+.caja-tabs{margin-bottom:18px;flex-wrap:wrap}

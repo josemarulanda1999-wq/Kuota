@@ -191,16 +191,42 @@ const NAV_COB = [['cobros','Mi ruta','Ruta'],['clientes','Mis clientes','Cliente
 const PERMITIDAS_COB = ['cobros','clientes','prestamos','cuadre'];
 ICONS.renovaciones='<path d="M12 4V1L8 5l4 4V6a6 6 0 016 6 6 6 0 01-.7 2.8l1.5 1.5A8 8 0 0020 12a8 8 0 00-8-8zm0 14a6 6 0 01-6-6c0-1 .3-2 .7-2.8L5.2 7.7A8 8 0 004 12a8 8 0 008 8v3l4-4-4-4z"/>';
 const SOLO_CEO = ['panel','movimientos','salidas','usuarios','ajustes','suscripcion'];  // el Admin no ve el dinero del negocio
+/* menú: pocas opciones principales y el resto en "Más" */
+ICONS.caja=ICONS.movimientos;
+ICONS.mas='<path d="M6 10a2 2 0 100 4 2 2 0 000-4zm6 0a2 2 0 100 4 2 2 0 000-4zm6 0a2 2 0 100 4 2 2 0 000-4z"/>';
+const VISTAS_CAJA = ['movimientos','cuadre','salidas'];
+function menu(){
+  if(isCeo()) return { main:[['panel','Panel'],['cobros','Cobros'],['prestamos','Préstamos'],['clientes','Clientes'],['caja','Caja']],
+                       mas:[['renovaciones','Renovaciones'],['usuarios','Usuarios'],['suscripcion','Mi suscripción'],['calculadora','Calculadora'],['ajustes','Ajustes']] };
+  if(isAdmin()) return { main:[['cobros','Cobros'],['prestamos','Préstamos'],['clientes','Clientes'],['cuadre','Cuadre']],
+                         mas:[['renovaciones','Renovaciones'],['calculadora','Calculadora']] };
+  return { main:[['cobros','Mi ruta'],['clientes','Clientes'],['prestamos','Préstamos'],['cuadre','Cuadre']], mas:[] };
+}
 function renderNav(){
   const n = cobrosDelDia().filter(c=>c.cobrar>0.5).length;
-  const nRen = DB.renovaciones.filter(r=>r.estado==='pendiente').length;
-  const NAV = isAdmin()? NAV_ADMIN.filter(([k])=>isCeo() || !SOLO_CEO.includes(k)) : NAV_COB;
-  document.getElementById('nav').innerHTML = NAV.map(([k,t,c])=>
-    `<button class="${view===k?'on':''}" data-go="${k}"><svg viewBox="0 0 24 24" fill="currentColor">${ICONS[k]}</svg><span class="nl">${t}</span><span class="ns">${c}</span>${k==='cobros'&&n?`<span class="badge">${n}</span>`:''}${k==='renovaciones'&&nRen?`<span class="badge">${nRen}</span>`:''}</button>`).join('');
+  const nRen = isAdmin() ? DB.renovaciones.filter(r=>r.estado==='pendiente').length : 0;
+  const pend = isCeo() ? DB.users.filter(u=>u.estado==='pendiente').length : 0;
+  const M = menu();
+  const activo = k => k===view || (k==='caja' && isCeo() && VISTAS_CAJA.includes(view));
+  const badge = k => k==='cobros'&&n ? n : k==='renovaciones'&&nRen ? nRen : k==='mas'&&nRen ? nRen : 0;
+  const item = ([k,t]) => `<button class="${activo(k)?'on':''}" ${k==='mas'?'onclick="abrirMas()"':`data-go="${k==='caja'?'movimientos':k}"`}><svg viewBox="0 0 24 24" fill="currentColor">${ICONS[k]}</svg><span class="nl">${t}</span><span class="ns">${t}</span>${badge(k)?`<span class="badge">${badge(k)}</span>`:''}</button>`;
+  const enMas = M.mas.some(([k])=>k===view);
+  document.getElementById('nav').innerHTML = M.main.map(item).join('') + (M.mas.length ? item(['mas','Más']).replace('class=""', enMas?'class="on"':'class=""') : '');
   document.getElementById('logoName').innerHTML = `<img src="logo_dark.png" class="brand-img" alt="Kuota"><small>${esc((EMPRESA&&EMPRESA.nombre)||DB.config.negocio||'')}</small>`;
   const who = `<div class="who" style="margin-bottom:8px">${ava(ME.nombre)}<div style="min-width:0"><b style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(ME.nombre||ME.email)}</b><span>${rolDe(ME)}</span></div></div>`;
   document.getElementById('userBox').innerHTML = who + `<button onclick="cerrarSesion()">Cerrar sesión</button>`;
   document.getElementById('topUser').innerHTML = `<img src="logo_dark.png" class="brand-img sm" alt="Kuota"><span class="spacer"></span>${ava(ME.nombre)}<button class="btn sm" onclick="cerrarSesion()">Salir</button>`;
+  void pend;
+}
+function abrirMas(){
+  const M = menu(), nRen = DB.renovaciones.filter(r=>r.estado==='pendiente').length, pend = isCeo()?DB.users.filter(u=>u.estado==='pendiente').length:0;
+  openModal(`<h3>Más opciones</h3><div class="mas-grid">${M.mas.map(([k,t])=>`<button class="mas-item" onclick="closeModal();go('${k}')"><svg viewBox="0 0 24 24" fill="currentColor">${ICONS[k]}</svg><span>${t}</span>${k==='renovaciones'&&nRen?`<span class="badge">${nRen}</span>`:''}${k==='usuarios'&&pend?`<span class="badge">${pend}</span>`:''}</button>`).join('')}</div>
+  <div class="actions"><button class="btn" onclick="closeModal()">Cerrar</button></div>`);
+}
+function tabsCaja(){
+  if(!isCeo() || !VISTAS_CAJA.includes(view)) return '';
+  const t=[['movimientos','Movimientos'],['cuadre','Cuadre de cobradores'],['salidas','Gastos']];
+  return `<div class="tabs caja-tabs">${t.map(([k,l])=>`<button class="${view===k?'on':''}" onclick="go('${k}')">${l}</button>`).join('')}</div>`;
 }
 const movil = () => window.innerWidth < 760;
 let _eraMovil = movil();
@@ -215,7 +241,7 @@ function render(){
   if(!isCeo() && SOLO_CEO.includes(view)) view='cobros';
   renderNav();
   const m = document.getElementById('main');
-  m.innerHTML = avisoSuscripcion() + (VIEWS[view]||VIEWS.panel)();
+  m.innerHTML = avisoSuscripcion() + tabsCaja() + (VIEWS[view]||VIEWS.panel)();
   if(AFTER[view]) AFTER[view]();
 }
 
@@ -448,21 +474,27 @@ VIEWS.salidas = () => {
 
 VIEWS.calculadora = () => {
   const s = viewState.calc || {monto:200000,tasa:DB.config.tasaDefecto,meses:1};
-  const rows = PERIODOS.map(per=>{const c=calcular(num(s.monto),num(s.tasa),num(s.meses),per);return {per,c};});
+  const monto=num(s.monto), tasa=num(s.tasa), meses=num(s.meses);
+  const rows = PERIODOS.map(per=>({per,c:calcular(monto,tasa,meses,per)}));
+  const nom = {DIARIO:'Diario',SEMANAL:'Semanal',QUINCENAL:'Quincenal',MENSUAL:'Mensual'};
   return `
-  <div class="head"><div><h1>Calculadora de cuotas</h1><p class="sub">Simula un préstamo antes de hacerlo.</p></div></div>
+  <div class="head"><div><h1>Calculadora</h1><p class="sub">Simula un préstamo antes de hacerlo.</p></div></div>
   <div class="card pad" style="margin-bottom:16px">
-    <div class="form" style="grid-template-columns:repeat(3,1fr)">
+    <div class="form calc-form">
       <label class="f">Valor del préstamo<input class="input" id="cMonto" value="${esc(s.monto)}" inputmode="numeric"></label>
       <label class="f">% interés mensual<input class="input" id="cTasa" value="${esc(s.tasa)}" inputmode="decimal"></label>
       <label class="f">No. de meses<input class="input" id="cMeses" value="${esc(s.meses)}" inputmode="decimal"></label>
     </div>
-    <p class="muted" style="margin:12px 0 0">Interés por mes: <b style="color:var(--ink)">${fmt(num(s.monto)*num(s.tasa)/100)}</b> · Total a pagar: <b style="color:var(--ink)">${fmt(num(s.monto)+num(s.monto)*num(s.tasa)/100*num(s.meses))}</b></p>
+    <div class="calcbox" style="margin-top:14px">
+      <div><div class="l">Interés por mes</div><div class="v">${fmt(monto*tasa/100)}</div></div>
+      <div><div class="l">Total a pagar</div><div class="v">${fmt(monto+monto*tasa/100*meses)}</div></div>
+    </div>
   </div>
-  <div class="card"><table><thead><tr><th>Forma de pago</th><th class="num"># de cuotas</th><th class="num">Valor cuota</th><th class="num">Capital x cuota</th><th class="num">Interés x cuota</th><th class="num">Total a pagar</th><th></th></tr></thead><tbody>
-  ${rows.map(({per,c})=>`<tr><td><b>${per.charAt(0)+per.slice(1).toLowerCase()}</b></td><td class="num">${c.cuotas}</td><td class="num"><b>${fmt(c.valorCuota)}</b></td><td class="num">${fmt(c.capitalCuota)}</td><td class="num">${fmt(c.interesCuota)}</td><td class="num">${fmt(c.valorCuota*c.cuotas)}</td>
-  <td class="right"><button class="btn sm" onclick="modalPrestamo(null,null,{monto:${num(s.monto)},tasa:${num(s.tasa)},meses:${num(s.meses)},periodo:'${per}'})">Crear préstamo</button></td></tr>`).join('')}
-  </tbody></table></div>`;
+  <div class="cobros-grid">${rows.map(({per,c})=>`<div class="card cobro">
+    <div class="row"><b style="font-size:16px">${nom[per]}</b><span class="spacer"></span><span class="pill p-pag">${c.cuotas} cuota${c.cuotas===1?'':'s'}</span></div>
+    <div class="cobro-nums"><div><span>Valor cuota</span><b>${fmt(c.valorCuota)}</b></div><div><span>Capital</span><b>${fmt(c.capitalCuota)}</b></div><div><span>Interés</span><b>${fmt(c.interesCuota)}</b></div></div>
+    <div class="row"><span class="muted" style="font-size:13px">Total ${fmt(c.valorCuota*c.cuotas)}</span><span class="spacer"></span>${isAdmin()?`<button class="btn sm" onclick="modalPrestamo(null,null,{monto:${monto},tasa:${tasa},meses:${meses},periodo:'${per}'})">Crear préstamo</button>`:''}</div>
+  </div>`).join('')}</div>`;
 };
 AFTER.calculadora = () => {
   ['cMonto','cTasa','cMeses'].forEach(id=>{

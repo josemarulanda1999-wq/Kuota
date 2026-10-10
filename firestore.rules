@@ -95,6 +95,17 @@ service cloud.firestore {
         allow create: if isSuper() || (isAdm(eid) && firma());
         allow update, delete: if isSuper() || isCeo(eid);
       }
+      // renovaciones: el cobrador solicita, el Admin o el CEO aprueba, el cobrador marca la entrega del efectivo
+      match /renovaciones/{id} {
+        allow read: if isSuper() || isAdm(eid) || (isCob(eid) && own());
+        allow create: if isSuper() || (firma() && (isAdm(eid)
+          || (isCob(eid) && ownNew() && request.resource.data.estado == 'pendiente')));
+        allow update: if isSuper() || isAdm(eid)
+          || (isCob(eid) && own() && resource.data.estado == 'aprobada' && request.resource.data.estado == 'entregada'
+              && request.resource.data.entregadoPor == uid()
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estado', 'entregadoPor', 'entregadoEn']));
+        allow delete: if isSuper() || isCeo(eid);
+      }
       // el dinero del negocio (gastos, ingresos extra y capital) solo lo ve el CEO
       match /salidas/{id} {
         allow read, update, delete: if isSuper() || isCeo(eid);

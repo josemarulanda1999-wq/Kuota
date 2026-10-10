@@ -239,3 +239,5 @@ a.btn{text-decoration:none;color:inherit}
 .login-brand{display:block;height:46px;width:auto;margin:0 0 14px}
 #login > .login-brand{height:56px}
 :root[data-theme="light"] .brand-img, :root[data-theme="light"] .login-brand{content:url(logo_light.png)}
+@media (max-width:760px){ aside .logo{display:none!important} }
+.mov-desc{min-width:240px}

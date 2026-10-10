@@ -4,11 +4,11 @@
    La capa de datos está en store.js (window.S).
    ========================================================= */
 const PERIODOS = ['DIARIO','SEMANAL','QUINCENAL','MENSUAL'];
-const COLS = ['clientes','prestamos','pagos','salidas','capital','ingresos','entregas','users'];
+const COLS = ['clientes','prestamos','pagos','salidas','capital','ingresos','entregas','renovaciones','users'];
 
 const defaultConfig = () => ({ negocio:'Kuota', capitalInicial:0, fechaCapital:'',
   factores:{DIARIO:30,SEMANAL:4,QUINCENAL:2,MENSUAL:1}, tasaDefecto:20, excluirDomingos:false, redondeo:0 });
-const emptyDB = () => ({ config:defaultConfig(), clientes:[], prestamos:[], pagos:[], salidas:[], capital:[], ingresos:[], entregas:[], users:[] });
+const emptyDB = () => ({ config:defaultConfig(), clientes:[], prestamos:[], pagos:[], salidas:[], capital:[], ingresos:[], entregas:[], renovaciones:[], users:[] });
 
 let DB = emptyDB();
 let ME = null;            // perfil del usuario: {uid, nombre, email, rol, activo}
@@ -155,7 +155,7 @@ function resumen(){
   const ingresos = DB.ingresos.reduce((s,x)=>s+x.valor,0);
   const capital = DB.config.capitalInicial + aportes;
   const caja = capital - prestado + recaudo + ingresos - salidas;
-  const recaudoHoy = DB.pagos.filter(x=>x.fecha===hoy).reduce((s,x)=>s+x.monto,0);
+  const recaudoHoy = DB.pagos.filter(x=>x.fecha===hoy && efectivo(x)).reduce((s,x)=>s+x.monto,0);
   return { prestado, recaudo, utilidad, cartera, mora, activos, enMora, salidas, caja, capital,
            efectivoTotal: capital + utilidad + ingresos, utilidadNeta: utilidad + ingresos - salidas, recaudoHoy, ingresos };
 }
@@ -186,15 +186,17 @@ const ICONS = {
 ICONS.cuadre='<path d="M3 6h18v12H3zm2 2v8h14V8zm7 1.5a2.5 2.5 0 110 5 2.5 2.5 0 010-5z"/>';
 ICONS.suscripcion='<path d="M20 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V6a2 2 0 00-2-2zm0 14H4v-6h16zm0-10H4V6h16z"/>';
 ICONS.usuarios='<path d="M12 12a4 4 0 100-8 4 4 0 000 8zm0 2c-3.3 0-8 1.7-8 5v1h16v-1c0-3.3-4.7-5-8-5zm7-6h2v2h2v2h-2v2h-2v-2h-2v-2h2z"/>';
-const NAV_ADMIN = [['panel','Panel','Panel'],['cobros','Cobros del día','Cobros'],['movimientos','Movimientos','Caja'],['cuadre','Cuadre de caja','Cuadre'],['prestamos','Préstamos','Préstamos'],['clientes','Clientes','Clientes'],['salidas','Salidas de dinero','Gastos'],['usuarios','Usuarios','Usuarios'],['suscripcion','Mi suscripción','Plan'],['calculadora','Calculadora','Calcular'],['ajustes','Ajustes y respaldo','Ajustes']];
+const NAV_ADMIN = [['panel','Panel','Panel'],['cobros','Cobros del día','Cobros'],['movimientos','Movimientos','Caja'],['cuadre','Cuadre de caja','Cuadre'],['renovaciones','Renovaciones','Renovar'],['prestamos','Préstamos','Préstamos'],['clientes','Clientes','Clientes'],['salidas','Salidas de dinero','Gastos'],['usuarios','Usuarios','Usuarios'],['suscripcion','Mi suscripción','Plan'],['calculadora','Calculadora','Calcular'],['ajustes','Ajustes y respaldo','Ajustes']];
 const NAV_COB = [['cobros','Mi ruta','Ruta'],['clientes','Mis clientes','Clientes'],['prestamos','Préstamos','Préstamos'],['cuadre','Mi cuadre','Cuadre']];
 const PERMITIDAS_COB = ['cobros','clientes','prestamos','cuadre'];
+ICONS.renovaciones='<path d="M12 4V1L8 5l4 4V6a6 6 0 016 6 6 6 0 01-.7 2.8l1.5 1.5A8 8 0 0020 12a8 8 0 00-8-8zm0 14a6 6 0 01-6-6c0-1 .3-2 .7-2.8L5.2 7.7A8 8 0 004 12a8 8 0 008 8v3l4-4-4-4z"/>';
 const SOLO_CEO = ['panel','movimientos','salidas','usuarios','ajustes','suscripcion'];  // el Admin no ve el dinero del negocio
 function renderNav(){
   const n = cobrosDelDia().filter(c=>c.cobrar>0.5).length;
+  const nRen = DB.renovaciones.filter(r=>r.estado==='pendiente').length;
   const NAV = isAdmin()? NAV_ADMIN.filter(([k])=>isCeo() || !SOLO_CEO.includes(k)) : NAV_COB;
   document.getElementById('nav').innerHTML = NAV.map(([k,t,c])=>
-    `<button class="${view===k?'on':''}" data-go="${k}"><svg viewBox="0 0 24 24" fill="currentColor">${ICONS[k]}</svg><span class="nl">${t}</span><span class="ns">${c}</span>${k==='cobros'&&n?`<span class="badge">${n}</span>`:''}</button>`).join('');
+    `<button class="${view===k?'on':''}" data-go="${k}"><svg viewBox="0 0 24 24" fill="currentColor">${ICONS[k]}</svg><span class="nl">${t}</span><span class="ns">${c}</span>${k==='cobros'&&n?`<span class="badge">${n}</span>`:''}${k==='renovaciones'&&nRen?`<span class="badge">${nRen}</span>`:''}</button>`).join('');
   document.getElementById('logoName').innerHTML = `<img src="logo_dark.png" class="brand-img" alt="Kuota"><small>${esc((EMPRESA&&EMPRESA.nombre)||DB.config.negocio||'')}</small>`;
   const who = `<div class="who" style="margin-bottom:8px">${ava(ME.nombre)}<div style="min-width:0"><b style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(ME.nombre||ME.email)}</b><span>${rolDe(ME)}</span></div></div>`;
   document.getElementById('userBox').innerHTML = who + `<button onclick="cerrarSesion()">Cerrar sesión</button>`;
@@ -225,7 +227,7 @@ VIEWS.panel = () => {
   const dias = [];
   const hoy = new Date();
   for(let i=13;i>=0;i--){ const d=new Date(hoy); d.setDate(d.getDate()-i); const s=ymd(d);
-    dias.push({s, v: DB.pagos.filter(x=>x.fecha===s).reduce((a,x)=>a+x.monto,0)}); }
+    dias.push({s, v: DB.pagos.filter(x=>x.fecha===s && efectivo(x)).reduce((a,x)=>a+x.monto,0)}); }
   const max = Math.max(1,...dias.map(d=>d.v));
   const cobros = cobrosDelDia().slice(0,8);
   const banner = '';
@@ -329,10 +331,11 @@ function cobroCard(c, fecha){
     <div class="cobro-nums">
       <div><span>Cuota</span><b>${fmt(c.p.valorCuota)}</b></div>
       <div><span>Pendiente</span><b style="color:${c.cobrar>0.5?'var(--red)':'inherit'}">${fmt(c.cobrar)}</b></div>
-      <div><span>Saldo</span><b>${fmt(c.e.saldo)}</b></div>
+      <div><span>Debe en total</span><b>${fmt(c.e.saldo)}</b></div>
     </div>
     <div class="row">
       ${tel?`<a class="btn sm" href="tel:${esc(tel)}">Llamar</a>`:''}
+      ${puedeRenovar(c.p)?`<button class="btn sm" onclick="modalRenovacion('${c.p.id}')">Renovar</button>`:''}
       <span class="spacer"></span>
       ${c.pagadoHoy?`<span class="pill p-ok">Pagó ${fmt(c.pagadoHoy)}</span>`:''}
       ${c.cobrar>0.5?`<button class="btn pri" onclick="modalPago('${c.p.id}',null,'${fecha}')">Cobrar</button>`:''}
@@ -352,6 +355,7 @@ VIEWS.cobros = () => {
     <div class="kpi cream"><div class="l">Pendiente por cobrar</div><div class="v">${fmt(totalCobrar)}</div></div>
     <div class="kpi hl"><div class="l">Cobrado ese día</div><div class="v">${fmt(totalPagado)}</div></div>
   </div>
+  ${!isAdmin()?bloqueRenovacionesCobrador():(DB.renovaciones.some(r=>r.estado==='pendiente')?`<div class="banner">Hay ${DB.renovaciones.filter(r=>r.estado==='pendiente').length} solicitud(es) de renovación esperando aprobación. <button class="btn sm" data-go="renovaciones">Revisar</button></div>`:'')}
   ${tarjetas ? (list.length? `<div class="cobros-grid">${list.map(c=>cobroCard(c,fecha)).join('')}</div>` : `<div class="card"><div class="empty">Nada que cobrar en esta fecha.</div></div>`) : `<div class="card">
   ${list.length? `<div class="tablewrap"><table><thead><tr><th>Cliente</th><th>Teléfono / Dirección</th><th>Estado</th><th class="num">Cuota</th><th class="num">Pendiente</th><th class="num">Saldo</th><th class="num">Pagó</th><th></th></tr></thead><tbody>
   ${list.map(c=>{const cl=clienteById(c.p.clienteId)||{};return `<tr>
@@ -518,7 +522,7 @@ VIEWS.ajustes = () => {
 /* ---------- movimientos de dinero (libro de caja) ---------- */
 const TIPOS_MOV = {
   capital:{t:'Capital',c:'p-pag'}, aporte:{t:'Aporte',c:'p-pag'}, retiro:{t:'Retiro',c:'p-hoy'},
-  prestamo:{t:'Préstamo',c:'p-mora'}, pago:{t:'Pago recibido',c:'p-ok'}, gasto:{t:'Gasto',c:'p-hoy'}, ingreso:{t:'Ingreso extra',c:'p-ok'}
+  prestamo:{t:'Préstamo',c:'p-mora'}, pago:{t:'Pago recibido',c:'p-ok'}, renov:{t:'Cruce renovación',c:'p-pag'}, gasto:{t:'Gasto',c:'p-hoy'}, ingreso:{t:'Ingreso extra',c:'p-ok'}
 };
 function primeraFecha(){
   const fs=[...DB.prestamos,...DB.pagos,...DB.salidas,...DB.capital,...DB.ingresos].map(x=>x.fecha).filter(Boolean).sort();
@@ -539,7 +543,7 @@ function movimientos(){
   for(const x of DB.pagos){
     const p=DB.prestamos.find(y=>y.id===x.prestamoId); if(!p) continue;
     const tot=p.valorCuota*p.cuotas, fr= tot>0?(tot-p.monto)/tot:0, int=x.monto*fr;
-    L.push({key:'g'+x.id,id:x.id,prestamoId:p.id,fecha:x.fecha,orden:2,creado:x.creado||0,tipo:'pago',concepto:'Pago de '+nombreCliente(p.clienteId),detalle:`Capital ${fmt(x.monto-int)} + interés ${fmt(int)}${x.nota?' — '+x.nota:''}`,ent:x.monto,sal:0,interes:int,por:x.registradoPor||x.creadoPor});
+    L.push({key:'g'+x.id,id:x.id,prestamoId:p.id,fecha:x.fecha,orden:2,creado:x.creado||0,tipo:x.tipo==='renovacion'?'renov':'pago',concepto:(x.tipo==='renovacion'?'Renovación de ':'Pago de ')+nombreCliente(p.clienteId),detalle:`Capital ${fmt(x.monto-int)} + interés ${fmt(int)}${x.nota?' — '+x.nota:''}`,ent:x.monto,sal:0,interes:int,por:x.registradoPor||x.creadoPor});
   }
   for(const x of DB.salidas) L.push({key:'s'+x.id,id:x.id,fecha:x.fecha,orden:4,creado:x.creado||0,tipo:'gasto',concepto:x.concepto,detalle:'Salida de dinero',ent:0,sal:x.valor,por:x.creadoPor});
   for(const x of DB.ingresos) L.push({key:'i'+x.id,id:x.id,fecha:x.fecha,orden:2,creado:x.creado||0,tipo:'ingreso',concepto:x.concepto,detalle:'Ingreso extra',ent:x.valor,sal:0,por:x.creadoPor});
@@ -581,7 +585,7 @@ function filaMov(m){
   const tp=TIPOS_MOV[m.tipo];
   return `<tr class="click" onclick="abrirMov('${m.key}')">
     <td style="white-space:nowrap">${fdate(m.fecha)}</td>
-    <td><div class="who">${flecha(m.ent>0)}<div><b>${esc(m.concepto)}</b><div class="muted" style="font-size:12px">${esc(m.detalle||'')}</div></div></div></td>
+    <td class="mov-desc"><div class="who">${flecha(m.ent>0)}<div><b>${esc(m.concepto)}</b><div class="muted" style="font-size:12px">${esc(m.detalle||'')}</div></div></div></td>
     <td><span class="pill ${tp.c}">${tp.t}</span></td>
     <td>${quienHizo(m)}</td>
     <td class="num" style="color:var(--green)">${m.ent?'+ '+fmt(m.ent):''}</td>
@@ -873,7 +877,7 @@ function modalDetalle(id, tab='cuotas'){
   const pagosHtml = e.pagos.length? e.pagos.map(x=>`<tr><td>${fdate(x.fecha)}</td><td class="num">${fmt(x.monto)}</td><td>${esc(x.nota||'')}</td><td class="muted" style="font-size:12px">${esc(nombreUsuario(x.registradoPor))}</td><td class="right no-print">${isCeo()?`<button class="btn sm" onclick="viewState._reopen=1;modalPago(null,'${x.id}')">Editar</button>`:''}</td></tr>`).join('') : `<tr><td colspan="5" class="muted">Sin pagos todavía.</td></tr>`;
   openModal(`
   <div class="row" style="margin-bottom:6px">${ava(c.nombre)}<h3 style="margin:0">${esc(c.nombre||'(sin cliente)')}</h3>${pill(e)}<span class="spacer"></span>
-    ${isNative()?'':'<button class="btn sm" onclick="window.print()">Imprimir</button>'}${isCeo()?`<button class="btn sm" onclick="modalPrestamo('${p.id}')">Editar</button>`:''}<button class="btn sm pri" onclick="viewState._reopen=1;modalPago('${p.id}')">Registrar pago</button><button class="btn sm ghost" onclick="closeModal()">✕</button></div>
+    ${isNative()?'':'<button class="btn sm" onclick="window.print()">Imprimir</button>'}${isCeo()?`<button class="btn sm" onclick="modalPrestamo('${p.id}')">Editar</button>`:''}${puedeRenovar(p)?`<button class="btn sm" onclick="modalRenovacion('${p.id}')">${isAdmin()?'Renovar':'Solicitar renovación'}</button>`:''}<button class="btn sm pri" onclick="viewState._reopen=1;modalPago('${p.id}')">Registrar pago</button><button class="btn sm ghost" onclick="closeModal()">✕</button></div>
   <p class="muted" style="margin:0 0 14px">${esc(c.cedula||'')} ${c.tel1?'· '+esc(c.tel1):''} ${c.direccion?'· '+esc(c.direccion):''}${p.nota?'<br>Nota: '+esc(p.nota):''}</p>
   <div class="detail-grid">
     <div><div class="l">Fecha</div><div class="v">${fdate(p.fecha)}</div></div>
@@ -1076,14 +1080,119 @@ function pantallaBloqueo(){
     <p style="text-align:center;margin-top:16px"><button class="btn" onclick="cerrarSesion()">Cerrar sesión</button></p>`);
 }
 
+/* ---------- renovaciones ----------
+   El cliente debe un saldo (capital + intereses). Se le hace un préstamo nuevo:
+   el saldo viejo se cancela con un "pago por renovación" (no es efectivo) y
+   solo se le entrega en efectivo la diferencia (excedente). */
+const efectivo = x => x.tipo !== 'renovacion';           // los cruces por renovación no son plata que entra
+function puedeRenovar(p){ return estadoPrestamo(p).estado !== 'Pagado' && !DB.renovaciones.some(r=>r.prestamoId===p.id && r.estado==='pendiente'); }
+function modalRenovacion(prestamoId, renovacionId){
+  const ren = renovacionId ? DB.renovaciones.find(r=>r.id===renovacionId) : null;
+  const p = DB.prestamos.find(x=>x.id===(ren?ren.prestamoId:prestamoId)); if(!p) return;
+  const e = estadoPrestamo(p), cl = clienteById(p.clienteId)||{};
+  const aprobar = !!ren, directo = !ren && isAdmin();
+  const base = ren || { monto:p.monto, tasa:p.tasa, meses:p.meses, periodo:p.periodo, excluirDomingos:p.excluirDomingos, nota:'' };
+  openModal(`<div class="row" style="margin-bottom:12px">${ava(cl.nombre)}<h3 style="margin:0">${aprobar?'Aprobar renovación':directo?'Renovar crédito':'Solicitar renovación'}</h3></div>
+  <p class="muted" style="margin-top:-4px">${esc(cl.nombre||'')}${ren?' · solicitó '+esc(nombreUsuario(ren.creadoPor)):''}</p>
+  <div class="calcbox" style="margin-bottom:14px">
+    <div><div class="l">Préstamo actual</div><div class="v">${fmt(p.monto)}</div></div>
+    <div><div class="l">Ya pagó</div><div class="v">${fmt(e.pagado)}</div></div>
+    <div><div class="l">Debe hoy (con intereses)</div><div class="v" style="color:var(--red)">${fmt(e.saldo)}</div></div>
+  </div>
+  <div class="form">
+    <label class="f">Valor del nuevo préstamo<input class="input" id="rMon" inputmode="numeric" value="${Math.round(base.monto).toLocaleString('es-CO')}"></label>
+    <label class="f">% interés mensual<input class="input" id="rTas" inputmode="decimal" value="${base.tasa}"></label>
+    <label class="f">No. de meses<input class="input" id="rMes" inputmode="decimal" value="${base.meses}"></label>
+    <label class="f">Periodo de pago<select class="input" id="rPer">${PERIODOS.map(x=>`<option ${x===base.periodo?'selected':''}>${x}</option>`).join('')}</select></label>
+    <label class="f full">Nota<input class="input" id="rNot" value="${esc(base.nota||'')}" placeholder="Opcional"></label>
+  </div>
+  <div class="calcbox" id="rCalc" style="margin-top:14px"></div>
+  ${aprobar?'':`<p class="muted" style="font-size:12.5px">${directo?'El préstamo actual queda pagado con el nuevo y se registra la entrega del efectivo.':'El Admin o el CEO revisa la solicitud. Cuando la apruebe te aparece en tu ruta para que entregues el efectivo.'}</p>`}
+  <div class="actions">${aprobar?`<button class="btn danger" style="margin-right:auto" id="rNo">Rechazar</button>`:''}<button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="rOk">${aprobar?'Aprobar renovación':directo?'Renovar':'Enviar solicitud'}</button></div>`);
+  const $=k=>document.getElementById(k);
+  const calc=()=>{
+    const monto=num($('rMon').value), c=calcular(monto,num($('rTas').value),num($('rMes').value),$('rPer').value);
+    const exc=monto-e.saldo;
+    $('rCalc').innerHTML=`<div><div class="l">Se descuenta lo que debe</div><div class="v">${fmt(e.saldo)}</div></div>
+      <div><div class="l">Entregar en efectivo</div><div class="v" style="color:${exc<0?'var(--red)':'var(--green)'}">${fmt(exc)}</div></div>
+      <div><div class="l">Nueva cuota</div><div class="v">${fmt(c.valorCuota)}</div><div class="muted" style="font-size:11.5px">${c.cuotas} cuotas ${$('rPer').value.toLowerCase()}</div></div>
+      <div><div class="l">Nuevo total a pagar</div><div class="v">${fmt(c.valorCuota*c.cuotas)}</div></div>`;
+    return {monto,exc,c};
+  };
+  ['rMon','rTas','rMes','rPer'].forEach(k=>$(k).addEventListener('input',calc)); calc();
+  $('rMon').addEventListener('blur',()=>{ const n=num($('rMon').value); if(n) $('rMon').value=n.toLocaleString('es-CO'); });
+  if(aprobar) $('rNo').onclick=()=>{ if(!confirm('¿Rechazar esta solicitud de renovación?')) return; dbUpd('renovaciones',ren.id,{estado:'rechazada',revisadoPor:ME.uid,revisadoEn:Date.now()}); closeModal(); render(); toast('Renovación rechazada'); };
+  $('rOk').onclick=()=>{
+    const {monto,exc}=calc();
+    if(monto<=0) return toast('Escribe el valor del nuevo préstamo');
+    if(exc<0) return toast('El nuevo préstamo debe ser mayor o igual a lo que debe ('+fmt(e.saldo)+')');
+    const datos={monto,tasa:num($('rTas').value),meses:num($('rMes').value),periodo:$('rPer').value,excluirDomingos:!!base.excluirDomingos,nota:$('rNot').value.trim()};
+    if(!(datos.meses>0)) return toast('El número de meses debe ser mayor a 0');
+    if(!isAdmin()){
+      dbAdd('renovaciones',{prestamoId:p.id,clienteId:p.clienteId,cobradorId:p.cobradorId||ME.uid,estado:'pendiente',saldoAlSolicitar:e.saldo,...datos});
+      closeModal(); render(); toast('Solicitud de renovación enviada'); return;
+    }
+    if(!confirm(`Renovar el crédito de ${cl.nombre}:\n\n• Se cancela lo que debe: ${fmt(e.saldo)}\n• Nuevo préstamo: ${fmt(monto)}\n• Entregar en efectivo: ${fmt(exc)}\n\n¿Continuar?`)) return;
+    ejecutarRenovacion(p, e.saldo, datos, ren);
+    closeModal(); render(); toast(ren?'Renovación aprobada':'Crédito renovado');
+  };
+}
+function ejecutarRenovacion(p, saldo, d, ren){
+  const hoy=todayStr(), c=calcular(d.monto,d.tasa,d.meses,d.periodo);
+  if(saldo>0) dbAdd('pagos',{prestamoId:p.id,fecha:hoy,monto:saldo,tipo:'renovacion',nota:'Cancelado con renovación',cobradorId:p.cobradorId||'',registradoPor:ME.uid});
+  const nuevoId=dbAdd('prestamos',{clienteId:p.clienteId,fecha:hoy,monto:d.monto,tasa:d.tasa,meses:d.meses,periodo:d.periodo,excluirDomingos:d.excluirDomingos,
+    nota:('Renovación'+(d.nota?' · '+d.nota:'')),cuotas:c.cuotas,valorCuota:c.valorCuota,interesMes:c.interesMes,total:c.total,cobradorId:p.cobradorId||'',renovacionDe:p.id,saldoCancelado:saldo});
+  const exc=d.monto-saldo;
+  // si la pidió un cobrador, él entrega el efectivo; si la hace la oficina, queda entregada de una vez
+  const entregaCobrador = ren && ren.cobradorId;
+  const info={estado:entregaCobrador?'aprobada':'entregada',nuevoPrestamoId:nuevoId,saldoCancelado:saldo,excedente:exc,revisadoPor:ME.uid,revisadoEn:Date.now(),fechaRenovacion:hoy,...d};
+  if(ren) dbUpd('renovaciones',ren.id,info);
+  else dbAdd('renovaciones',{prestamoId:p.id,clienteId:p.clienteId,cobradorId:'',...info,entregadoPor:ME.uid,entregadoEn:Date.now()});
+}
+function marcarEntregada(id){
+  const r=DB.renovaciones.find(x=>x.id===id); if(!r) return;
+  if(!confirm(`¿Ya le entregaste ${fmt(r.excedente)} a ${nombreCliente(r.clienteId)}?`)) return;
+  dbUpd('renovaciones',id,{estado:'entregada',entregadoPor:ME.uid,entregadoEn:Date.now()}); render(); toast('Entrega registrada');
+}
+function tarjetaRenov(r){
+  const cl=clienteById(r.clienteId)||{};
+  const est={pendiente:'<span class="pill p-hoy">Esperando aprobación</span>',aprobada:'<span class="pill p-ok">Aprobada: entregar efectivo</span>',entregada:'<span class="pill p-pag">Entregada</span>',rechazada:'<span class="pill p-mora">Rechazada</span>'}[r.estado]||'';
+  const debe = r.estado==='pendiente' ? (()=>{ const p=DB.prestamos.find(x=>x.id===r.prestamoId); return p?estadoPrestamo(p).saldo:r.saldoAlSolicitar; })() : r.saldoCancelado;
+  return `<div class="card cobro">
+    <div class="who">${ava(cl.nombre)}<div style="min-width:0;flex:1"><b>${esc(cl.nombre||'')}</b><div class="muted" style="font-size:12.5px">Renovación · ${esc(nombreUsuario(r.creadoPor))}</div></div>${est}</div>
+    <div class="cobro-nums"><div><span>Nuevo préstamo</span><b>${fmt(r.monto)}</b></div><div><span>Debe</span><b>${fmt(debe)}</b></div><div><span>Entregar</span><b style="color:var(--green)">${fmt(r.monto-(debe||0))}</b></div></div>
+    <div class="row"><span class="spacer"></span>
+      ${r.estado==='pendiente'&&isAdmin()?`<button class="btn pri" onclick="modalRenovacion(null,'${r.id}')">Revisar</button>`:''}
+      ${r.estado==='aprobada'&&(r.cobradorId===ME.uid||isAdmin())?`<button class="btn pri" onclick="marcarEntregada('${r.id}')">Ya entregué ${fmt(r.excedente)}</button>`:''}
+    </div></div>`;
+}
+VIEWS.renovaciones = () => {
+  const f=viewState.f||'activas';
+  let rows=[...DB.renovaciones].filter(r=>pasaFiltroCob(r.cobradorId));
+  if(f==='activas') rows=rows.filter(r=>r.estado==='pendiente'||r.estado==='aprobada');
+  rows.sort((a,b)=>(b.creado||0)-(a.creado||0));
+  const fb=(k,t)=>`<button class="btn sm ${f===k?'pri':''}" onclick="go('renovaciones',Object.assign({},viewState,{f:'${k}'}))">${t}</button>`;
+  return `<div class="head"><div><h1>Renovaciones</h1><p class="sub">Solicitudes de los cobradores para renovar créditos. Al aprobar, lo que debe el cliente se descuenta del préstamo nuevo y se entrega solo la diferencia.</p></div></div>
+  <div class="toolbar">${fb('activas','Por atender')}${fb('todas','Todas')}${filtroCobrador('renovaciones')}</div>
+  ${rows.length?`<div class="cobros-grid">${rows.map(tarjetaRenov).join('')}</div>`:'<div class="card"><div class="empty">No hay renovaciones por atender.</div></div>'}`;
+};
+function bloqueRenovacionesCobrador(){
+  const rs=DB.renovaciones.filter(r=>r.cobradorId===ME.uid && (r.estado==='pendiente'||r.estado==='aprobada'));
+  if(!rs.length) return '';
+  return `<h2 style="margin:4px 0 12px">Renovaciones</h2><div class="cobros-grid" style="margin-bottom:22px">${rs.map(tarjetaRenov).join('')}</div>`;
+}
+
 /* ---------- cuadre de caja por cobrador ---------- */
 function cuadreCobrador(uidC, fecha){
-  const pagos = DB.pagos.filter(x=>(x.registradoPor||'')===uidC);
+  const pagos = DB.pagos.filter(x=>(x.registradoPor||'')===uidC && efectivo(x));
   const entregas = DB.entregas.filter(x=>x.cobradorId===uidC);
+  const renov = DB.renovaciones.filter(r=>r.estado==='entregada' && r.entregadoPor===uidC);
+  const desembolsado = renov.reduce((s,r)=>s+(Number(r.excedente)||0),0);
   const tot = a=>a.reduce((s,x)=>s+(Number(x.monto ?? x.valor)||0),0);
   const pDia = fecha? pagos.filter(x=>x.fecha===fecha):[], eDia = fecha? entregas.filter(x=>x.fecha===fecha):[];
   return { cobradoDia:tot(pDia), nPagosDia:pDia.length, pagosDia:pDia, entregadoDia:tot(eDia), entregasDia:eDia,
-           cobradoTotal:tot(pagos), entregadoTotal:tot(entregas), enMano: tot(pagos)-tot(entregas) };
+           cobradoTotal:tot(pagos), entregadoTotal:tot(entregas), desembolsado, desembolsadoDia: renov.filter(r=>fecha&&r.entregadoEn&&ymd(new Date(r.entregadoEn))===fecha).reduce((s,r)=>s+(Number(r.excedente)||0),0),
+           enMano: tot(pagos)-tot(entregas)-desembolsado };
 }
 VIEWS.cuadre = () => {
   const fecha = viewState.fecha || todayStr();
@@ -1094,14 +1203,14 @@ VIEWS.cuadre = () => {
     <div class="head"><div><h1>Mi cuadre</h1><p class="sub">Lo que cobraste y lo que ya entregaste.</p></div>${fechaInput}</div>
     <div class="kpis">
       <div class="kpi hl"><div class="l">Cobrado ${fecha===todayStr()?'hoy':'ese día'}</div><div class="v">${fmt(c.cobradoDia)}</div><div class="n">${c.nPagosDia} pagos</div></div>
-      <div class="kpi sky"><div class="l">Entregado ${fecha===todayStr()?'hoy':'ese día'}</div><div class="v">${fmt(c.entregadoDia)}</div></div>
-      <div class="kpi cream"><div class="l">Plata en mano por entregar</div><div class="v">${fmt(c.enMano)}</div><div class="n">Todo lo cobrado menos todo lo entregado</div></div>
+      <div class="kpi sky"><div class="l">Entregado a la oficina ${fecha===todayStr()?'hoy':'ese día'}</div><div class="v">${fmt(c.entregadoDia)}</div>${c.desembolsadoDia?`<div class="n">Y entregaste ${fmt(c.desembolsadoDia)} en renovaciones</div>`:''}</div>
+      <div class="kpi cream"><div class="l">Plata en mano por entregar</div><div class="v">${fmt(c.enMano)}</div><div class="n">Lo cobrado menos lo entregado a la oficina y en renovaciones</div></div>
     </div>
     ${tablaPagosDia(c.pagosDia)}`;
   }
   const filas = [{id:ME.uid,nombre:(ME.nombre||'Yo')+' ('+rolDe(ME)+')'}, ...cobradores()].map(u=>({u,c:cuadreCobrador(u.id,fecha)}));
   const tot = k=>filas.reduce((s,f)=>s+f.c[k],0);
-  const todosPagos = DB.pagos.filter(x=>x.fecha===fecha);
+  const todosPagos = DB.pagos.filter(x=>x.fecha===fecha && efectivo(x));
   return `
   <div class="head"><div><h1>Cuadre de caja</h1><p class="sub">Cuánto cobró cada cobrador, cuánto te entregó y cuánto tiene en la mano.</p></div>${fechaInput}</div>
   <div class="kpis">
@@ -1109,8 +1218,8 @@ VIEWS.cuadre = () => {
     <div class="kpi sky"><div class="l">Entregado ese día</div><div class="v">${fmt(tot('entregadoDia'))}</div></div>
     <div class="kpi cream"><div class="l">En manos de cobradores</div><div class="v">${fmt(filas.slice(1).reduce((s,f)=>s+f.c.enMano,0))}</div><div class="n">Pendiente por entregarte</div></div>
   </div>
-  <div class="card" style="margin-bottom:16px"><div class="tablewrap"><table><thead><tr><th>Cobrador</th><th class="num">Pagos</th><th class="num">Cobrado</th><th class="num">Entregado</th><th class="num">Plata en mano</th><th></th></tr></thead><tbody>
-  ${filas.map(({u,c},i)=>`<tr><td><div class="who">${ava(u.nombre)}<b>${esc(u.nombre)}</b></div></td><td class="num">${c.nPagosDia}</td><td class="num">${fmt(c.cobradoDia)}</td><td class="num">${fmt(c.entregadoDia)}</td>
+  <div class="card" style="margin-bottom:16px"><div class="tablewrap"><table><thead><tr><th>Cobrador</th><th class="num">Pagos</th><th class="num">Cobrado</th><th class="num">Entregado</th><th class="num">En renovaciones</th><th class="num">Plata en mano</th><th></th></tr></thead><tbody>
+  ${filas.map(({u,c},i)=>`<tr><td><div class="who">${ava(u.nombre)}<b>${esc(u.nombre)}</b></div></td><td class="num">${c.nPagosDia}</td><td class="num">${fmt(c.cobradoDia)}</td><td class="num">${fmt(c.entregadoDia)}</td><td class="num">${c.desembolsadoDia?fmt(c.desembolsadoDia):'—'}</td>
     <td class="num"><b style="color:${i&&c.enMano>0.5?'var(--amber)':'inherit'}">${i?fmt(c.enMano):'—'}</b></td>
     <td class="right">${i?`<button class="btn sm pri" onclick="modalEntrega('${u.id}','${fecha}')">Recibir plata</button>`:''}</td></tr>`).join('')}
   </tbody></table></div></div>

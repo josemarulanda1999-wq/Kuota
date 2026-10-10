@@ -66,7 +66,7 @@ window.S = {
     const uns = [];
     const admin = me.rol === 'ceo' || me.rol === 'admin';
     const ceo = me.rol === 'ceo';
-    const cols = ceo ? ['clientes', 'prestamos', 'pagos', 'salidas', 'capital', 'ingresos', 'entregas'] : admin ? ['clientes', 'prestamos', 'pagos', 'entregas'] : ['clientes', 'prestamos', 'pagos', 'entregas'];
+    const cols = ceo ? ['clientes', 'prestamos', 'pagos', 'salidas', 'capital', 'ingresos', 'entregas', 'renovaciones'] : ['clientes', 'prestamos', 'pagos', 'entregas', 'renovaciones'];
     for (const c of cols) {
       const q = admin ? collection(db, ruta(c)) : query(collection(db, ruta(c)), where('cobradorId', '==', me.uid));
       uns.push(onSnapshot(q, snap => cb(c, list(snap)), err => cb('error', err)));

@@ -1,0 +1,64 @@
+rules_version = '2';
+// Reglas de seguridad: el administrador ve y edita todo;
+// cada cobrador solo ve sus clientes, préstamos, pagos y entregas.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function userDoc() { return /databases/$(database)/documents/users/$(request.auth.uid); }
+    function isUser() { return signedIn() && exists(userDoc()) && get(userDoc()).data.activo == true; }
+    function isAdmin() { return isUser() && get(userDoc()).data.rol == 'admin'; }
+    function isCobrador() { return isUser() && get(userDoc()).data.rol == 'cobrador'; }
+    function own() { return resource.data.cobradorId == request.auth.uid; }
+    function ownNew() { return request.resource.data.cobradorId == request.auth.uid; }
+    function adminDoc() { return /databases/$(database)/documents/meta/admin; }
+
+    // Marca de que ya existe un administrador (solo se crea una vez)
+    match /meta/admin {
+      allow read: if true;
+      allow create: if signedIn() && !exists(adminDoc()) && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    match /users/{uid} {
+      allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
+      allow create: if isAdmin()
+        || (signedIn() && request.auth.uid == uid && request.resource.data.rol == 'admin'
+            && !exists(adminDoc()) && getAfter(adminDoc()).data.uid == request.auth.uid);
+      allow update, delete: if isAdmin();
+    }
+
+    match /config/{id} {
+      allow read: if isUser();
+      allow write: if isAdmin();
+    }
+
+    match /clientes/{id} {
+      allow read: if isAdmin() || (isCobrador() && own());
+      allow create: if isAdmin() || (isCobrador() && ownNew());
+      allow update: if isAdmin() || (isCobrador() && own() && ownNew());
+      allow delete: if isAdmin();
+    }
+
+    match /prestamos/{id} {
+      allow read: if isAdmin() || (isCobrador() && own());
+      allow write: if isAdmin();
+    }
+
+    match /pagos/{id} {
+      allow read: if isAdmin() || (isCobrador() && own());
+      allow create: if isAdmin()
+        || (isCobrador() && ownNew() && request.resource.data.registradoPor == request.auth.uid
+            && get(/databases/$(database)/documents/prestamos/$(request.resource.data.prestamoId)).data.cobradorId == request.auth.uid);
+      allow update, delete: if isAdmin();
+    }
+
+    match /entregas/{id} {
+      allow read: if isAdmin() || (isCobrador() && own());
+      allow write: if isAdmin();
+    }
+
+    match /salidas/{id} { allow read, write: if isAdmin(); }
+    match /capital/{id} { allow read, write: if isAdmin(); }
+    match /ingresos/{id} { allow read, write: if isAdmin(); }
+  }
+}

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e0e10">
+<title>Kuota</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="login" class="login"><div class="login-logo">$</div></div>
+<div class="app" id="appShell" style="display:none">
+  <aside>
+    <div class="logo" id="logoName">Kuota</div>
+    <nav id="nav"></nav>
+    <div class="aside-foot">
+      <div id="userBox"></div>
+      <button id="themeBtn">Cambiar tema</button>
+    </div>
+  </aside>
+  <div class="mainwrap">
+    <div id="topUser" class="topuser"></div>
+    <main id="main"></main>
+  </div>
+</div>
+<div id="modalRoot"></div>
+<script src="store.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

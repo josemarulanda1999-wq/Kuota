@@ -1,0 +1,78 @@
+name: Compilar APK y versión web
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Instalar dependencias
+        run: npm install
+
+      - name: Compilar la app web
+        run: node build.mjs
+
+      - name: Guardar versión web (para GitHub Pages)
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: www
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Crear proyecto Android
+        run: |
+          npx cap add android
+          node ci/android-setup.mjs
+          npx cap sync android
+
+      - name: Compilar APK
+        run: |
+          mkdir -p ~/.android
+          cp ci/debug.keystore ~/.android/debug.keystore
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+          cp app/build/outputs/apk/debug/app-debug.apk ../Kuota.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Kuota-apk
+          path: Kuota.apk
+
+      - name: Publicar versión para descargar
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: Kuota ${{ github.run_number }}
+          body: Descarga **Kuota.apk** e instálalo en el celular.
+          files: Kuota.apk
+
+  web:
+    needs: build
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

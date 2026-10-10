@@ -1,0 +1,20 @@
+{
+  "name": "kuota",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Control de préstamos con administrador y cobradores (Firebase + Capacitor)",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/core": "^6.2.0",
+    "@capacitor/filesystem": "^6.0.2",
+    "@capacitor/share": "^6.0.3",
+    "firebase": "^10.14.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.2.0",
+    "esbuild": "^0.24.0"
+  }
+}

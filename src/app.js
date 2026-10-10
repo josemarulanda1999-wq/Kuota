@@ -349,7 +349,7 @@ VIEWS.cobros = () => {
   const totalPagado = list.reduce((s,c)=>s+c.pagadoHoy,0);
   return `
   <div class="head"><div><h1>${isAdmin()?'Cobros del día':'Mi ruta'}</h1><p class="sub">Cuotas que vencen y préstamos atrasados. Marca el pago apenas cobres.</p></div>
-  <div class="row">${filtroCobrador('cobros')}<input type="date" class="input" style="width:auto" value="${fecha}" onchange="go('cobros',Object.assign({},viewState,{fecha:this.value}))">${isNative()?'':'<button class="btn no-print" onclick="window.print()">Imprimir ruta</button>'}</div></div>
+  <div class="row">${isAdmin()?'':`<button class="btn pri" onclick="elegirRenovacion()">Solicitar renovación</button>`}${filtroCobrador('cobros')}<input type="date" class="input" style="width:auto" value="${fecha}" onchange="go('cobros',Object.assign({},viewState,{fecha:this.value}))">${isNative()?'':'<button class="btn no-print" onclick="window.print()">Imprimir ruta</button>'}</div></div>
   <div class="kpis">
     <div class="kpi sky"><div class="l">Clientes a visitar</div><div class="v">${list.length}</div></div>
     <div class="kpi cream"><div class="l">Pendiente por cobrar</div><div class="v">${fmt(totalCobrar)}</div></div>
@@ -389,7 +389,7 @@ VIEWS.prestamos = () => {
   ${movil() ? (rows.length?`<div class="cobros-grid">${rows.map(({p,e,c})=>`<div class="card cobro" onclick="modalDetalle('${p.id}')" style="cursor:pointer">
       <div class="who">${ava(c.nombre)}<div style="min-width:0;flex:1"><b>${esc(c.nombre||'(sin cliente)')}</b><div class="muted" style="font-size:12.5px">${fdate(p.fecha)} · ${p.cuotas} cuotas ${p.periodo.toLowerCase()}</div></div>${pill(e)}</div>
       <div class="cobro-nums"><div><span>Prestado</span><b>${fmt(p.monto)}</b></div><div><span>Cuota</span><b>${fmt(p.valorCuota)}</b></div><div><span>Saldo</span><b>${fmt(e.saldo)}</b></div></div>
-      <div><div class="progress"><i style="width:${Math.min(100,e.pagado/e.totalReal*100)}%"></i></div><div class="muted" style="font-size:11.5px;margin-top:4px">${e.cuotasPagadas} de ${p.cuotas} cuotas pagadas</div></div></div>`).join('')}</div>`:`<div class="card"><div class="empty">${DB.prestamos.length?'No hay préstamos con ese filtro.':(isAdmin()?'Aún no hay préstamos.':'Todavía no tienes préstamos asignados.')}</div></div>`) : `<div class="card">
+      <div><div class="progress"><i style="width:${Math.min(100,e.pagado/e.totalReal*100)}%"></i></div><div class="muted" style="font-size:11.5px;margin-top:4px">${e.cuotasPagadas} de ${p.cuotas} cuotas pagadas</div></div>${puedeRenovar(p)?`<div class="row"><span class="spacer"></span><button class="btn sm" onclick="event.stopPropagation();modalRenovacion('${p.id}')">${isAdmin()?'Renovar':'Solicitar renovación'}</button></div>`:''}</div>`).join('')}</div>`:`<div class="card"><div class="empty">${DB.prestamos.length?'No hay préstamos con ese filtro.':(isAdmin()?'Aún no hay préstamos.':'Todavía no tienes préstamos asignados.')}</div></div>`) : `<div class="card">
   ${rows.length? `<div class="tablewrap"><table><thead><tr><th>Deudor</th><th>Fecha</th><th class="num">Valor</th><th class="num">% Int.</th><th>Periodo</th><th class="num">Cuota</th><th>Avance</th><th class="num">Saldo</th><th>Estado</th></tr></thead><tbody>
   ${rows.map(({p,e,c})=>`<tr class="click" onclick="modalDetalle('${p.id}')">
     <td><div class="who">${ava(c.nombre)}<div><b>${esc(c.nombre||'(sin cliente)')}</b><div class="muted" style="font-size:12px">${esc(c.cedula||'')}${isAdmin()&&cobradores().length?' · '+esc(nombreUsuario(p.cobradorId)):''}</div></div></div></td>
@@ -416,7 +416,7 @@ VIEWS.clientes = () => {
   ${movil() ? (rows.length?`<div class="cobros-grid">${rows.map(c=>{const ps=DB.prestamos.filter(p=>p.clienteId===c.id);const saldo=ps.reduce((s,p)=>s+estadoPrestamo(p).saldo,0);const tel=(c.tel1||'').replace(/[^\d+]/g,'');return `<div class="card cobro">
       <div class="who">${ava(c.nombre)}<div style="min-width:0;flex:1"><b>${esc(c.nombre)}</b><div class="muted" style="font-size:12.5px">${esc(c.direccion||c.tel1||'')}</div></div></div>
       <div class="cobro-nums"><div><span>Préstamos</span><b>${ps.length}</b></div><div><span>Saldo</span><b>${fmt(saldo)}</b></div><div><span>${isAdmin()?'Ruta':'Cédula'}</span><b style="font-size:13px">${esc(isAdmin()?nombreUsuario(c.cobradorId):(c.cedula||'—'))}</b></div></div>
-      <div class="row">${tel?`<a class="btn sm" href="tel:${esc(tel)}">Llamar</a>`:''}<span class="spacer"></span>${isAdmin()?`<button class="btn sm" onclick="modalPrestamo(null,'${c.id}')">Prestar</button>`:''}<button class="btn sm" onclick="modalCliente('${c.id}')">Editar</button></div></div>`}).join('')}</div>`:`<div class="card"><div class="empty">${DB.clientes.length?'Sin resultados.':'Aún no hay clientes registrados.'}</div></div>`) : `<div class="card">
+      <div class="row">${tel?`<a class="btn sm" href="tel:${esc(tel)}">Llamar</a>`:''}<span class="spacer"></span>${(()=>{const act=ps.find(p=>puedeRenovar(p)); return act?`<button class="btn sm" onclick="modalRenovacion('${act.id}')">Renovar</button>`:'';})()}${isAdmin()?`<button class="btn sm" onclick="modalPrestamo(null,'${c.id}')">Prestar</button>`:''}<button class="btn sm" onclick="modalCliente('${c.id}')">Editar</button></div></div>`}).join('')}</div>`:`<div class="card"><div class="empty">${DB.clientes.length?'Sin resultados.':'Aún no hay clientes registrados.'}</div></div>`) : `<div class="card">
   ${rows.length? `<div class="tablewrap"><table><thead><tr><th>Nombre</th><th># Identificación</th><th>Teléfono 1</th><th>Teléfono 2</th><th>Dirección</th><th>Ciudad</th>${isAdmin()?'<th>Cobrador</th>':''}<th class="num">Préstamos</th><th class="num">Saldo</th><th></th></tr></thead><tbody>
   ${rows.map(c=>{const ps=DB.prestamos.filter(p=>p.clienteId===c.id);const saldo=ps.reduce((s,p)=>s+estadoPrestamo(p).saldo,0);return `<tr>
     <td><div class="who">${ava(c.nombre)}<div><b>${esc(c.nombre)}</b>${c.obs?`<div class="muted" style="font-size:12px">${esc(c.obs)}</div>`:''}</div></div></td><td>${esc(c.cedula)}</td><td>${esc(c.tel1)}</td><td>${esc(c.tel2)}</td>
@@ -1148,6 +1148,15 @@ function ejecutarRenovacion(p, saldo, d, ren){
   const info={estado:entregaCobrador?'aprobada':'entregada',nuevoPrestamoId:nuevoId,saldoCancelado:saldo,excedente:exc,revisadoPor:ME.uid,revisadoEn:Date.now(),fechaRenovacion:hoy,...d};
   if(ren) dbUpd('renovaciones',ren.id,info);
   else dbAdd('renovaciones',{prestamoId:p.id,clienteId:p.clienteId,cobradorId:'',...info,entregadoPor:ME.uid,entregadoEn:Date.now()});
+}
+function elegirRenovacion(){
+  const ps=DB.prestamos.filter(p=>puedeRenovar(p)).sort((a,b)=>nombreCliente(a.clienteId).localeCompare(nombreCliente(b.clienteId)));
+  if(!ps.length) return toast('No tienes préstamos activos para renovar');
+  openModal(`<h3>Solicitar renovación</h3><p class="muted" style="margin-top:-8px">Escoge el cliente que quiere renovar.</p>
+  <div class="cobros-grid">${ps.map(p=>{const e=estadoPrestamo(p);return `<div class="card cobro" style="cursor:pointer;background:var(--panel-2)" onclick="modalRenovacion('${p.id}')">
+    <div class="who">${ava(nombreCliente(p.clienteId))}<div style="flex:1"><b>${esc(nombreCliente(p.clienteId))}</b><div class="muted" style="font-size:12.5px">Préstamo de ${fmt(p.monto)}</div></div></div>
+    <div class="cobro-nums" style="background:var(--panel)"><div><span>Cuota</span><b>${fmt(p.valorCuota)}</b></div><div><span>Ya pagó</span><b>${fmt(e.pagado)}</b></div><div><span>Debe en total</span><b style="color:var(--red)">${fmt(e.saldo)}</b></div></div></div>`;}).join('')}</div>
+  <div class="actions"><button class="btn" onclick="closeModal()">Cancelar</button></div>`);
 }
 async function marcarEntregada(id){
   const r=DB.renovaciones.find(x=>x.id===id); if(!r) return;

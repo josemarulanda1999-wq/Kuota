@@ -46,7 +46,13 @@ function dbDel(col, id){
   DB[col] = DB[col].filter(x=>x.id!==id);
   S.remove(col, id).catch(falloNube);
 }
-function cfgSave(){ S.setConfig(DB.config).catch(falloNube); }
+const CAMPOS_FINANZAS = ['capitalInicial','fechaCapital'];   // solo el CEO los puede leer
+function cfgSave(){
+  const general = {...DB.config}, fin = {};
+  for(const k of CAMPOS_FINANZAS){ fin[k]=general[k]; delete general[k]; }
+  S.setConfig(general).catch(falloNube);
+  if(isCeo()) S.setFinanzas(fin).catch(falloNube);
+}
 function save(){ /* compatibilidad: la nube guarda en cada operación */ }
 
 /* ---- render diferido si el usuario está escribiendo ---- */
@@ -183,7 +189,7 @@ ICONS.usuarios='<path d="M12 12a4 4 0 100-8 4 4 0 000 8zm0 2c-3.3 0-8 1.7-8 5v1h
 const NAV_ADMIN = [['panel','Panel','Panel'],['cobros','Cobros del día','Cobros'],['movimientos','Movimientos','Caja'],['cuadre','Cuadre de caja','Cuadre'],['prestamos','Préstamos','Préstamos'],['clientes','Clientes','Clientes'],['salidas','Salidas de dinero','Gastos'],['usuarios','Usuarios','Usuarios'],['suscripcion','Mi suscripción','Plan'],['calculadora','Calculadora','Calcular'],['ajustes','Ajustes y respaldo','Ajustes']];
 const NAV_COB = [['cobros','Mi ruta','Ruta'],['clientes','Mis clientes','Clientes'],['prestamos','Préstamos','Préstamos'],['cuadre','Mi cuadre','Cuadre']];
 const PERMITIDAS_COB = ['cobros','clientes','prestamos','cuadre'];
-const SOLO_CEO = ['usuarios','ajustes','suscripcion'];
+const SOLO_CEO = ['panel','movimientos','salidas','usuarios','ajustes','suscripcion'];  // el Admin no ve el dinero del negocio
 function renderNav(){
   const n = cobrosDelDia().filter(c=>c.cobrar>0.5).length;
   const NAV = isAdmin()? NAV_ADMIN.filter(([k])=>isCeo() || !SOLO_CEO.includes(k)) : NAV_COB;
@@ -204,7 +210,7 @@ document.addEventListener('click', e=>{
 function render(){
   if(!ME) return;
   if(!isAdmin() && !PERMITIDAS_COB.includes(view)) view='cobros';
-  if(!isCeo() && SOLO_CEO.includes(view)) view='panel';
+  if(!isCeo() && SOLO_CEO.includes(view)) view='cobros';
   renderNav();
   const m = document.getElementById('main');
   m.innerHTML = avisoSuscripcion() + (VIEWS[view]||VIEWS.panel)();
@@ -1219,9 +1225,15 @@ function arrancarDatos(){
   datosActivos=true;
   document.getElementById('login').style.display='none';
   document.getElementById('appShell').style.display='';
-  view = isAdmin() ? 'panel' : 'cobros'; viewState={};
+  view = isCeo() ? 'panel' : 'cobros'; viewState={};
   unsub = S.subscribe(ME, (col, data)=>{
-    if(col==='config') DB.config = migrateConfig(data);
+    if(col==='config'){
+      const fin={}; for(const k of CAMPOS_FINANZAS) if(k in DB.config && DB.config[k]!==undefined) fin[k]=DB.config[k];
+      DB.config = Object.assign(migrateConfig(data), fin);
+      // datos antiguos: el capital estaba en la configuración general; se pasa a la parte privada del CEO
+      if(isCeo() && CAMPOS_FINANZAS.some(k=>k in data)) setTimeout(cfgSave, 500);
+    }
+    else if(col==='finanzas') Object.assign(DB.config, data||{});
     else if(col==='error'){ console.error(data); if(String(data&&data.code)==='permission-denied') return; toast('Error de conexión con la nube'); return; }
     else DB[col] = data;
     if(col==='users'){ const me=data.find(u=>u.id===ME.uid); if(me && me.activo===false){ detenerTodo(); S.logout(); return; } if(me) ME=Object.assign(ME,me); }

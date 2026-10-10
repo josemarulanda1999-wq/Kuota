@@ -65,7 +65,8 @@ window.S = {
   subscribe(me, cb) {
     const uns = [];
     const admin = me.rol === 'ceo' || me.rol === 'admin';
-    const cols = admin ? ['clientes', 'prestamos', 'pagos', 'salidas', 'capital', 'ingresos', 'entregas'] : ['clientes', 'prestamos', 'pagos', 'entregas'];
+    const ceo = me.rol === 'ceo';
+    const cols = ceo ? ['clientes', 'prestamos', 'pagos', 'salidas', 'capital', 'ingresos', 'entregas'] : admin ? ['clientes', 'prestamos', 'pagos', 'entregas'] : ['clientes', 'prestamos', 'pagos', 'entregas'];
     for (const c of cols) {
       const q = admin ? collection(db, ruta(c)) : query(collection(db, ruta(c)), where('cobradorId', '==', me.uid));
       uns.push(onSnapshot(q, snap => cb(c, list(snap)), err => cb('error', err)));
@@ -73,6 +74,7 @@ window.S = {
     if (admin) uns.push(onSnapshot(query(collection(db, 'users'), where('empresaId', '==', EID)), s => cb('users', list(s)), err => cb('error', err)));
     else uns.push(onSnapshot(doc(db, 'users', me.uid), s => { if (s.exists()) cb('users', [{ id: s.id, ...s.data() }]); }, err => cb('error', err)));
     uns.push(onSnapshot(doc(db, ruta('config'), 'general'), s => cb('config', s.exists() ? s.data() : {}), err => cb('error', err)));
+    if (ceo) uns.push(onSnapshot(doc(db, ruta('config'), 'finanzas'), s => cb('finanzas', s.exists() ? s.data() : {}), err => cb('error', err)));
     return () => uns.forEach(u => u());
   },
   newId: c => doc(collection(db, ruta(c))).id,
@@ -80,6 +82,7 @@ window.S = {
   update: (c, id, data) => updateDoc(doc(db, ruta(c), id), clean(data)),
   remove: (c, id) => deleteDoc(doc(db, ruta(c), id)),
   setConfig: data => setDoc(doc(db, ruta('config'), 'general'), clean(data)),
+  setFinanzas: data => setDoc(doc(db, ruta('config'), 'finanzas'), clean(data)),
   async batchSet(ops) {
     for (let i = 0; i < ops.length; i += 400) {
       const b = writeBatch(db);
@@ -123,7 +126,8 @@ window.S = {
       const b = writeBatch(db);
       b.set(doc(db, 'empresas', eid), clean({ ...emp, ceoUid: uid }));
       b.set(doc(db, 'users', uid), { nombre: ceo.nombre, email: ceo.email, rol: 'ceo', empresaId: eid, activo: true, estado: 'activo', creado: Date.now() });
-      b.set(doc(db, 'empresas', eid, 'config', 'general'), { negocio: emp.nombre, capitalInicial: 0 });
+      b.set(doc(db, 'empresas', eid, 'config', 'general'), { negocio: emp.nombre });
+      b.set(doc(db, 'empresas', eid, 'config', 'finanzas'), { capitalInicial: 0 });
       await b.commit();
       return eid;
     },

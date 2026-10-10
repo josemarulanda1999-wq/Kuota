@@ -2,7 +2,8 @@ rules_version = '2';
 // KUOTA — reglas multiempresa
 //  · Equipo Kuota (superadmins): todo, desde el portal.
 //  · Cada empresa solo ve sus datos, y solo mientras su suscripción esté vigente.
-//  · CEO: todo dentro de su empresa (edita y borra). Admin: ve y registra, no edita ni borra.
+//  · CEO: todo dentro de su empresa (edita y borra). Admin: clientes, préstamos, cobros y cuadre;
+//    no ve el dinero del negocio (caja, capital, gastos) ni edita o borra.
 //    Cobrador: solo su ruta (pagos y clientes).
 //  · Los usuarios nuevos los activa el equipo Kuota (el CEO solo puede solicitarlos).
 service cloud.firestore {
@@ -64,8 +65,9 @@ service cloud.firestore {
       allow read: if isSuper() || (hasMe() && me().empresaId == eid);
       allow write: if isSuper();
 
+      // config/general la leen todos; config/finanzas (capital) solo el CEO
       match /config/{id} {
-        allow read: if isSuper() || (enEmpresa(eid) && vigente(eid));
+        allow read: if isSuper() || (id == 'general' && enEmpresa(eid) && vigente(eid)) || isCeo(eid);
         allow write: if isSuper() || isCeo(eid);
       }
       match /clientes/{id} {
@@ -93,19 +95,17 @@ service cloud.firestore {
         allow create: if isSuper() || (isAdm(eid) && firma());
         allow update, delete: if isSuper() || isCeo(eid);
       }
+      // el dinero del negocio (gastos, ingresos extra y capital) solo lo ve el CEO
       match /salidas/{id} {
-        allow read: if isSuper() || isAdm(eid);
-        allow create: if isSuper() || (isAdm(eid) && firma());
-        allow update, delete: if isSuper() || isCeo(eid);
+        allow read, update, delete: if isSuper() || isCeo(eid);
+        allow create: if isSuper() || (isCeo(eid) && firma());
       }
       match /ingresos/{id} {
-        allow read: if isSuper() || isAdm(eid);
-        allow create: if isSuper() || (isAdm(eid) && firma());
-        allow update, delete: if isSuper() || isCeo(eid);
+        allow read, update, delete: if isSuper() || isCeo(eid);
+        allow create: if isSuper() || (isCeo(eid) && firma());
       }
       match /capital/{id} {
-        allow read: if isSuper() || isAdm(eid);
-        allow write: if isSuper() || isCeo(eid);
+        allow read, write: if isSuper() || isCeo(eid);
       }
     }
 

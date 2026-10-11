@@ -188,7 +188,7 @@ ICONS.suscripcion='<path d="M20 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V6
 ICONS.usuarios='<path d="M12 12a4 4 0 100-8 4 4 0 000 8zm0 2c-3.3 0-8 1.7-8 5v1h16v-1c0-3.3-4.7-5-8-5zm7-6h2v2h2v2h-2v2h-2v-2h-2v-2h2z"/>';
 const NAV_ADMIN = [['panel','Panel','Panel'],['cobros','Cobros del día','Cobros'],['movimientos','Movimientos','Caja'],['cuadre','Cuadre de caja','Cuadre'],['renovaciones','Renovaciones','Renovar'],['prestamos','Préstamos','Préstamos'],['clientes','Clientes','Clientes'],['salidas','Salidas de dinero','Gastos'],['usuarios','Usuarios','Usuarios'],['suscripcion','Mi suscripción','Plan'],['calculadora','Calculadora','Calcular'],['ajustes','Ajustes y respaldo','Ajustes']];
 const NAV_COB = [['cobros','Mi ruta','Ruta'],['clientes','Mis clientes','Clientes'],['prestamos','Préstamos','Préstamos'],['cuadre','Mi cuadre','Cuadre']];
-const PERMITIDAS_COB = ['cobros','clientes','prestamos','cuadre'];
+const PERMITIDAS_COB = ['cobros','clientes','prestamos','cuadre','calculadora'];
 ICONS.renovaciones='<path d="M12 4V1L8 5l4 4V6a6 6 0 016 6 6 6 0 01-.7 2.8l1.5 1.5A8 8 0 0020 12a8 8 0 00-8-8zm0 14a6 6 0 01-6-6c0-1 .3-2 .7-2.8L5.2 7.7A8 8 0 004 12a8 8 0 008 8v3l4-4-4-4z"/>';
 const SOLO_CEO = ['panel','movimientos','salidas','usuarios','ajustes','suscripcion'];  // el Admin no ve el dinero del negocio
 /* menú: pocas opciones principales y el resto en "Más" */
@@ -200,7 +200,7 @@ function menu(){
                        mas:[['renovaciones','Renovaciones'],['usuarios','Usuarios'],['suscripcion','Mi suscripción'],['calculadora','Calculadora'],['ajustes','Ajustes']] };
   if(isAdmin()) return { main:[['cobros','Cobros'],['prestamos','Préstamos'],['clientes','Clientes'],['cuadre','Cuadre']],
                          mas:[['renovaciones','Renovaciones'],['calculadora','Calculadora']] };
-  return { main:[['cobros','Mi ruta'],['clientes','Clientes'],['prestamos','Préstamos'],['cuadre','Cuadre']], mas:[] };
+  return { main:[['cobros','Mi ruta'],['clientes','Clientes'],['prestamos','Préstamos'],['cuadre','Cuadre'],['calculadora','Calcular']], mas:[] };
 }
 function renderNav(){
   const n = cobrosDelDia().filter(c=>c.cobrar>0.5).length;

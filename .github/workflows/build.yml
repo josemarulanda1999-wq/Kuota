@@ -45,14 +45,24 @@ jobs:
           node ci/android-setup.mjs
           npx cap sync android
 
-      - name: Compilar APK
+      - name: Compilar APK (producción, firmado con la llave privada de Kuota)
+        env:
+          KUOTA_KEYSTORE: ${{ secrets.KUOTA_KEYSTORE }}
+          KUOTA_KS_PASS: ${{ secrets.KUOTA_KS_PASS }}
         run: |
-          mkdir -p ~/.android
-          cp ci/debug.keystore ~/.android/debug.keystore
           cd android
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
-          cp app/build/outputs/apk/debug/app-debug.apk ../Kuota.apk
+          if [ -n "$KUOTA_KEYSTORE" ] && [ -n "$KUOTA_KS_PASS" ]; then
+            echo "$KUOTA_KEYSTORE" | base64 -d > "$RUNNER_TEMP/kuota-release.jks"
+            export KUOTA_KS="$RUNNER_TEMP/kuota-release.jks"
+            ./gradlew assembleRelease --no-daemon
+            cp app/build/outputs/apk/release/app-release.apk ../Kuota.apk
+            rm -f "$RUNNER_TEMP/kuota-release.jks"
+          else
+            echo "::warning::Falta la llave privada (secretos KUOTA_KEYSTORE y KUOTA_KS_PASS). Se compila una versión temporal."
+            ./gradlew assembleDebug --no-daemon
+            cp app/build/outputs/apk/debug/app-debug.apk ../Kuota.apk
+          fi
 
       - uses: actions/upload-artifact@v4
         with:

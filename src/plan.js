@@ -56,3 +56,30 @@ function confirmar(msg, opt){
   });
 }
 const avisar = (msg) => confirmar(msg, {solo:true, ok:'Entendido'});
+
+/* ---------- saneado de datos (defensa contra datos manipulados fuera de la app) ----------
+   Se descartan documentos con ids raros (podrían inyectar código en los botones) y se fuerzan
+   los tipos de los campos que se muestran o se usan en cálculos. */
+const ID_SEGURO = /^[A-Za-z0-9_-]{1,40}$/;
+const CAMPOS_NUM = ['monto','tasa','meses','cuotas','valorCuota','interesMes','total','valor','excedente','saldoCancelado','saldoAlSolicitar',
+  'capitalInicial','creado','revisadoEn','entregadoEn','cupoAdmins','cupoCobradores','diasGracia','venceMs','meses'];
+const CAMPOS_ID = ['prestamoId','clienteId','cobradorId','registradoPor','creadoPor','entregadoPor','revisadoPor','nuevoPrestamoId','renovacionDe','empresaId','ceoUid'];
+const CAMPOS_TXT = ['nombre','cedula','tel1','tel2','direccion','ciudad','obs','nota','concepto','email','estado','rol','tipo','negocio','nit','contacto',
+  'telefono','notas','metodo','empresaNombre','fecha','pagadoHasta','anterior','nuevo','fechaRenovacion','fechaCapital'];
+const PERIODOS_OK = ['DIARIO','SEMANAL','QUINCENAL','MENSUAL'];
+const FECHA_OK = /^\d{4}-\d{2}-\d{2}$/;
+function sanearDoc(x){
+  const o = {...x};
+  for (const k of CAMPOS_NUM) if (k in o) { const n = Number(o[k]); o[k] = isFinite(n) ? n : 0; }
+  if ('cuotas' in o) o.cuotas = Math.min(1000, Math.max(1, Math.round(o.cuotas)));
+  if ('periodo' in o && !PERIODOS_OK.includes(o.periodo)) o.periodo = 'MENSUAL';
+  for (const k of CAMPOS_TXT) if (k in o && typeof o[k] !== 'string') o[k] = o[k] == null ? '' : String(o[k]);
+  for (const k of ['fecha','pagadoHasta','anterior','nuevo','fechaRenovacion','fechaCapital']) if (o[k] && !FECHA_OK.test(o[k])) o[k] = '';
+  for (const k of CAMPOS_ID) if (k in o && (typeof o[k] !== 'string' || (o[k] && !ID_SEGURO.test(o[k])))) o[k] = '';
+  return o;
+}
+function sanearLista(col, arr){
+  return (arr || []).filter(x => x && ID_SEGURO.test(String(x.id)))
+    .map(sanearDoc)
+    .filter(x => !(col === 'prestamos' || col === 'pagos') || FECHA_OK.test(x.fecha));
+}

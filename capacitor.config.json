@@ -2,6 +2,12 @@
   "appId": "com.kuota.app",
   "appName": "Kuota",
   "webDir": "www",
-  "server": { "androidScheme": "https" },
-  "android": { "backgroundColor": "#0e0e10" }
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "backgroundColor": "#0e0e10",
+    "webContentsDebuggingEnabled": false,
+    "allowMixedContent": false
+  }
 }

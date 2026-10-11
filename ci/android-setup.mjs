@@ -14,4 +14,33 @@ let s = fs.readFileSync(strings, 'utf8');
 s = s.replace(/<string name="app_name">[^<]*<\/string>/, '<string name="app_name">Kuota</string>')
      .replace(/<string name="title_activity_main">[^<]*<\/string>/, '<string name="title_activity_main">Kuota</string>');
 fs.writeFileSync(strings, s);
+// Seguridad: sin copias de seguridad por ADB y firma de producción leída de variables de entorno (secreto de GitHub)
+const manifest = 'android/app/src/main/AndroidManifest.xml';
+let m = fs.readFileSync(manifest, 'utf8');
+m = m.replace(/android:allowBackup="true"/, 'android:allowBackup="false"');
+if (!m.includes('android:allowBackup')) m = m.replace('<application', '<application android:allowBackup="false"');
+if (!m.includes('android:fullBackupContent')) m = m.replace('<application', '<application android:fullBackupContent="false"');
+fs.writeFileSync(manifest, m);
+const gradle = 'android/app/build.gradle';
+fs.appendFileSync(gradle, `
+// --- firma de producción de Kuota (la llave nunca está en el repositorio) ---
+android {
+    signingConfigs {
+        kuotaRelease {
+            if (System.getenv("KUOTA_KS")) {
+                storeFile file(System.getenv("KUOTA_KS"))
+                storePassword System.getenv("KUOTA_KS_PASS")
+                keyAlias "kuota"
+                keyPassword System.getenv("KUOTA_KS_PASS")
+            }
+        }
+    }
+    buildTypes {
+        release {
+            if (System.getenv("KUOTA_KS")) { signingConfig signingConfigs.kuotaRelease }
+            debuggable false
+        }
+    }
+}
+`);
 console.log('Android personalizado');

@@ -1,11 +1,12 @@
 rules_version = '2';
-// KUOTA — reglas multiempresa
+// KUOTA — reglas multiempresa (reforzadas)
 //  · Equipo Kuota (superadmins): todo, desde el portal.
 //  · Cada empresa solo ve sus datos, y solo mientras su suscripción esté vigente.
 //  · CEO: todo dentro de su empresa (edita y borra). Admin: clientes, préstamos, cobros y cuadre;
 //    no ve el dinero del negocio (caja, capital, gastos) ni edita o borra.
-//    Cobrador: solo su ruta (pagos y clientes).
+//    Cobrador: solo su ruta (pagos y clientes, solicitar renovaciones).
 //  · Los usuarios nuevos los activa el equipo Kuota (el CEO solo puede solicitarlos).
+//  · Todo lo que crean Admin y Cobrador se valida: ids seguros, tipos, montos positivos y firma.
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
@@ -19,11 +20,60 @@ service cloud.firestore {
     function enEmpresa(eid) { return hasMe() && me().activo == true && me().empresaId == eid; }
     function isAdm(eid) { return enEmpresa(eid) && me().rol in ['ceo', 'admin'] && vigente(eid); }
     function isCeo(eid) { return enEmpresa(eid) && me().rol == 'ceo' && vigente(eid); }
+    function soloAdmin(eid) { return enEmpresa(eid) && me().rol == 'admin' && vigente(eid); }
     function isCob(eid) { return enEmpresa(eid) && me().rol == 'cobrador' && vigente(eid); }
     function own() { return resource.data.cobradorId == uid(); }
     function ownNew() { return request.resource.data.cobradorId == uid(); }
     function firma() { return request.resource.data.creadoPor == uid(); }
     function soloCambiaRuta() { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['cobradorId']); }
+
+    // ---- validaciones de datos ----
+    function idOk(v) { return v is string && v.matches('^[A-Za-z0-9_-]{1,40}$'); }
+    function idOVacio(v) { return v == '' || idOk(v); }
+    function txt(v, max) { return v is string && v.size() <= max; }
+    function optTxt(d, k, max) { return !(k in d) || txt(d[k], max); }
+    function fechaOk(v) { return v is string && v.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'); }
+    function numOk(v, min, max) { return v is number && v >= min && v <= max; }
+    function periodoOk(v) { return v in ['DIARIO', 'SEMANAL', 'QUINCENAL', 'MENSUAL']; }
+    function prest(eid, pid) { return get(/databases/$(database)/documents/empresas/$(eid)/prestamos/$(pid)).data; }
+
+    function okCliente(d) {
+      return d.keys().hasOnly(['nombre', 'cedula', 'tel1', 'tel2', 'direccion', 'ciudad', 'obs', 'cobradorId', 'creado', 'creadoPor'])
+        && txt(d.nombre, 120) && d.nombre.size() > 0
+        && optTxt(d, 'cedula', 40) && optTxt(d, 'tel1', 40) && optTxt(d, 'tel2', 40)
+        && optTxt(d, 'direccion', 200) && optTxt(d, 'ciudad', 80) && optTxt(d, 'obs', 500)
+        && idOVacio(d.cobradorId);
+    }
+    function okPrestamo(d) {
+      return d.keys().hasOnly(['clienteId', 'fecha', 'monto', 'tasa', 'meses', 'periodo', 'excluirDomingos', 'nota', 'cuotas',
+                               'valorCuota', 'interesMes', 'total', 'cobradorId', 'renovacionDe', 'saldoCancelado', 'creado', 'creadoPor'])
+        && idOk(d.clienteId) && fechaOk(d.fecha) && numOk(d.monto, 1, 10000000000) && numOk(d.tasa, 0, 100)
+        && numOk(d.meses, 0.01, 120) && periodoOk(d.periodo) && d.cuotas is int && d.cuotas >= 1 && d.cuotas <= 1000
+        && numOk(d.valorCuota, 0.01, 10000000000) && optTxt(d, 'nota', 300) && idOVacio(d.cobradorId)
+        && (!('renovacionDe' in d) || idOk(d.renovacionDe)) && (!('saldoCancelado' in d) || numOk(d.saldoCancelado, 0, 10000000000));
+    }
+    function okPago(d) {
+      return d.keys().hasOnly(['prestamoId', 'fecha', 'monto', 'nota', 'tipo', 'cobradorId', 'registradoPor', 'creado', 'creadoPor'])
+        && idOk(d.prestamoId) && fechaOk(d.fecha) && numOk(d.monto, 1, 10000000000) && optTxt(d, 'nota', 300)
+        && d.registradoPor == uid() && d.creadoPor == uid();
+    }
+    function okEntrega(d) {
+      return d.keys().hasOnly(['cobradorId', 'fecha', 'valor', 'nota', 'creado', 'creadoPor'])
+        && idOk(d.cobradorId) && fechaOk(d.fecha) && numOk(d.valor, 1, 10000000000) && optTxt(d, 'nota', 300);
+    }
+    function okRenov(d) {
+      return d.keys().hasOnly(['prestamoId', 'clienteId', 'cobradorId', 'estado', 'saldoAlSolicitar', 'monto', 'tasa', 'meses', 'periodo',
+                               'excluirDomingos', 'nota', 'nuevoPrestamoId', 'saldoCancelado', 'excedente', 'revisadoPor', 'revisadoEn',
+                               'fechaRenovacion', 'entregadoPor', 'entregadoEn', 'creado', 'creadoPor'])
+        && idOk(d.prestamoId) && idOk(d.clienteId) && idOVacio(d.cobradorId)
+        && numOk(d.monto, 1, 10000000000) && numOk(d.tasa, 0, 100) && numOk(d.meses, 0.01, 120) && periodoOk(d.periodo)
+        && optTxt(d, 'nota', 300);
+    }
+    // el efectivo a entregar debe ser exactamente nuevo préstamo − lo que se cancela
+    function excedenteOk(d) {
+      return numOk(d.excedente, 0, 10000000000) && numOk(d.saldoCancelado, 0, 10000000000)
+        && (d.monto - d.saldoCancelado - d.excedente) < 1 && (d.monto - d.saldoCancelado - d.excedente) > -1;
+    }
 
     // ---- Kuota ----
     match /meta/super { allow read: if true;
@@ -36,9 +86,9 @@ service cloud.firestore {
       allow update, delete: if isSuper();
     }
     match /meta/kuota { allow read: if signedIn(); allow write: if isSuper(); }
-    match /meta/admin { allow read: if true; }
+    match /meta/admin { allow read: if isSuper(); }
     match /facturacion/{id} {
-      allow read: if isSuper() || (hasMe() && me().rol == 'ceo' && resource.data.empresaId == me().empresaId);
+      allow read: if isSuper() || (hasMe() && me().activo == true && me().rol == 'ceo' && resource.data.empresaId == me().empresaId);
       allow write: if isSuper();
     }
 
@@ -48,13 +98,17 @@ service cloud.firestore {
         || (hasMe() && resource.data.empresaId == me().empresaId && isAdm(me().empresaId));
       // el CEO solo puede SOLICITAR usuarios (quedan inactivos hasta que Kuota los active)
       allow create: if isSuper()
-        || (hasMe() && isCeo(me().empresaId) && request.resource.data.empresaId == me().empresaId
+        || (hasMe() && isCeo(me().empresaId) && u.matches('^[A-Za-z0-9]{10,40}$')
+            && request.resource.data.keys().hasOnly(['nombre', 'email', 'rol', 'empresaId', 'activo', 'estado', 'creado', 'creadoPor'])
+            && txt(request.resource.data.nombre, 80) && txt(request.resource.data.email, 120)
+            && request.resource.data.empresaId == me().empresaId
             && request.resource.data.activo == false && request.resource.data.estado == 'pendiente'
             && request.resource.data.rol in ['admin', 'cobrador']);
       // el CEO puede cambiar el nombre o desactivar a su gente, pero no activar ni cambiar roles
       allow update: if isSuper()
         || (hasMe() && isCeo(me().empresaId) && resource.data.empresaId == me().empresaId && resource.data.rol != 'ceo'
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nombre', 'activo', 'estado'])
+            && txt(request.resource.data.nombre, 80)
             && (request.resource.data.activo == resource.data.activo || request.resource.data.activo == false)
             && (request.resource.data.estado == resource.data.estado || request.resource.data.estado == 'desactivado'));
       allow delete: if isSuper();
@@ -62,7 +116,7 @@ service cloud.firestore {
 
     // ---- empresas ----
     match /empresas/{eid} {
-      allow read: if isSuper() || (hasMe() && me().empresaId == eid);
+      allow read: if isSuper() || (hasMe() && me().empresaId == eid && me().activo == true);
       allow write: if isSuper();
 
       // config/general la leen todos; config/finanzas (capital) solo el CEO
@@ -72,36 +126,53 @@ service cloud.firestore {
       }
       match /clientes/{id} {
         allow read: if isSuper() || isAdm(eid) || (isCob(eid) && own());
-        allow create: if isSuper() || ((isAdm(eid) || (isCob(eid) && ownNew())) && firma());
-        allow update: if isSuper() || isAdm(eid) || (isCob(eid) && own() && ownNew());
+        allow create: if isSuper() || isCeo(eid)
+          || (idOk(id) && firma() && okCliente(request.resource.data) && (soloAdmin(eid) || (isCob(eid) && ownNew())));
+        allow update: if isSuper() || isCeo(eid)
+          || (okCliente(request.resource.data) && (soloAdmin(eid) || (isCob(eid) && own() && ownNew())));
         allow delete: if isSuper() || isCeo(eid);
       }
       match /prestamos/{id} {
         allow read: if isSuper() || isAdm(eid) || (isCob(eid) && own());
-        allow create: if isSuper() || (isAdm(eid) && firma());
-        allow update: if isSuper() || isCeo(eid) || (isAdm(eid) && soloCambiaRuta());
+        allow create: if isSuper() || isCeo(eid) || (soloAdmin(eid) && idOk(id) && firma() && okPrestamo(request.resource.data));
+        allow update: if isSuper() || isCeo(eid) || (soloAdmin(eid) && soloCambiaRuta() && idOVacio(request.resource.data.cobradorId));
         allow delete: if isSuper() || isCeo(eid);
       }
       match /pagos/{id} {
         allow read: if isSuper() || isAdm(eid) || (isCob(eid) && own());
-        allow create: if isSuper() || (firma() && (isAdm(eid)
-          || (isCob(eid) && ownNew() && request.resource.data.registradoPor == uid()
-              && get(/databases/$(database)/documents/empresas/$(eid)/prestamos/$(request.resource.data.prestamoId)).data.cobradorId == uid())));
-        allow update: if isSuper() || isCeo(eid) || (isAdm(eid) && soloCambiaRuta());
+        allow create: if isSuper() || isCeo(eid)
+          || (idOk(id) && okPago(request.resource.data)
+              && request.resource.data.cobradorId == prest(eid, request.resource.data.prestamoId).get('cobradorId', '')
+              && ((soloAdmin(eid) && (!('tipo' in request.resource.data) || request.resource.data.tipo == 'renovacion'))
+                  || (isCob(eid) && ownNew() && !('tipo' in request.resource.data))));
+        allow update: if isSuper() || isCeo(eid) || (soloAdmin(eid) && soloCambiaRuta() && idOVacio(request.resource.data.cobradorId));
         allow delete: if isSuper() || isCeo(eid);
       }
       match /entregas/{id} {
         allow read: if isSuper() || isAdm(eid) || (isCob(eid) && own());
-        allow create: if isSuper() || (isAdm(eid) && firma());
+        allow create: if isSuper() || isCeo(eid)
+          || (soloAdmin(eid) && idOk(id) && firma() && okEntrega(request.resource.data)
+              && get(/databases/$(database)/documents/users/$(request.resource.data.cobradorId)).data.empresaId == eid);
         allow update, delete: if isSuper() || isCeo(eid);
       }
       // renovaciones: el cobrador solicita, el Admin o el CEO aprueba, el cobrador marca la entrega del efectivo
       match /renovaciones/{id} {
         allow read: if isSuper() || isAdm(eid) || (isCob(eid) && own());
-        allow create: if isSuper() || (firma() && (isAdm(eid)
-          || (isCob(eid) && ownNew() && request.resource.data.estado == 'pendiente')));
-        allow update: if isSuper() || isAdm(eid)
-          || (isCob(eid) && own() && resource.data.estado == 'aprobada' && request.resource.data.estado == 'entregada'
+        allow create: if isSuper() || isCeo(eid)
+          || (idOk(id) && firma() && okRenov(request.resource.data)
+              && ((isCob(eid) && ownNew() && request.resource.data.estado == 'pendiente'
+                   && prest(eid, request.resource.data.prestamoId).get('cobradorId', '') == uid())
+               || (soloAdmin(eid) && request.resource.data.estado == 'entregada' && request.resource.data.entregadoPor == uid()
+                   && excedenteOk(request.resource.data))));
+        allow update: if isSuper() || isCeo(eid)
+          // Admin: aprobar / rechazar una solicitud pendiente, sin cambiar a quién pertenece
+          || (soloAdmin(eid) && resource.data.estado == 'pendiente'
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estado', 'nuevoPrestamoId', 'saldoCancelado', 'excedente',
+                   'revisadoPor', 'revisadoEn', 'fechaRenovacion', 'monto', 'tasa', 'meses', 'periodo', 'excluirDomingos', 'nota'])
+              && request.resource.data.revisadoPor == uid() && okRenov(request.resource.data)
+              && (request.resource.data.estado == 'rechazada' || (request.resource.data.estado == 'aprobada' && excedenteOk(request.resource.data))))
+          // Admin o cobrador dueño: marcar que ya entregó el efectivo de una renovación aprobada
+          || ((soloAdmin(eid) || (isCob(eid) && own())) && resource.data.estado == 'aprobada' && request.resource.data.estado == 'entregada'
               && request.resource.data.entregadoPor == uid()
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estado', 'entregadoPor', 'entregadoEn']));
         allow delete: if isSuper() || isCeo(eid);

@@ -23,8 +23,11 @@ const isNative = () => !!(window.Capacitor && window.Capacitor.isNativePlatform 
 
 function migrateConfig(c){
   const base = defaultConfig();
-  const out = Object.assign(base, c||{});
+  const out = Object.assign(base, sanearDoc(c||{}));
+  for(const k of ['tasaDefecto','redondeo']) out[k]=Number(out[k])||0;
+  out.excluirDomingos=!!out.excluirDomingos;
   out.factores = Object.assign(defaultConfig().factores, (c||{}).factores||{});
+  for(const k of Object.keys(out.factores)) out.factores[k]=Math.min(31,Math.max(1,Number(out.factores[k])||1));
   return out;
 }
 
@@ -792,10 +795,10 @@ function modalPrestamo(id, clienteId, preset){
   openModal(`<h3>${id?'Editar préstamo':'Nuevo préstamo'}</h3>
   <div class="form">
     <label class="f full">Deudor *<select class="input" id="pCli">${clienteOptions(p.clienteId)}</select></label>
-    <label class="f">Fecha del préstamo<input type="date" class="input" id="pFec" value="${p.fecha}"></label>
+    <label class="f">Fecha del préstamo<input type="date" class="input" id="pFec" value="${esc(p.fecha)}"></label>
     <label class="f">Valor del préstamo *<input class="input" id="pMon" value="${p.monto?Math.round(p.monto).toLocaleString('es-CO'):''}" inputmode="numeric" placeholder="Ej: 500.000"></label>
-    <label class="f">% interés mensual<input class="input" id="pTas" value="${p.tasa}" inputmode="decimal"></label>
-    <label class="f">No. de meses<input class="input" id="pMes" value="${p.meses}" inputmode="decimal"></label>
+    <label class="f">% interés mensual<input class="input" id="pTas" value="${esc(p.tasa)}" inputmode="decimal"></label>
+    <label class="f">No. de meses<input class="input" id="pMes" value="${esc(p.meses)}" inputmode="decimal"></label>
     <label class="f">Periodo de pago<select class="input" id="pPer">${PERIODOS.map(x=>`<option ${x===p.periodo?'selected':''}>${x}</option>`).join('')}</select></label>
     <label class="chk" style="align-self:end;padding-bottom:8px"><input type="checkbox" id="pDom" ${p.excluirDomingos?'checked':''}> No cobrar domingos (diario)</label>
     <label class="f full">Nota<input class="input" id="pNot" value="${esc(p.nota||'')}" placeholder="Opcional: fiador, garantía, etc."></label>
@@ -1133,8 +1136,8 @@ function modalRenovacion(prestamoId, renovacionId){
   </div>
   <div class="form">
     <label class="f">Valor del nuevo préstamo<input class="input" id="rMon" inputmode="numeric" value="${Math.round(base.monto).toLocaleString('es-CO')}"></label>
-    <label class="f">% interés mensual<input class="input" id="rTas" inputmode="decimal" value="${base.tasa}"></label>
-    <label class="f">No. de meses<input class="input" id="rMes" inputmode="decimal" value="${base.meses}"></label>
+    <label class="f">% interés mensual<input class="input" id="rTas" inputmode="decimal" value="${esc(num(base.tasa))}"></label>
+    <label class="f">No. de meses<input class="input" id="rMes" inputmode="decimal" value="${esc(num(base.meses))}"></label>
     <label class="f">Periodo de pago<select class="input" id="rPer">${PERIODOS.map(x=>`<option ${x===base.periodo?'selected':''}>${x}</option>`).join('')}</select></label>
     <label class="f full">Nota<input class="input" id="rNot" value="${esc(base.nota||'')}" placeholder="Opcional"></label>
   </div>
@@ -1171,7 +1174,7 @@ function modalRenovacion(prestamoId, renovacionId){
 }
 function ejecutarRenovacion(p, saldo, d, ren){
   const hoy=todayStr(), c=calcular(d.monto,d.tasa,d.meses,d.periodo);
-  if(saldo>0) dbAdd('pagos',{prestamoId:p.id,fecha:hoy,monto:saldo,tipo:'renovacion',nota:'Cancelado con renovación',cobradorId:p.cobradorId||'',registradoPor:ME.uid});
+  if(saldo>=1) dbAdd('pagos',{prestamoId:p.id,fecha:hoy,monto:saldo,tipo:'renovacion',nota:'Cancelado con renovación',cobradorId:p.cobradorId||'',registradoPor:ME.uid});
   const nuevoId=dbAdd('prestamos',{clienteId:p.clienteId,fecha:hoy,monto:d.monto,tasa:d.tasa,meses:d.meses,periodo:d.periodo,excluirDomingos:d.excluirDomingos,
     nota:('Renovación'+(d.nota?' · '+d.nota:'')),cuotas:c.cuotas,valorCuota:c.valorCuota,interesMes:c.interesMes,total:c.total,cobradorId:p.cobradorId||'',renovacionDe:p.id,saldoCancelado:saldo});
   const exc=d.monto-saldo;
@@ -1361,10 +1364,10 @@ function iniciarSesion(prof){
   if(!ME.empresaId){ pantalla(`<img src="logo_dark.png" class="login-brand" alt="Kuota"><h1 style="font-size:22px">Tu usuario no tiene un negocio asignado</h1><p class="sub">Comunícate con Kuota.</p><p style="text-align:center"><button class="btn" onclick="cerrarSesion()">Cerrar sesión</button></p>`); return; }
   if(ME.activo===false){ pantalla(`<img src="logo_dark.png" class="login-brand" alt="Kuota"><h1 style="font-size:22px">${ME.estado==='pendiente'?'Tu usuario está pendiente de activación':'Tu usuario está desactivado'}</h1><p class="sub">${ME.estado==='pendiente'?'Kuota lo activará en cuanto el negocio confirme el pago.':'Habla con el dueño del negocio.'}</p><p style="text-align:center"><button class="btn" onclick="cerrarSesion()">Cerrar sesión</button></p>`); return; }
   S.setEmpresa(ME.empresaId);
-  unsubEmp.push(S.watchKuota(k=>{ KUOTA=k||{}; }));
-  if(ME.rol==='ceo') unsubEmp.push(S.watchFacturas(ME.empresaId, f=>{ FACTURAS=f; if(view==='suscripcion') scheduleRender(); }));
+  unsubEmp.push(S.watchKuota(k=>{ KUOTA=sanearDoc(k||{}); }));
+  if(ME.rol==='ceo') unsubEmp.push(S.watchFacturas(ME.empresaId, f=>{ FACTURAS=sanearLista('facturacion',f); if(view==='suscripcion') scheduleRender(); }));
   unsubEmp.push(S.watchEmpresa(ME.empresaId, emp=>{
-    EMPRESA = emp;
+    EMPRESA = emp ? sanearDoc(emp) : emp;
     const st = estadoSuscripcion(emp);
     const ok = st.estado==='activa' || st.estado==='gracia';
     if(!ok){ if(unsub){unsub();unsub=null;} datosActivos=false; pantallaBloqueo(); return; }
@@ -1383,9 +1386,9 @@ function arrancarDatos(){
       // datos antiguos: el capital estaba en la configuración general; se pasa a la parte privada del CEO
       if(isCeo() && CAMPOS_FINANZAS.some(k=>k in data)) setTimeout(cfgSave, 500);
     }
-    else if(col==='finanzas') Object.assign(DB.config, data||{});
+    else if(col==='finanzas') Object.assign(DB.config, sanearDoc(data||{}));
     else if(col==='error'){ console.error(data); if(String(data&&data.code)==='permission-denied') return; toast('Error de conexión con la nube'); return; }
-    else DB[col] = data;
+    else DB[col] = sanearLista(col, data);
     if(col==='users'){ const me=data.find(u=>u.id===ME.uid); if(me && me.activo===false){ detenerTodo(); S.logout(); return; } if(me) ME=Object.assign(ME,me); }
     scheduleRender();
   });

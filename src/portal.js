@@ -436,7 +436,7 @@ function entrar(user, nombre){
   ME={uid:user.uid, email:user.email, nombre:nombre||user.email};
   document.getElementById('login').style.display='none'; document.getElementById('appShell').style.display='';
   if(unsub) unsub();
-  unsub=P().watch((col,data)=>{ if(col==='error'){ console.error(data); return; } D[col]=data; if(col==='users'){ const me=data.find(u=>u.id===ME.uid); if(me&&me.nombre&&ME.nombre===ME.email) ME.nombre=me.nombre; } scheduleRender(); });
+  unsub=P().watch((col,data)=>{ if(col==='error'){ console.error(data); return; } D[col]= col==='kuota' ? sanearDoc(data||{}) : sanearLista(col,data); if(col==='users'){ const me=data.find(u=>u.id===ME.uid); if(me&&me.nombre&&ME.nombre===ME.email) ME.nombre=me.nombre; } scheduleRender(); });
   render();
 }
 function salir(directo){

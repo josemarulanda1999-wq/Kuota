@@ -258,7 +258,7 @@ function abrirMas(){
 }
 function tabsCaja(){
   if(!isCeo() || !VISTAS_CAJA.includes(view)) return '';
-  const t=[['movimientos','Movimientos'],['cuadre','Cuadre de rutas'],['salidas','Gastos']];
+  const t=[['movimientos','Movimientos'],['cuadre','Cuadre de rutas'],['salidas','Egresos']];
   return `<div class="tabs caja-tabs">${t.map(([k,l])=>`<button class="${view===k?'on':''}" onclick="go('${k}')">${l}</button>`).join('')}</div>`;
 }
 const movil = () => window.innerWidth < 760;
@@ -313,7 +313,8 @@ VIEWS.panel = () => {
       <div class="acciones">
         <button class="accion main" onclick="modalPrestamo()"><i>${ic.plus}</i>Prestar</button>
         <button class="accion" onclick="modalPago()"><i>${ic.cobrar}</i>Cobrar</button>
-        <button class="accion" onclick="modalSalida()"><i>${ic.gasto}</i>Gasto</button>
+        <button class="accion" onclick="modalMovimiento('ingreso')"><i>${ic.cobrar}</i>Ingreso</button>
+        <button class="accion" onclick="modalSalida()"><i>${ic.gasto}</i>Egreso</button>
         <button class="accion" onclick="modalCliente()"><i>${ic.cliente}</i>Cliente</button>
       </div>
     </div>
@@ -698,7 +699,7 @@ VIEWS.movimientos = () => {
   const nombreRango = {hoy:'hoy',semana:'los últimos 7 días',mes:'este mes',mespasado:'el mes pasado',todo:'todo el tiempo',custom:'el periodo elegido'}[st.r];
   return `
   <div class="head"><div><h1>Movimientos</h1><p class="sub">Todo lo que entra y sale de la caja: préstamos, pagos, gastos y capital.</p></div>
-  <div class="row"><button class="btn" onclick="exportCSV('movimientos')">Exportar a Excel</button><button class="btn pri" onclick="modalMovimiento()">+ Registrar movimiento</button></div></div>
+  <div class="row"><button class="btn" onclick="exportCSV('movimientos')">Exportar a Excel</button><button class="btn" onclick="modalMovimiento('ingreso')">+ Ingreso</button><button class="btn" onclick="modalMovimiento('gasto')">+ Egreso</button><button class="btn pri" onclick="modalMovimiento()">+ Registrar movimiento</button></div></div>
   <div class="toolbar">
     ${rb('hoy','Hoy')}${rb('semana','7 días')}${rb('mes','Este mes')}${rb('mespasado','Mes pasado')}${rb('todo','Todo')}
     <input type="date" class="input" style="width:auto" value="${desde}" onchange="go('movimientos',Object.assign(${S({r:'custom'})},{desde:this.value,hasta:'${hasta}'}))" title="Desde">
@@ -1384,7 +1385,7 @@ VIEWS.cuadre = () => {
     <div class="cr-fila total"><span>Debe tener</span><b style="color:${c.saldoFinal>0.5?'var(--amber)':'inherit'}">${fmt(c.saldoFinal)}</b></div>
     ${(()=>{ const ci=cierreDe(u.id, fecha); return ci ? `<div class="row" style="margin-top:10px"><span class="pill p-ok">Cerrada ${new Date(ci.cerradoEn).toLocaleTimeString('es-CO',{hour:'numeric',minute:'2-digit'})}</span><span class="spacer"></span><button class="btn sm" onclick="reabrirRuta('${u.id}','${fecha}')">Reabrir</button></div>`
       : `<div class="row" style="margin-top:10px"><span class="pill p-hoy">Abierta</span><span class="spacer"></span><button class="btn sm ghost" onclick="cerrarRutaOficina('${u.id}','${fecha}')">Cerrar</button></div>`; })()}
-    <div class="row" style="margin-top:10px"><button class="btn sm" onclick="modalBase('${u.id}','${fecha}')">Asignar base</button><button class="btn sm" onclick="modalGastoRuta('gasto','${u.id}','${fecha}')">+ Gasto</button><span class="spacer"></span><button class="btn sm pri" onclick="modalEntrega('${u.id}','${fecha}')">Recibir plata</button></div>
+    <div class="row" style="margin-top:10px"><button class="btn sm" onclick="modalBase('${u.id}','${fecha}')">Asignar base</button><button class="btn sm" onclick="modalGastoRuta('gasto','${u.id}','${fecha}')">+ Gasto</button><button class="btn sm" onclick="modalGastoRuta('ingreso','${u.id}','${fecha}')">+ Ingreso</button><span class="spacer"></span><button class="btn sm pri" onclick="modalEntrega('${u.id}','${fecha}')">Recibir plata</button></div>
   </div>`).join('')}</div>`:`<div class="card"><div class="empty">Aún no tienes rutas. Solicítalas en Usuarios.</div></div>`}
   ${(()=>{const es=DB.entregas.filter(x=>x.fecha===fecha); return es.length?`<div class="card pad" style="margin:16px 0"><h2>Bases y entregas de ese día</h2><div class="tablewrap"><table><tbody>${es.map(x=>`<tr><td>${x.tipo==='base'?'<span class="pill p-pag">Base</span>':'<span class="pill p-ok">Entrega</span>'}</td><td>${esc(nombreRuta(x.cobradorId))}</td><td>${esc(x.nota||'')}</td><td class="num">${fmt(x.valor)}</td><td class="muted">${esc(nombreUsuario(x.creadoPor))}</td><td class="right">${isCeo()?`<button class="btn sm danger" onclick="borrarEntrega('${x.id}')">Borrar</button>`:''}</td></tr>`).join('')}</tbody></table></div></div>`:'<div style="height:16px"></div>';})()}
   ${tablaPagosDia(todosPagos,true)}`;

@@ -130,6 +130,8 @@ window.S = {
   async getRecorrido(uid, fecha) { const s = await getDoc(doc(db, ruta('recorridos'), uid + '_' + fecha)); return s.exists() ? s.data() : null; },
   async getFotos(pid) { try { const s = await getDoc(doc(db, ruta('fotos'), pid)); return s.exists() ? s.data() : null; } catch (e) { return null; } },
   setFotos: (pid, data) => setDoc(doc(db, ruta('fotos'), pid), clean(data)),
+  async getComprobante(id) { try { const s = await getDoc(doc(db, ruta('comprobantes'), id)); return s.exists() ? s.data() : null; } catch (e) { return null; } },
+  setComprobante: (id, data) => setDoc(doc(db, ruta('comprobantes'), id), clean(data)),
   /* ---------- equipo autorizado (cada ruta solo entra desde su celular) ---------- */
   equipo: {
     async get(uid) { const s = await getDoc(doc(db, ruta('equipos'), uid)); return s.exists() ? s.data() : null; },

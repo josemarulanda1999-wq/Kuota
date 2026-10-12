@@ -88,7 +88,7 @@ function resumenCierre(uid, fecha){
   const c = cuadreCobrador(uid, fecha);
   const lista = cobrosDelDia(fecha).filter(x=>x.p.cobradorId===uid);
   const visitas = DB.visitas.filter(v=>v.cobradorId===uid && v.fecha===fecha);
-  return { cobrado:c.cobradoDia, pagos:c.nPagosDia, base:c.baseDia, gastos:c.gastosDia, ingresos:c.ingresosDia, prestado:c.prestadoDia + c.desembolsadoDia,
+  return { cobrado:c.cobradoDia, transferencias:c.transfDia||0, pagos:c.nPagosDia, base:c.baseDia, gastos:c.gastosDia, ingresos:c.ingresosDia, prestado:c.prestadoDia + c.desembolsadoDia,
            entregado:c.entregadoDia, saldoFinal:c.saldoFinal, clientes:lista.length, noPagos:visitas.length };
 }
 async function cerrarMiRuta(){
@@ -96,7 +96,7 @@ async function cerrarMiRuta(){
   if(cierreDe(ME.uid, fecha)) return avisar('Tu ruta de hoy ya está cerrada.');
   const r = resumenCierre(ME.uid, fecha);
   const sinVisitar = cobrosDelDia(fecha).filter(x=>x.p.cobradorId===ME.uid && x.pagadoHoy<=0 && !visitaDe(x.p.id, fecha)).length;
-  if(!await confirmar(`Cerrar la ruta de hoy\n\nCobrado: ${fmt(r.cobrado)} (${r.pagos} pagos)\nGastos: ${fmt(r.gastos)}\nPrestado: ${fmt(r.prestado)}\nDebes tener en la mano: ${fmt(r.saldoFinal)}${sinVisitar?`\n\nOjo: ${sinVisitar} cliente(s) sin pago ni visita registrada.`:''}\n\nDespués de cerrar no podrás registrar más cobros hoy.`, {ok:'Cerrar ruta'})) return;
+  if(!await confirmar(`Cerrar la ruta de hoy\n\nCobrado en efectivo: ${fmt(r.cobrado)} (${r.pagos} pagos)\nPor transferencia: ${fmt(r.transferencias)}\nGastos: ${fmt(r.gastos)}\nPrestado: ${fmt(r.prestado)}\nDebes tener en efectivo: ${fmt(r.saldoFinal)}${sinVisitar?`\n\nOjo: ${sinVisitar} cliente(s) sin pago ni visita registrada.`:''}\n\nDespués de cerrar no podrás registrar más cobros hoy.`, {ok:'Cerrar ruta'})) return;
   S.set('cierres', idCierre(ME.uid, fecha), {cobradorId:ME.uid, fecha, cerradoEn:Date.now(), resumen:r}).catch(falloNube);
   DB.cierres.push({id:idCierre(ME.uid, fecha), cobradorId:ME.uid, fecha, cerradoEn:Date.now(), resumen:r});
   if(typeof GPS!=='undefined' && GPS.activo) detenerJornada(true);
@@ -187,7 +187,7 @@ function textoRecibo(pagoId){
   const p = DB.prestamos.find(y=>y.id===x.prestamoId)||{}, c = clienteById(p.clienteId)||{}, e = estadoPrestamo(p);
   return `*${DB.config.negocio||'Kuota'}* — Recibo de pago\n`+
     `Cliente: ${c.nombre||''}\nFecha: ${fdate(x.fecha)}${x.creado?' '+new Date(x.creado).toLocaleTimeString('es-CO',{hour:'numeric',minute:'2-digit'}):''}\n`+
-    `Valor pagado: ${fmt(x.monto)}\nCuotas pagadas: ${e.cuotasPagadas} de ${p.cuotas}\nSaldo pendiente: ${fmt(e.saldo)}\n`+
+    `Valor pagado: ${fmt(x.monto)} (${x.medio==='transferencia'?'transferencia':'efectivo'})\nCuotas pagadas: ${e.cuotasPagadas} de ${p.cuotas}\nSaldo pendiente: ${fmt(e.saldo)}\n`+
     `Recibió: ${nombreUsuario(x.registradoPor)}\n${DB.config.mensajeRecibo?'\n'+DB.config.mensajeRecibo:''}`;
 }
 function modalRecibo(pagoId){
@@ -197,6 +197,7 @@ function modalRecibo(pagoId){
   openModal(`<h3>Pago registrado</h3><pre class="recibo">${esc(t.replace(/\*/g,''))}</pre>
   <div class="actions"><button class="btn" onclick="closeModal()">Listo</button>
   ${wa?`<a class="btn pri" href="https://wa.me/${wa}?text=${encodeURIComponent(t)}" target="_blank" rel="noopener" onclick="setTimeout(closeModal,300)">Enviar por WhatsApp</a>`:''}
+  ${x.comprobante?`<button class="btn" onclick="verComprobante('${pagoId}')">Ver comprobante</button>`:''}
   <button class="btn ${wa?'':'pri'}" onclick="compartirRecibo('${pagoId}')">Compartir</button></div>`);
 }
 async function compartirRecibo(pagoId){
@@ -244,4 +245,113 @@ function guardarAjustesRuta(){
   DB.config.conceptosIngreso = lineas('sConI').length ? lineas('sConI') : defaultConfig().conceptosIngreso;
   DB.config.mensajeRecibo = document.getElementById('sMsg').value.trim().slice(0,300);
   cfgSave(); render(); toast('Ajustes guardados');
+}
+
+/* ---------- pagos por transferencia y comprobantes ---------- */
+const enEfectivo = x => efectivo(x) && x.medio !== 'transferencia';    // plata que queda en la mano de la ruta
+const porTransferencia = x => efectivo(x) && x.medio === 'transferencia';
+let COMP_TMP = '';
+async function cargarComprobante(input){
+  const f = input.files && input.files[0]; if(!f) return;
+  const ok = document.getElementById('gCompOk'); if(ok) ok.textContent = 'Procesando…';
+  try{ COMP_TMP = await comprimirFoto(f); if(ok){ ok.innerHTML = '<span style="color:var(--green)">Comprobante listo ✓</span>'; } }
+  catch(e){ COMP_TMP=''; if(ok) ok.textContent = 'No se pudo leer la imagen'; }
+}
+function guardarComprobante(pagoId, prestamoId, cobradorId){
+  const img = fotoSegura(COMP_TMP); COMP_TMP = '';
+  if(!img) return;
+  S.setComprobante(pagoId, {img, prestamoId, cobradorId, creado:Date.now(), creadoPor:ME.uid}).catch(falloNube);
+}
+async function verComprobante(pagoId){
+  toast('Cargando comprobante…');
+  const c = await S.getComprobante(pagoId);
+  const v = c && fotoSegura(c.img);
+  if(!v) return avisar('Este pago no tiene comprobante guardado.');
+  const w = document.createElement('div'); w.className = 'foto-full';
+  w.innerHTML = `<img src="${v}" alt="Comprobante">`; w.onclick = ()=>w.remove();
+  document.body.appendChild(w);
+}
+const etiquetaMedio = x => x.medio==='transferencia'
+  ? `<span class="pill p-pag">Transferencia</span>${x.comprobante?` <button class="btn sm ghost" onclick="event.stopPropagation();verComprobante('${x.id}')">Ver comprobante</button>`:' <span class="muted" style="font-size:12px">sin comprobante</span>'}`
+  : '<span class="pill p-ok">Efectivo</span>';
+
+/* ---------- análisis de rutas (solo CEO): plata, utilidad y crecimiento ---------- */
+ICONS.analisis = '<path d="M4 20h16v2H4zM6 10h3v8H6zm5-6h3v14h-3zm5 9h3v5h-3z"/>';
+const fraccionInteres = p => { const t = (Number(p.valorCuota)||0)*(Number(p.cuotas)||0); return t>0 ? Math.max(0,(t-p.monto)/t) : 0; };
+function metricasRuta(uid, desde, hasta){
+  const enR = f => f && f>=desde && f<=hasta;
+  const prest = DB.prestamos.filter(p=>p.cobradorId===uid);
+  const ids = new Set(prest.map(p=>p.id));
+  const pagos = DB.pagos.filter(x=>ids.has(x.prestamoId) && efectivo(x) && enR(x.fecha));
+  let cobrado=0, intereses=0, transf=0;
+  for(const x of pagos){ const p=prest.find(y=>y.id===x.prestamoId); cobrado+=x.monto; intereses+=x.monto*fraccionInteres(p); if(x.medio==='transferencia') transf+=x.monto; }
+  const gastos = DB.movruta.filter(m=>m.cobradorId===uid && m.tipo==='gasto' && enR(m.fecha)).reduce((s,m)=>s+m.valor,0);
+  const ingresos = DB.movruta.filter(m=>m.cobradorId===uid && m.tipo==='ingreso' && enR(m.fecha)).reduce((s,m)=>s+m.valor,0);
+  const nuevos = prest.filter(p=>enR(p.fecha));
+  return { cobrado, transf, intereses, gastos, ingresos, utilidad: intereses + ingresos - gastos, prestado: nuevos.reduce((s,p)=>s+p.monto,0), nNuevos: nuevos.length };
+}
+function estadoCarteraRuta(uid){
+  let cartera=0, activos=0, mora=0, enMora=0;
+  for(const p of DB.prestamos.filter(p=>p.cobradorId===uid)){
+    const e = estadoPrestamo(p); if(e.estado==='Pagado') continue;
+    cartera+=e.saldo; activos++; if(e.estado==='En mora'){ mora+=e.atrasoMora; enMora++; }
+  }
+  return { cartera, activos, mora, enMora, enMano: cuadreCobrador(uid).enMano };
+}
+function rangoPeriodo(k){
+  const h = new Date(), y=h.getFullYear(), m=h.getMonth();
+  const r = (a,b)=>[ymd(a), ymd(b)];
+  if(k==='mes') return { act:r(new Date(y,m,1), h), ant:r(new Date(y,m-1,1), new Date(y,m-1,Math.min(h.getDate(), new Date(y,m,0).getDate()))), txt:'este mes', antTxt:'el mismo corte del mes pasado' };
+  if(k==='mespasado') return { act:r(new Date(y,m-1,1), new Date(y,m,0)), ant:r(new Date(y,m-2,1), new Date(y,m-1,0)), txt:'el mes pasado', antTxt:'el mes anterior' };
+  if(k==='trimestre') return { act:r(new Date(y,m-2,1), h), ant:r(new Date(y,m-5,1), new Date(y,m-2,0)), txt:'los últimos 3 meses', antTxt:'los 3 meses anteriores' };
+  if(k==='semana'){ const a=new Date(h); a.setDate(h.getDate()-6); const b=new Date(a); b.setDate(a.getDate()-1); const c=new Date(b); c.setDate(b.getDate()-6); return { act:r(a,h), ant:r(c,b), txt:'los últimos 7 días', antTxt:'los 7 días anteriores' }; }
+  return { act:r(new Date(y,0,1), h), ant:r(new Date(y-1,0,1), new Date(y-1,m,h.getDate())), txt:'este año', antTxt:'el mismo corte del año pasado' };
+}
+function crecimiento(a, b){
+  if(!b) return a ? '<span class="crece up">nuevo</span>' : '<span class="crece">—</span>';
+  const pc = (a-b)/Math.abs(b)*100;
+  return `<span class="crece ${pc>=0?'up':'down'}">${pc>=0?'▲':'▼'} ${Math.abs(pc).toLocaleString('es-CO',{maximumFractionDigits:0})}%</span>`;
+}
+VIEWS.analisis = () => {
+  const k = viewState.p || 'mes', R = rangoPeriodo(k);
+  const rutas = cobradores();
+  const filas = rutas.map(u=>({u, a:metricasRuta(u.id, ...R.act), b:metricasRuta(u.id, ...R.ant), c:estadoCarteraRuta(u.id)}));
+  const T = (sel, key) => filas.reduce((s,f)=>s+(f[sel][key]||0),0);
+  const pb=(kk,t)=>`<button class="btn sm ${k===kk?'pri':''}" onclick="go('analisis',{p:'${kk}'})">${t}</button>`;
+  // utilidad de los últimos 6 meses por ruta
+  const h=new Date(), meses=[];
+  for(let i=5;i>=0;i--){ const d=new Date(h.getFullYear(), h.getMonth()-i, 1); const fin=new Date(d.getFullYear(), d.getMonth()+1, 0);
+    meses.push({txt:d.toLocaleDateString('es-CO',{month:'short'}), vals:rutas.map(u=>metricasRuta(u.id, ymd(d), ymd(fin)).utilidad)}); }
+  const maxU = Math.max(1, ...meses.flatMap(m=>m.vals.map(v=>Math.abs(v))));
+  const colores = ['#c8f169','#7db8ff','#efeac2','#ff9f7a','#b99bff','#5fd4c4','#f2d66b','#ff7b9c'];
+  return `
+  <div class="head"><div><h1>Análisis de rutas</h1><p class="sub">Cuánta plata tiene cada ruta, cuánto deja y cómo va creciendo. Comparado contra ${R.antTxt}.</p></div>
+  <div class="row">${pb('semana','7 días')}${pb('mes','Este mes')}${pb('mespasado','Mes pasado')}${pb('trimestre','3 meses')}${pb('anio','Este año')}</div></div>
+  <div class="kpis">
+    <div class="kpi cream"><div class="l">Plata en las rutas (efectivo)</div><div class="v">${fmt(T('c','enMano'))}</div><div class="n">Cartera por cobrar ${fmt(T('c','cartera'))}</div></div>
+    <div class="kpi hl"><div class="l">Utilidad ${R.txt}</div><div class="v">${fmt(T('a','utilidad'))}</div><div class="n">${crecimiento(T('a','utilidad'), T('b','utilidad'))} vs ${fmt(T('b','utilidad'))}</div></div>
+    <div class="kpi sky"><div class="l">Cobrado ${R.txt}</div><div class="v">${fmt(T('a','cobrado'))}</div><div class="n">${crecimiento(T('a','cobrado'), T('b','cobrado'))} · transferencias ${fmt(T('a','transf'))}</div></div>
+  </div>
+  ${rutas.length ? `
+  <div class="card" style="margin-bottom:16px"><div class="tablewrap"><table><thead><tr><th>Ruta</th><th class="num">Plata en la ruta</th><th class="num">Cartera</th><th class="num">Clientes</th><th class="num">En mora</th><th class="num">Cobrado</th><th class="num">Prestado</th><th class="num">Gastos</th><th class="num">Utilidad</th><th>vs antes</th></tr></thead><tbody>
+  ${filas.sort((x,y)=>y.a.utilidad-x.a.utilidad).map(({u,a,b,c})=>`<tr>
+    <td><div class="who">${ava(u.nombre)}<div><b>${esc(rutaDe(u))}</b><div class="muted" style="font-size:12px">${esc(u.nombre)}</div></div></div></td>
+    <td class="num"><b>${fmt(c.enMano)}</b></td><td class="num">${fmt(c.cartera)}</td><td class="num">${c.activos}</td>
+    <td class="num" style="color:${c.enMora?'var(--red)':'inherit'}">${c.enMora} · ${fmt(c.mora)}</td>
+    <td class="num">${fmt(a.cobrado)}</td><td class="num">${fmt(a.prestado)} <span class="muted">(${a.nNuevos})</span></td><td class="num">${fmt(a.gastos)}</td>
+    <td class="num"><b style="color:var(--green)">${fmt(a.utilidad)}</b></td><td>${crecimiento(a.utilidad, b.utilidad)}</td></tr>`).join('')}
+  </tbody></table></div></div>
+  <div class="card pad"><h2>Utilidad por mes de cada ruta</h2>
+    <div class="leyenda">${rutas.map((u,i)=>`<span><i style="background:${colores[i%colores.length]}"></i>${esc(rutaDe(u))}</span>`).join('')}</div>
+    <div class="barras">${meses.map(m=>`<div class="mes"><div class="cols">${m.vals.map((v,i)=>`<div class="col" title="${esc(rutaDe(rutas[i]))}: ${fmt(v)}" style="height:${Math.max(2,Math.abs(v)/maxU*100)}%;background:${v<0?'var(--red)':colores[i%colores.length]}"></div>`).join('')}</div><span>${m.txt}</span></div>`).join('')}</div>
+    <p class="muted" style="font-size:12px;margin:10px 0 0">Utilidad = intereses cobrados + ingresos de la ruta − gastos de la ruta.</p>
+  </div>` : '<div class="card"><div class="empty">Aún no tienes rutas. Cuando las tengas, aquí verás cuánto deja cada una.</div></div>'}`;
+};
+function resumenRutasPanel(){
+  const rutas = cobradores(); if(!rutas.length) return '';
+  const R = rangoPeriodo('mes');
+  return `<div class="card pad" style="margin-top:16px"><div class="row" style="margin-bottom:6px"><h2 style="margin:0">Rutas este mes</h2><span class="spacer"></span><button class="btn sm" data-go="analisis">Ver análisis</button></div>
+  <div class="cuadre-grid">${rutas.map(u=>{ const a=metricasRuta(u.id,...R.act), b=metricasRuta(u.id,...R.ant), c=estadoCarteraRuta(u.id); return `<div class="ruta-mini">
+    <div class="row">${ava(u.nombre)}<div style="min-width:0;flex:1"><b>${esc(rutaDe(u))}</b><div class="muted" style="font-size:12px">${esc(u.nombre)}</div></div></div>
+    <div class="cobro-nums"><div><span>En la ruta</span><b>${fmt(c.enMano)}</b></div><div><span>Utilidad</span><b style="color:var(--green)">${fmt(a.utilidad)}</b></div><div><span>vs mes ant.</span><b>${crecimiento(a.utilidad,b.utilidad)}</b></div></div></div>`; }).join('')}</div></div>`;
 }

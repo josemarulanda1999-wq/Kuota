@@ -221,14 +221,14 @@ const NAV_ADMIN = [['panel','Panel','Panel'],['cobros','Cobros del día','Cobros
 const NAV_COB = [['cobros','Mi ruta','Ruta'],['clientes','Mis clientes','Clientes'],['prestamos','Préstamos','Préstamos'],['cuadre','Mi cuadre','Cuadre']];
 const PERMITIDAS_COB = ['cobros','clientes','prestamos','cuadre','calculadora'];
 ICONS.renovaciones='<path d="M12 4V1L8 5l4 4V6a6 6 0 016 6 6 6 0 01-.7 2.8l1.5 1.5A8 8 0 0020 12a8 8 0 00-8-8zm0 14a6 6 0 01-6-6c0-1 .3-2 .7-2.8L5.2 7.7A8 8 0 004 12a8 8 0 008 8v3l4-4-4-4z"/>';
-const SOLO_CEO = ['panel','movimientos','salidas','usuarios','ajustes','suscripcion'];  // el Admin no ve el dinero del negocio
+const SOLO_CEO = ['panel','movimientos','salidas','usuarios','ajustes','suscripcion','analisis'];  // el Admin no ve el dinero del negocio
 /* menú: pocas opciones principales y el resto en "Más" */
 ICONS.caja=ICONS.movimientos;
 ICONS.mas='<path d="M6 10a2 2 0 100 4 2 2 0 000-4zm6 0a2 2 0 100 4 2 2 0 000-4zm6 0a2 2 0 100 4 2 2 0 000-4z"/>';
 const VISTAS_CAJA = ['movimientos','cuadre','salidas'];
 function menu(){
   if(isCeo()) return { main:[['panel','Panel'],['cobros','Cobros'],['prestamos','Préstamos'],['clientes','Clientes'],['caja','Caja']],
-                       mas:[['mapa','Mapa'],['renovaciones','Aprobaciones'],['usuarios','Usuarios'],['suscripcion','Mi suscripción'],['calculadora','Calculadora'],['ajustes','Ajustes']] };
+                       mas:[['analisis','Análisis de rutas'],['mapa','Mapa'],['renovaciones','Aprobaciones'],['usuarios','Usuarios'],['suscripcion','Mi suscripción'],['calculadora','Calculadora'],['ajustes','Ajustes']] };
   if(isAdmin()) return { main:[['cobros','Cobros'],['prestamos','Préstamos'],['clientes','Clientes'],['cuadre','Cuadre']],
                          mas:[['mapa','Mapa'],['renovaciones','Aprobaciones'],['calculadora','Calculadora']] };
   return { main:[['cobros','Mi ruta'],['clientes','Clientes'],['prestamos','Préstamos'],['cuadre','Cuadre'],['calculadora','Calcular']], mas:[] };
@@ -351,6 +351,7 @@ VIEWS.panel = () => {
       </div>
     </div>
   </div>
+  ${resumenRutasPanel()}
   <div class="card pad" style="margin-top:16px">
     <div class="row" style="margin-bottom:6px"><h2 style="margin:0">Últimos movimientos</h2><span class="spacer"></span><button class="btn sm" data-go="movimientos">Ver todos</button></div>
     ${(()=>{const ms=movimientos().slice(-6).reverse(); return ms.length?`<div class="tablewrap"><table><tbody>${ms.map(filaMov).join('')}</tbody></table></div>`:'<div class="empty">Aún no hay movimientos.</div>';})()}
@@ -412,7 +413,7 @@ VIEWS.cobros = () => {
   const totalPagado = list.reduce((s,c)=>s+c.pagadoHoy,0);
   return `
   <div class="head"><div><h1>${isAdmin()?'Cobros del día':'Mi ruta'}</h1><p class="sub">Cuotas que vencen y préstamos atrasados. Marca el pago apenas cobres.</p></div>
-  <div class="row">${isAdmin()?'':`${puedePrestarRuta()?`<button class="btn pri" onclick="modalPrestamo()">+ Crédito nuevo</button>`:''}<button class="btn ${puedePrestarRuta()?'':'pri'}" onclick="elegirRenovacion()">Solicitar renovación</button>`}<button class="btn" onclick="modalEnrutar()">Orden de visita</button>${filtroCobrador('cobros')}<input type="date" class="input" style="width:auto" value="${fecha}" onchange="go('cobros',Object.assign({},viewState,{fecha:this.value}))">${isNative()?'':'<button class="btn no-print" onclick="window.print()">Imprimir ruta</button>'}</div></div>
+  <div class="row">${isAdmin()?'':`${puedePrestarRuta()?`<button class="btn pri" onclick="modalPrestamo()">+ Crédito nuevo</button>`:''}<button class="btn ${puedePrestarRuta()?'':'pri'}" onclick="elegirRenovacion()">Solicitar renovación</button>`}${isAdmin()?'':'<button class="btn" onclick="modalEnrutar()">Orden de visita</button>'}${filtroCobrador('cobros')}<input type="date" class="input" style="width:auto" value="${fecha}" onchange="go('cobros',Object.assign({},viewState,{fecha:this.value}))">${isNative()?'':'<button class="btn no-print" onclick="window.print()">Imprimir ruta</button>'}</div></div>
   <div class="kpis">
     <div class="kpi sky"><div class="l">Visitados</div><div class="v">${visitados} de ${list.length}</div><div class="progress" style="margin-top:8px"><i style="width:${list.length?visitados/list.length*100:0}%"></i></div></div>
     <div class="kpi cream"><div class="l">Pendiente por cobrar</div><div class="v">${fmt(totalCobrar)}</div></div>
@@ -930,6 +931,12 @@ function modalPago(prestamoId, pagoId, fecha){
     <label class="f full">Préstamo<select class="input" id="gPre"><option value="">— Selecciona —</option>${activos.sort((a,b)=>nombreCliente(a.clienteId).localeCompare(nombreCliente(b.clienteId))).map(p=>`<option value="${p.id}" ${p.id===sel?'selected':''}>${esc(nombreCliente(p.clienteId))} · ${fmt(p.monto)} · ${p.periodo.toLowerCase()}</option>`).join('')}</select></label>
     <label class="f">Fecha del pago<input type="date" class="input" id="gFec" value="${pago?pago.fecha:(fecha||todayStr())}" ${isAdmin()?'':'disabled'}></label>
     <label class="f">Valor pagado<input class="input" id="gVal" inputmode="numeric" value="${pago?fmtIn(pago.monto):''}"></label>
+    <div class="f full" style="display:block"><span style="display:block">¿Cómo pagó?</span><div class="seg" id="gMedio">
+      <button type="button" data-m="efectivo" class="${(pago?pago.medio:'')!=='transferencia'?'on':''}">Efectivo</button>
+      <button type="button" data-m="transferencia" class="${(pago?pago.medio:'')==='transferencia'?'on':''}">Transferencia</button></div></div>
+    <div class="f full" id="gCompW" style="display:${(pago?pago.medio:'')==='transferencia'?'':'none'}"><span>Comprobante de la transferencia</span>
+      <div class="row"><label class="btn sm">Cámara<input type="file" accept="image/*" capture="environment" hidden onchange="cargarComprobante(this)"></label>
+      <label class="btn sm">Galería<input type="file" accept="image/*" hidden onchange="cargarComprobante(this)"></label><span id="gCompOk" class="muted" style="font-size:12.5px">${pago&&pago.comprobante?'Ya tiene comprobante':'Sin adjuntar'}</span></div></div>
     <label class="f full">Nota<input class="input" id="gNot" value="${esc(pago?pago.nota:'')}" placeholder="Opcional"></label>
   </div>
   <div id="gInfo" class="calcbox" style="margin-top:14px"></div>
@@ -948,6 +955,11 @@ function modalPago(prestamoId, pagoId, fecha){
   document.getElementById('gPre').addEventListener('change',()=>{ if(!pago) document.getElementById('gVal').value=''; info(); });
   const val=document.getElementById('gVal'); val.addEventListener('blur',()=>{ const n=num(val.value); if(n) val.value=fmtIn(n); });
   info();
+  COMP_TMP = '';
+  let medio = (pago&&pago.medio==='transferencia') ? 'transferencia' : 'efectivo';
+  document.querySelectorAll('#gMedio button').forEach(b=>b.onclick=()=>{ medio=b.dataset.m;
+    document.querySelectorAll('#gMedio button').forEach(x=>x.classList.toggle('on', x===b));
+    document.getElementById('gCompW').style.display = medio==='transferencia' ? '' : 'none'; });
   document.getElementById('gSave').onclick=async ()=>{
     const pid=document.getElementById('gPre').value, monto=num(val.value), f=document.getElementById('gFec').value||todayStr();
     if(!pid) return toast('Selecciona el préstamo');
@@ -956,11 +968,15 @@ function modalPago(prestamoId, pagoId, fecha){
     const saldo = e.saldo + (pago&&pago.prestamoId===pid?pago.monto:0);
     if(monto > saldo+0.5 && !await confirmar(`El pago (${fmt(monto)}) es mayor que el saldo (${fmt(saldo)}). ¿Guardar de todas formas?`)) return;
     const nota=document.getElementById('gNot').value.trim();
-    if(pago) dbUpd('pagos',pago.id,{prestamoId:pid,fecha:f,monto,nota,cobradorId:p.cobradorId||''});
+    if(medio==='transferencia' && !COMP_TMP && !(pago&&pago.comprobante) && !await confirmar('No adjuntaste el comprobante de la transferencia. ¿Guardar así?', {ok:'Guardar sin comprobante'})) return;
+    const conComp = medio==='transferencia' && (!!COMP_TMP || !!(pago&&pago.comprobante));
+    if(pago){ dbUpd('pagos',pago.id,{prestamoId:pid,fecha:f,monto,nota,cobradorId:p.cobradorId||'',medio,comprobante:conComp});
+      if(COMP_TMP) guardarComprobante(pago.id, pid, p.cobradorId||''); }
     else {
       const bt=document.getElementById('gSave'); bt.disabled=true; bt.textContent='Registrando…';
       const gps = await gpsParaPago();
-      const nuevo = dbAdd('pagos',Object.assign({prestamoId:pid,fecha:f,monto,nota,cobradorId:p.cobradorId||'',registradoPor:ME.uid}, gps));
+      const nuevo = dbAdd('pagos',Object.assign({prestamoId:pid,fecha:f,monto,nota,cobradorId:p.cobradorId||'',registradoPor:ME.uid,medio,comprobante:conComp}, gps));
+      if(COMP_TMP) guardarComprobante(nuevo, pid, p.cobradorId||'');
       closeModal(); render(); viewState._reopen=0; modalRecibo(nuevo); return;
     }
     closeModal(); render(); toast('Pago registrado');
@@ -985,7 +1001,7 @@ function modalDetalle(id, tab='cuotas'){
     let st = cubierta?'<span class="cuota-ok">Pagada</span>': parcial? '<span style="color:var(--amber)">Abono parcial</span>' : venc?'<span class="cuota-venc">Vencida</span>':'<span class="muted">Pendiente</span>';
     return `<tr><td>${q.n}</td><td>${fdate(q.fecha)}${q.fecha===hoy?' <span class="pill p-hoy">hoy</span>':''}</td><td class="num">${fmt(p.valorCuota)}</td><td class="num">${fmt(p.monto/p.cuotas)}</td><td class="num">${fmt(p.valorCuota - p.monto/p.cuotas)}</td><td>${st}</td></tr>`;
   }).join('');
-  const pagosHtml = e.pagos.length? e.pagos.map(x=>`<tr><td>${fdate(x.fecha)}</td><td class="num">${fmt(x.monto)}</td><td>${esc(x.nota||'')}</td><td class="muted" style="font-size:12px">${esc(nombreUsuario(x.registradoPor))}</td>${isAdmin()?`<td style="white-space:nowrap">${celdaGPSPago(x)}</td>`:''}<td class="right no-print">${isCeo()?`<button class="btn sm" onclick="viewState._reopen=1;modalPago(null,'${x.id}')">Editar</button>`:''}</td></tr>`).join('') : `<tr><td colspan="6" class="muted">Sin pagos todavía.</td></tr>`;
+  const pagosHtml = e.pagos.length? e.pagos.map(x=>`<tr><td>${fdate(x.fecha)}</td><td class="num">${fmt(x.monto)}</td><td>${esc(x.nota||'')}<div style="margin-top:3px">${etiquetaMedio(x)}</div></td><td class="muted" style="font-size:12px">${esc(nombreUsuario(x.registradoPor))}</td>${isAdmin()?`<td style="white-space:nowrap">${celdaGPSPago(x)}</td>`:''}<td class="right no-print">${isCeo()?`<button class="btn sm" onclick="viewState._reopen=1;modalPago(null,'${x.id}')">Editar</button>`:''}</td></tr>`).join('') : `<tr><td colspan="6" class="muted">Sin pagos todavía.</td></tr>`;
   openModal(`
   <div class="row" style="margin-bottom:6px">${ava(c.nombre)}<h3 style="margin:0">${esc(c.nombre||'(sin cliente)')}</h3>${pill(e)}<span class="spacer"></span>
     ${isNative()?'':'<button class="btn sm" onclick="window.print()">Imprimir</button>'}${isCeo()?`<button class="btn sm" onclick="modalPrestamo('${p.id}')">Editar</button>`:''}${puedeRenovar(p)?`<button class="btn sm" onclick="modalRenovacion('${p.id}')">${isAdmin()?'Renovar':'Solicitar renovación'}</button>`:''}<button class="btn sm pri" onclick="viewState._reopen=1;modalPago('${p.id}')">Registrar pago</button><button class="btn sm ghost" onclick="closeModal()">✕</button></div>
@@ -1105,7 +1121,7 @@ VIEWS.usuarios = () => {
     <td><div class="who">${ava(u.nombre)}<div><b>${esc(u.nombre)}</b>${u.id===ME.uid?' <span class="muted" style="margin-left:6px">(tú)</span>':''}${u.rol==='cobrador'?`<div class="muted" style="font-size:12px">${esc(rutaDe(u))}</div>`:''}</div></div></td>
     <td>${esc(u.email)}</td><td>${u.rol==='ceo'?'<span class="pill p-hoy">CEO</span>':u.rol==='admin'?'<span class="pill p-pag">Admin</span>':'<span class="pill p-ok">Ruta</span>'}</td>
     <td class="num">${u.rol==='cobrador'?nc:'—'}</td><td class="num">${u.rol==='cobrador'?fmt(cu.enMano):'—'}</td><td>${celdaEquipo(u)}</td>
-    <td>${u.estado==='pendiente'?'<span class="pill p-hoy">Pendiente de activar</span>':u.activo===false?'<span class="pill p-mora">Desactivado</span>':'<span class="pill p-ok">Activo</span>'}</td>
+    <td>${u.estado==='pendiente'?'<span class="pill p-hoy">Pendiente de activar</span>':u.activo===false?'<span class="pill p-mora">Desactivado</span>':u.suspendido?'<span class="pill p-hoy">Suspendido</span>':'<span class="pill p-ok">Activo</span>'}</td>
     <td class="right" style="white-space:nowrap">${btnLiberar(u)} ${u.id!==ME.uid&&u.rol!=='ceo'?`<button class="btn sm" onclick="modalUsuario('${u.id}')">Editar</button>`:''}</td></tr>`}).join('')}
   </tbody></table></div></div>
   <p class="muted" style="font-size:13px;margin-top:14px">Al solicitar un usuario, Kuota lo revisa y lo activa; desde ese momento se cobra en tu mensualidad. Si desactivas a alguien, para volver a activarlo debes pedírselo a Kuota.</p>
@@ -1124,9 +1140,15 @@ function modalUsuario(id){
     ${u.rol==='cobrador'?`<label class="f full">Nombre de la ruta<input class="input" id="uRuta" value="${esc(u.ruta||'')}" placeholder="Ej: Ruta Norte"></label>${bloqueCfgRuta(u.id)}`:''}
     <label class="f full">Correo<input class="input" value="${esc(u.email)}" disabled></label></div>
     <p class="muted" style="font-size:13px">¿Olvidó la contraseña? <button class="btn sm" id="uReset">Enviarle correo para cambiarla</button></p>
-    ${u.activo!==false?`<p class="muted" style="font-size:13px">Si esta persona ya no trabaja contigo, desactívala. Deja de poder entrar de inmediato.</p>`:''}
+    ${u.activo!==false?`<div class="card pad" style="background:var(--panel-2);margin:6px 0 10px"><b>${u.suspendido?'Acceso suspendido':'Acceso activo'}</b>
+      <p class="muted" style="font-size:13px;margin:4px 0 10px">${u.suspendido?'No puede entrar a Kuota. Sus clientes, préstamos y cuadres siguen intactos.':'Suspende el acceso cuando no deba trabajar o mientras cambia de celular. No se pierde ningún dato y lo reactivas cuando quieras, sin pedírselo a Kuota.'}</p>
+      <div class="row"><button class="btn sm ${u.suspendido?'pri':''}" id="uSusp">${u.suspendido?'Reactivar acceso':'Suspender acceso'}</button>${u.rol==='cobrador'&&EQUIPOS.some(x=>x.id===u.id)?`<button class="btn sm" onclick="closeModal();liberarEquipo('${u.id}')">Liberar celular (equipo nuevo)</button>`:''}</div></div>
+      <p class="muted" style="font-size:13px">Si esta persona ya no trabaja contigo, desactívala: deja de contar en tu mensualidad y para volver a activarla debes pedírselo a Kuota.</p>`:''}
     <div class="actions">${u.activo!==false?`<button class="btn danger" style="margin-right:auto" id="uOff">Desactivar</button>`:''}<button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="uSave">Guardar</button></div>`);
     document.getElementById('uReset').onclick=()=>S.resetPassword(u.email).then(()=>toast('Correo enviado a '+u.email)).catch(()=>toast('No se pudo enviar el correo'));
+    const bs=document.getElementById('uSusp'); if(bs) bs.onclick=async ()=>{ const nuevo=!u.suspendido;
+      if(nuevo && !await confirmar(`¿Suspender el acceso de ${u.nombre}? No podrá entrar hasta que lo reactives. No se borra nada.`,{ok:'Suspender'})) return;
+      dbUpd('users',u.id,{suspendido:nuevo}); closeModal(); render(); toast(nuevo?'Acceso suspendido':'Acceso reactivado'); };
     if(u.activo!==false) document.getElementById('uOff').onclick=async ()=>{ if(!await confirmar('¿Desactivar a '+u.nombre+'? Para reactivarlo tendrás que pedírselo a Kuota.',{peligro:true,ok:'Desactivar'})) return; dbUpd('users',u.id,{activo:false,estado:'desactivado'}); closeModal(); render(); toast('Usuario desactivado'); };
     document.getElementById('uSave').onclick=()=>{ const n=document.getElementById('uNom').value.trim(); if(!n) return toast('Escribe el nombre'); const d={nombre:n}; const r=document.getElementById('uRuta'); if(r) d.ruta=r.value.trim().slice(0,60); dbUpd('users',u.id,d); if(u.rol==='cobrador') guardarCfgRuta(u.id); closeModal(); render(); toast('Usuario actualizado'); };
     return;
@@ -1317,7 +1339,8 @@ function cuadreCobrador(uidC, fecha){
   const tot = a=>a.reduce((s,x)=>s+(Number(x.monto ?? x.valor)||0),0);
   const totR = a=>a.reduce((s,r)=>s+(Number(r.excedente)||0),0);
   const fRen = r=>r.entregadoEn ? ymd(new Date(r.entregadoEn)) : (r.fechaRenovacion||'');
-  const pagos = DB.pagos.filter(x=>(x.registradoPor||'')===uidC && efectivo(x));
+  const todosPagos = DB.pagos.filter(x=>(x.registradoPor||'')===uidC && efectivo(x));
+  const pagos = todosPagos.filter(enEfectivo), transf = todosPagos.filter(porTransferencia);
   const todasE = DB.entregas.filter(x=>x.cobradorId===uidC);
   const entregas = todasE.filter(x=>x.tipo!=='base'), bases = todasE.filter(x=>x.tipo==='base');
   const renov = DB.renovaciones.filter(r=>r.estado==='entregada' && r.entregadoPor===uidC);
@@ -1331,11 +1354,12 @@ function cuadreCobrador(uidC, fecha){
   if(fecha){
     const pDia=pagos.filter(x=>x.fecha===fecha), eDia=entregas.filter(x=>x.fecha===fecha), bDia=bases.filter(x=>x.fecha===fecha);
     const rDia=renov.filter(x=>fRen(x)===fecha), prDia=prest.filter(x=>x.fecha===fecha);
-    Object.assign(r, { pagosDia:pDia, nPagosDia:pDia.length, cobradoDia:tot(pDia), entregasDia:eDia, entregadoDia:tot(eDia), basesDia:bDia, baseDia:tot(bDia),
+    const tDia = transf.filter(x=>x.fecha===fecha);
+    Object.assign(r, { pagosDia:todosPagos.filter(x=>x.fecha===fecha), nPagosDia:pDia.length, cobradoDia:tot(pDia), transfDia:tot(tDia), nTransfDia:tDia.length, entregasDia:eDia, entregadoDia:tot(eDia), basesDia:bDia, baseDia:tot(bDia),
       desembolsadoDia:totR(rDia), prestamosDia:prDia, prestadoDia:tot(prDia),
       gastosDia:tot(gastos.filter(x=>x.fecha===fecha)), ingresosDia:tot(ingresos.filter(x=>x.fecha===fecha)),
       saldoInicial:saldo(f=>!!f && f<fecha), saldoFinal:saldo(f=>!!f && f<=fecha) });
-  } else Object.assign(r, { pagosDia:[], nPagosDia:0, cobradoDia:0, entregasDia:[], entregadoDia:0, basesDia:[], baseDia:0, desembolsadoDia:0, prestamosDia:[], prestadoDia:0, gastosDia:0, ingresosDia:0 });
+  } else Object.assign(r, { pagosDia:[], nPagosDia:0, cobradoDia:0, entregasDia:[], entregadoDia:0, basesDia:[], baseDia:0, desembolsadoDia:0, prestamosDia:[], prestadoDia:0, gastosDia:0, ingresosDia:0, transfDia:0, nTransfDia:0 });
   return r;
 }
 VIEWS.cuadre = () => {
@@ -1350,12 +1374,13 @@ VIEWS.cuadre = () => {
     <div class="card pad cuadre-ruta" style="margin-bottom:16px">
       <div class="cr-fila"><span>Saldo con que abrió ${hoy?'hoy':'ese día'}</span><b>${fmt(c.saldoInicial)}</b></div>
       <div class="cr-fila mas"><span>+ Base recibida de la oficina</span><b>${fmt(c.baseDia)}</b></div>
-      <div class="cr-fila mas"><span>+ Cobrado (${c.nPagosDia} pagos)</span><b>${fmt(c.cobradoDia)}</b></div>
+      <div class="cr-fila mas"><span>+ Cobrado en efectivo (${c.nPagosDia})</span><b>${fmt(c.cobradoDia)}</b></div>
       ${c.ingresosDia?`<div class="cr-fila mas"><span>+ Otros ingresos</span><b>${fmt(c.ingresosDia)}</b></div>`:''}
       <div class="cr-fila menos"><span>− Préstamos y renovaciones entregados</span><b>${fmt(salidas)}</b></div>
       <div class="cr-fila menos"><span>− Gastos de la ruta</span><b>${fmt(c.gastosDia)}</b></div>
       <div class="cr-fila menos"><span>− Entregado a la oficina</span><b>${fmt(c.entregadoDia)}</b></div>
-      <div class="cr-fila total"><span>Debes tener en la mano</span><b>${fmt(c.saldoFinal)}</b></div>
+      <div class="cr-fila total"><span>Debes tener en efectivo</span><b>${fmt(c.saldoFinal)}</b></div>
+      <div class="cr-fila transf"><span>Cobrado por transferencia (${c.nTransfDia}) · va a la cuenta, no a tu mano</span><b>${fmt(c.transfDia)}</b></div>
       ${(()=>{ const ci=cierreDe(ME.uid, fecha); return ci ? `<div class="banner" style="margin:14px 0 0">Ruta cerrada a las ${new Date(ci.cerradoEn).toLocaleTimeString('es-CO',{hour:'numeric',minute:'2-digit'})}.</div>`
         : hoy ? `<div class="row" style="margin-top:14px"><button class="btn sm" onclick="modalGastoRuta('gasto')">+ Gasto</button><button class="btn sm" onclick="modalGastoRuta('ingreso')">+ Ingreso</button><span class="spacer"></span><button class="btn sm pri" onclick="cerrarMiRuta()">Cerrar ruta del día</button></div>` : ''; })()}
     </div>
@@ -1370,19 +1395,20 @@ VIEWS.cuadre = () => {
   <div class="head"><div><h1>Cuadre de rutas</h1><p class="sub">Cada ruta abre con una base, cobra, presta y te entrega. Aquí ves cuánto debe tener cada una.</p></div>${fechaInput}</div>
   <div class="kpis">
     <div class="kpi sky"><div class="l">Bases entregadas ${hoy?'hoy':'ese día'}</div><div class="v">${fmt(tot('baseDia'))}</div></div>
-    <div class="kpi hl"><div class="l">Cobrado ${hoy?'hoy':'ese día'}</div><div class="v">${fmt(todosPagos.reduce((s,x)=>s+x.monto,0))}</div><div class="n">${todosPagos.length} pagos${yo.cobradoDia?` · ${fmt(yo.cobradoDia)} en oficina`:''}</div></div>
+    <div class="kpi hl"><div class="l">Cobrado ${hoy?'hoy':'ese día'}</div><div class="v">${fmt(todosPagos.reduce((s,x)=>s+x.monto,0))}</div><div class="n">Efectivo ${fmt(todosPagos.filter(enEfectivo).reduce((s,x)=>s+x.monto,0))} · Transferencia ${fmt(todosPagos.filter(porTransferencia).reduce((s,x)=>s+x.monto,0))}</div></div>
     <div class="kpi cream"><div class="l">Plata en las rutas</div><div class="v">${fmt(tot('saldoFinal'))}</div><div class="n">Al cierre del ${fdate(fecha)}</div></div>
   </div>
   ${filas.length?`<div class="cuadre-grid">${filas.map(({u,c})=>`<div class="card pad cuadre-ruta">
     <div class="row" style="margin-bottom:10px">${ava(u.nombre)}<div style="min-width:0;flex:1"><b>${esc(rutaDe(u))}</b><div class="muted" style="font-size:12px">${esc(u.nombre)}</div></div></div>
     <div class="cr-fila"><span>Abrió con</span><b>${fmt(c.saldoInicial)}</b></div>
     <div class="cr-fila mas"><span>+ Base</span><b>${fmt(c.baseDia)}</b></div>
-    <div class="cr-fila mas"><span>+ Cobrado (${c.nPagosDia})</span><b>${fmt(c.cobradoDia)}</b></div>
+    <div class="cr-fila mas"><span>+ Cobrado en efectivo (${c.nPagosDia})</span><b>${fmt(c.cobradoDia)}</b></div>
     ${c.ingresosDia?`<div class="cr-fila mas"><span>+ Otros ingresos</span><b>${fmt(c.ingresosDia)}</b></div>`:''}
     <div class="cr-fila menos"><span>− Prestado / renovaciones</span><b>${fmt(c.prestadoDia + c.desembolsadoDia)}</b></div>
     <div class="cr-fila menos"><span>− Gastos de la ruta</span><b>${fmt(c.gastosDia)}</b></div>
     <div class="cr-fila menos"><span>− Entregó a la oficina</span><b>${fmt(c.entregadoDia)}</b></div>
-    <div class="cr-fila total"><span>Debe tener</span><b style="color:${c.saldoFinal>0.5?'var(--amber)':'inherit'}">${fmt(c.saldoFinal)}</b></div>
+    <div class="cr-fila total"><span>Debe tener en efectivo</span><b style="color:${c.saldoFinal>0.5?'var(--amber)':'inherit'}">${fmt(c.saldoFinal)}</b></div>
+    <div class="cr-fila transf"><span>Por transferencia (${c.nTransfDia})</span><b>${fmt(c.transfDia)}</b></div>
     ${(()=>{ const ci=cierreDe(u.id, fecha); return ci ? `<div class="row" style="margin-top:10px"><span class="pill p-ok">Cerrada ${new Date(ci.cerradoEn).toLocaleTimeString('es-CO',{hour:'numeric',minute:'2-digit'})}</span><span class="spacer"></span><button class="btn sm" onclick="reabrirRuta('${u.id}','${fecha}')">Reabrir</button></div>`
       : `<div class="row" style="margin-top:10px"><span class="pill p-hoy">Abierta</span><span class="spacer"></span><button class="btn sm ghost" onclick="cerrarRutaOficina('${u.id}','${fecha}')">Cerrar</button></div>`; })()}
     <div class="row" style="margin-top:10px"><button class="btn sm" onclick="modalBase('${u.id}','${fecha}')">Asignar base</button><button class="btn sm" onclick="modalGastoRuta('gasto','${u.id}','${fecha}')">+ Gasto</button><button class="btn sm" onclick="modalGastoRuta('ingreso','${u.id}','${fecha}')">+ Ingreso</button><span class="spacer"></span><button class="btn sm pri" onclick="modalEntrega('${u.id}','${fecha}')">Recibir plata</button></div>
@@ -1392,8 +1418,8 @@ VIEWS.cuadre = () => {
 };
 function tablaPagosDia(pagos, conCobrador){
   if(!pagos.length) return `<div class="card"><div class="empty">No hay pagos registrados ese día.</div></div>`;
-  return `<div class="card pad"><h2>Pagos del día</h2><div class="tablewrap"><table><thead><tr><th>Cliente</th>${conCobrador?'<th>Registró</th>':''}<th>Nota</th><th class="num">Valor</th></tr></thead><tbody>
-  ${[...pagos].sort((a,b)=>(b.creado||0)-(a.creado||0)).map(x=>{const p=DB.prestamos.find(y=>y.id===x.prestamoId)||{}; return `<tr><td><div class="who">${ava(nombreCliente(p.clienteId))}${esc(nombreCliente(p.clienteId))}</div></td>${conCobrador?`<td>${esc(nombreUsuario(x.registradoPor))}</td>`:''}<td class="muted">${esc(x.nota||'')}</td><td class="num"><b>${fmt(x.monto)}</b></td></tr>`;}).join('')}
+  return `<div class="card pad"><h2>Pagos del día</h2><div class="tablewrap"><table><thead><tr><th>Cliente</th>${conCobrador?'<th>Registró</th>':''}<th>Cómo pagó</th><th>Nota</th><th class="num">Valor</th></tr></thead><tbody>
+  ${[...pagos].sort((a,b)=>(b.creado||0)-(a.creado||0)).map(x=>{const p=DB.prestamos.find(y=>y.id===x.prestamoId)||{}; return `<tr><td><div class="who">${ava(nombreCliente(p.clienteId))}${esc(nombreCliente(p.clienteId))}</div></td>${conCobrador?`<td>${esc(nombreUsuario(x.registradoPor))}</td>`:''}<td style="white-space:nowrap">${etiquetaMedio(x)}</td><td class="muted">${esc(x.nota||'')}</td><td class="num"><b>${fmt(x.monto)}</b></td></tr>`;}).join('')}
   </tbody></table></div></div>`;
 }
 function modalEntrega(cobradorId, fecha){ modalMovRuta(cobradorId, fecha, 'entrega'); }
@@ -1491,6 +1517,7 @@ function iniciarSesion(prof){
   detenerTodo();
   ME = prof; DB = emptyDB(); EMPRESA=null; FACTURAS=[];
   if(!ME.empresaId){ pantalla(`<img src="logo_dark.png" class="login-brand" alt="Kuota"><h1 style="font-size:22px">Tu usuario no tiene un negocio asignado</h1><p class="sub">Comunícate con Kuota.</p><p style="text-align:center"><button class="btn" onclick="cerrarSesion()">Cerrar sesión</button></p>`); return; }
+  if(ME.suspendido===true && ME.activo!==false){ pantalla(`<img src="logo_dark.png" class="login-brand" alt="Kuota"><h1 style="font-size:22px">Tu acceso está suspendido</h1><p class="sub">El dueño del negocio pausó tu acceso. Tu información está guardada; pídele que lo reactive.</p><p style="text-align:center"><button class="btn" onclick="cerrarSesion()">Cerrar sesión</button></p>`); return; }
   if(ME.activo===false){ pantalla(`<img src="logo_dark.png" class="login-brand" alt="Kuota"><h1 style="font-size:22px">${ME.estado==='pendiente'?'Tu usuario está pendiente de activación':'Tu usuario está desactivado'}</h1><p class="sub">${ME.estado==='pendiente'?'Kuota lo activará en cuanto el negocio confirme el pago.':'Habla con el dueño del negocio.'}</p><p style="text-align:center"><button class="btn" onclick="cerrarSesion()">Cerrar sesión</button></p>`); return; }
   S.setEmpresa(ME.empresaId);
   unsubEmp.push(S.watchKuota(k=>{ KUOTA=sanearDoc(k||{}); }));
@@ -1518,7 +1545,8 @@ function arrancarDatos(){
     else if(col==='finanzas') Object.assign(DB.config, sanearDoc(data||{}));
     else if(col==='error'){ console.error(data); if(String(data&&data.code)==='permission-denied') return; toast('Error de conexión con la nube'); return; }
     else DB[col] = sanearLista(col, data);
-    if(col==='users'){ const me=data.find(u=>u.id===ME.uid); if(me && me.activo===false){ detenerTodo(); S.logout(); return; } if(me) ME=Object.assign(ME,me); }
+    if(col==='users'){ const me=data.find(u=>u.id===ME.uid); if(me && me.activo===false){ detenerTodo(); S.logout(); return; }
+      if(me && me.suspendido===true && !ME.soporte){ detenerTodo(); ME=Object.assign(ME,me); iniciarSesion(ME); return; } if(me) ME=Object.assign(ME,me); }
     scheduleRender();
   });
   escucharEquipo();

@@ -311,3 +311,19 @@ html,body{overflow-x:hidden}
 .orden-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--r-sm);background:var(--panel-2)}
 .orden-n{width:28px;height:28px;border-radius:50%;background:var(--lime);color:var(--lime-ink);display:flex;align-items:center;justify-content:center;font-size:13px;flex:none}
 .recibo{white-space:pre-wrap;font:13px/1.55 ui-monospace,Consolas,monospace;background:var(--panel-2);border-radius:var(--r-sm);padding:14px;margin:0}
+
+.cuadre-ruta .cr-fila.transf{border-top:1px dashed var(--line);font-size:13px} .cuadre-ruta .cr-fila.transf b{color:#7db8ff}
+.seg{display:inline-flex;background:var(--panel-2);border-radius:999px;padding:4px;gap:4px;margin-top:4px}
+.seg button{all:unset;cursor:pointer;padding:8px 16px;border-radius:999px;font-weight:600;font-size:13.5px;color:var(--muted)}
+.seg button.on{background:var(--lime);color:var(--lime-ink)}
+
+/* ---------- análisis de rutas ---------- */
+.crece{font-weight:700;font-size:12.5px;white-space:nowrap} .crece.up{color:var(--green)} .crece.down{color:var(--red)}
+.leyenda{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12.5px;color:var(--muted);margin-bottom:10px}
+.leyenda i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.barras{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;height:220px;align-items:end}
+.barras .mes{display:flex;flex-direction:column;align-items:center;gap:6px;height:100%}
+.barras .cols{flex:1;width:100%;display:flex;align-items:flex-end;justify-content:center;gap:3px;border-bottom:1px solid var(--line)}
+.barras .col{flex:1;max-width:22px;border-radius:5px 5px 0 0;min-height:2px}
+.barras span{font-size:12px;color:var(--muted)}
+.ruta-mini{background:var(--panel-2);border-radius:var(--r-md);padding:14px;display:flex;flex-direction:column;gap:10px}

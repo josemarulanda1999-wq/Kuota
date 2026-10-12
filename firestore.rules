@@ -17,7 +17,7 @@ service cloud.firestore {
     function me() { return get(meDoc()).data; }
     function emp(eid) { return get(/databases/$(database)/documents/empresas/$(eid)).data; }
     function vigente(eid) { return emp(eid).estado == 'activa' && request.time.toMillis() < emp(eid).venceMs; }
-    function enEmpresa(eid) { return hasMe() && me().activo == true && me().empresaId == eid; }
+    function enEmpresa(eid) { return hasMe() && me().activo == true && me().get('suspendido', false) != true && me().empresaId == eid; }
     function isAdm(eid) { return enEmpresa(eid) && me().rol in ['ceo', 'admin'] && vigente(eid); }
     function isCeo(eid) { return enEmpresa(eid) && me().rol == 'ceo' && vigente(eid); }
     function soloAdmin(eid) { return enEmpresa(eid) && me().rol == 'admin' && vigente(eid); }
@@ -67,7 +67,8 @@ service cloud.firestore {
         && (!('renovacionDe' in d) || idOk(d.renovacionDe)) && (!('saldoCancelado' in d) || numOk(d.saldoCancelado, 0, 10000000000));
     }
     function okPago(d) {
-      return d.keys().hasOnly(['prestamoId', 'fecha', 'monto', 'nota', 'tipo', 'cobradorId', 'registradoPor', 'lat', 'lng', 'prec', 'sinGps', 'creado', 'creadoPor'])
+      return d.keys().hasOnly(['prestamoId', 'fecha', 'monto', 'nota', 'tipo', 'cobradorId', 'registradoPor', 'lat', 'lng', 'prec', 'sinGps', 'medio', 'comprobante', 'creado', 'creadoPor'])
+        && (!('medio' in d) || d.medio in ['efectivo', 'transferencia']) && (!('comprobante' in d) || d.comprobante is bool)
         && coordsOk(d) && optNum(d, 'prec', 0, 100000) && (!('sinGps' in d) || d.sinGps is bool)
         && idOk(d.prestamoId) && fechaOk(d.fecha) && numOk(d.monto, 1, 10000000000) && optTxt(d, 'nota', 300)
         && d.registradoPor == uid() && d.creadoPor == uid();
@@ -123,7 +124,8 @@ service cloud.firestore {
       // el CEO puede cambiar el nombre o desactivar a su gente, pero no activar ni cambiar roles
       allow update: if isSuper()
         || (hasMe() && isCeo(me().empresaId) && resource.data.empresaId == me().empresaId && resource.data.rol != 'ceo'
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nombre', 'ruta', 'activo', 'estado'])
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nombre', 'ruta', 'activo', 'estado', 'suspendido'])
+            && (!('suspendido' in request.resource.data) || request.resource.data.suspendido is bool)
             && txt(request.resource.data.nombre, 80) && optTxt(request.resource.data, 'ruta', 60)
             && (request.resource.data.activo == resource.data.activo || request.resource.data.activo == false)
             && (request.resource.data.estado == resource.data.estado || request.resource.data.estado == 'desactivado'));
@@ -217,6 +219,14 @@ service cloud.firestore {
           && request.resource.data.uid == uid() && fechaOk(request.resource.data.fecha)
           && request.resource.data.puntos is list && request.resource.data.puntos.size() <= 3000;
         allow delete: if isSuper() || isCeo(eid);
+      }
+      // comprobantes de transferencias (id = id del pago)
+      match /comprobantes/{pid} {
+        allow read: if isSuper() || isAdm(eid) || (isCob(eid) && resource.data.get('cobradorId', '') == uid());
+        allow create: if isSuper() || ((isCeo(eid) || soloAdmin(eid) || (isCob(eid) && request.resource.data.get('cobradorId', '') == uid())) && idOk(pid)
+          && request.resource.data.keys().hasOnly(['img', 'prestamoId', 'cobradorId', 'creado', 'creadoPor'])
+          && img(request.resource.data, 'img') && idOk(request.resource.data.prestamoId) && request.resource.data.creadoPor == uid());
+        allow update, delete: if isSuper() || isCeo(eid);
       }
       // ---- operación diaria de las rutas ----
       match /rutas/{u} {

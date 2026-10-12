@@ -295,3 +295,13 @@ html,body{overflow-x:hidden}
 .foto-full img{max-width:100%;max-height:100%;border-radius:10px}
 @media (max-width:900px){ .mapa-wrap{grid-template-columns:1fr} .mapa{height:58vh} }
 @media (max-width:520px){ .fotos-grid{grid-template-columns:repeat(2,minmax(0,1fr))} .topuser .gps-chip{padding:6px 9px;font-size:12px} }
+
+/* ---------- cuadre por ruta ---------- */
+.cuadre-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px}
+.cuadre-ruta .cr-fila{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-top:1px solid var(--line);font-size:14px}
+.cuadre-ruta .cr-fila:first-of-type{border-top:0}
+.cuadre-ruta .cr-fila span{color:var(--muted)}
+.cuadre-ruta .cr-fila.mas b{color:var(--green)} .cuadre-ruta .cr-fila.menos b{color:var(--red)}
+.cuadre-ruta .cr-fila.total{border-top:2px solid var(--line);margin-top:4px;padding-top:10px;font-size:16px}
+.cuadre-ruta .cr-fila.total span{color:var(--ink);font-weight:600}
+.banner.bad{background:var(--red-soft);color:var(--red)} .banner.bad b{color:var(--ink)}

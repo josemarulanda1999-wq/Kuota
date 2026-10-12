@@ -55,7 +55,8 @@ service cloud.firestore {
     }
     function okPrestamo(d) {
       return d.keys().hasOnly(['clienteId', 'fecha', 'monto', 'tasa', 'meses', 'periodo', 'excluirDomingos', 'nota', 'cuotas',
-                               'valorCuota', 'interesMes', 'total', 'cobradorId', 'renovacionDe', 'saldoCancelado', 'creado', 'creadoPor'])
+                               'valorCuota', 'interesMes', 'total', 'cobradorId', 'renovacionDe', 'saldoCancelado', 'fuente', 'creado', 'creadoPor'])
+        && (!('fuente' in d) || d.fuente in ['ruta', 'oficina'])
         && idOk(d.clienteId) && fechaOk(d.fecha) && numOk(d.monto, 1, 10000000000) && numOk(d.tasa, 0, 100)
         && numOk(d.meses, 0.01, 120) && periodoOk(d.periodo) && d.cuotas is int && d.cuotas >= 1 && d.cuotas <= 1000
         && numOk(d.valorCuota, 0.01, 10000000000) && optTxt(d, 'nota', 300) && idOVacio(d.cobradorId)
@@ -68,7 +69,8 @@ service cloud.firestore {
         && d.registradoPor == uid() && d.creadoPor == uid();
     }
     function okEntrega(d) {
-      return d.keys().hasOnly(['cobradorId', 'fecha', 'valor', 'nota', 'creado', 'creadoPor'])
+      return d.keys().hasOnly(['cobradorId', 'fecha', 'valor', 'nota', 'tipo', 'creado', 'creadoPor'])
+        && (!('tipo' in d) || d.tipo == 'base')
         && idOk(d.cobradorId) && fechaOk(d.fecha) && numOk(d.valor, 1, 10000000000) && optTxt(d, 'nota', 300);
     }
     function okRenov(d) {
@@ -109,16 +111,16 @@ service cloud.firestore {
       // el CEO solo puede SOLICITAR usuarios (quedan inactivos hasta que Kuota los active)
       allow create: if isSuper()
         || (hasMe() && isCeo(me().empresaId) && u.matches('^[A-Za-z0-9]{10,40}$')
-            && request.resource.data.keys().hasOnly(['nombre', 'email', 'rol', 'empresaId', 'activo', 'estado', 'creado', 'creadoPor'])
-            && txt(request.resource.data.nombre, 80) && txt(request.resource.data.email, 120)
+            && request.resource.data.keys().hasOnly(['nombre', 'email', 'rol', 'ruta', 'empresaId', 'activo', 'estado', 'creado', 'creadoPor'])
+            && txt(request.resource.data.nombre, 80) && txt(request.resource.data.email, 120) && optTxt(request.resource.data, 'ruta', 60)
             && request.resource.data.empresaId == me().empresaId
             && request.resource.data.activo == false && request.resource.data.estado == 'pendiente'
             && request.resource.data.rol in ['admin', 'cobrador']);
       // el CEO puede cambiar el nombre o desactivar a su gente, pero no activar ni cambiar roles
       allow update: if isSuper()
         || (hasMe() && isCeo(me().empresaId) && resource.data.empresaId == me().empresaId && resource.data.rol != 'ceo'
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nombre', 'activo', 'estado'])
-            && txt(request.resource.data.nombre, 80)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nombre', 'ruta', 'activo', 'estado'])
+            && txt(request.resource.data.nombre, 80) && optTxt(request.resource.data, 'ruta', 60)
             && (request.resource.data.activo == resource.data.activo || request.resource.data.activo == false)
             && (request.resource.data.estado == resource.data.estado || request.resource.data.estado == 'desactivado'));
       allow delete: if isSuper();
@@ -203,6 +205,24 @@ service cloud.firestore {
           && request.resource.data.keys().hasOnly(['uid', 'fecha', 'puntos'])
           && request.resource.data.uid == uid() && fechaOk(request.resource.data.fecha)
           && request.resource.data.puntos is list && request.resource.data.puntos.size() <= 3000;
+        allow delete: if isSuper() || isCeo(eid);
+      }
+      // equipo autorizado de cada ruta: se registra solo una vez; solo el CEO lo libera
+      match /equipos/{u} {
+        allow get: if isSuper() || isAdm(eid) || (enEmpresa(eid) && u == uid());
+        allow list: if isSuper() || isAdm(eid);
+        allow create: if enEmpresa(eid) && vigente(eid) && u == uid()
+          && request.resource.data.keys().hasOnly(['dev', 'modelo', 'plataforma', 'registrado', 'ultimoUso'])
+          && request.resource.data.dev is string && request.resource.data.dev.size() >= 16 && request.resource.data.dev.size() <= 128
+          && optTxt(request.resource.data, 'modelo', 80) && optTxt(request.resource.data, 'plataforma', 20);
+        allow update: if enEmpresa(eid) && u == uid() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ultimoUso']);
+        allow delete: if isSuper() || isCeo(eid);
+      }
+      match /intentos/{id} {
+        allow read: if isSuper() || isAdm(eid);
+        allow create: if enEmpresa(eid) && request.resource.data.uid == uid()
+          && request.resource.data.keys().hasOnly(['uid', 'nombre', 'modelo', 'plataforma', 't'])
+          && optTxt(request.resource.data, 'nombre', 80) && optTxt(request.resource.data, 'modelo', 80) && optTxt(request.resource.data, 'plataforma', 20);
         allow delete: if isSuper() || isCeo(eid);
       }
       // fotos del cliente y la cédula, guardadas por crédito (id = id del préstamo)

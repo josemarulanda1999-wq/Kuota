@@ -82,7 +82,7 @@ V.resumen = () => {
       ${porVencer.length?`<table><tbody>${porVencer.map(fila).join('')}</tbody></table>`:'<div class="empty">Ninguna por vencer.</div>'}
     </div>
     <div class="card pad"><div class="row" style="margin-bottom:6px"><h2 style="margin:0">Solicitudes de usuarios</h2><span class="spacer"></span><button class="btn sm" data-go="solicitudes">Ver todas</button></div>
-      ${pendU.length?`<table><tbody>${pendU.slice(0,6).map(u=>`<tr><td><div class="who">${ava(u.nombre)}<div><b>${esc(u.nombre)}</b><div class="muted" style="font-size:12px">${u.rol==='admin'?'Admin':'Cobrador'} · ${esc((empById(u.empresaId)||{}).nombre||'')}</div></div></div></td><td class="right"><button class="btn sm pri" onclick="aprobarUsuario('${u.id}')">Activar</button></td></tr>`).join('')}</tbody></table>`:'<div class="empty">No hay solicitudes pendientes.</div>'}
+      ${pendU.length?`<table><tbody>${pendU.slice(0,6).map(u=>`<tr><td><div class="who">${ava(u.nombre)}<div><b>${esc(u.nombre)}</b><div class="muted" style="font-size:12px">${u.rol==='admin'?'Admin':'Ruta'}${u.ruta?' '+esc(u.ruta):''} · ${esc((empById(u.empresaId)||{}).nombre||'')}</div></div></div></td><td class="right"><button class="btn sm pri" onclick="aprobarUsuario('${u.id}')">Activar</button></td></tr>`).join('')}</tbody></table>`:'<div class="empty">No hay solicitudes pendientes.</div>'}
     </div>
   </div>`;
 };
@@ -107,7 +107,7 @@ V.empresas = () => {
   ${rows.map(({e,c})=>`<tr class="click" onclick="verEmpresa('${e.id}')">
     <td><div class="who">${ava(e.nombre)}<div><b>${esc(e.nombre)}</b><div class="muted" style="font-size:12px">${esc(e.nit||'')}${e.ciudad?' · '+esc(e.ciudad):''}</div></div></div></td>
     <td>${esc(e.contacto||'')}<div class="muted" style="font-size:12px">${esc(e.telefono||'')}</div></td>
-    <td>${c.admins}/${e.cupoAdmins||1} admin · ${c.cobradores}/${e.cupoCobradores||1} cob.</td>
+    <td>${c.admins}/${e.cupoAdmins||1} admin · ${c.cobradores}/${e.cupoCobradores||1} rutas</td>
     <td class="num">${fmt(planMensual(e))}</td><td>${fdate(e.pagadoHasta)}</td><td>${pill(e)}</td></tr>`).join('')}
   </tbody></table></div>`:`<div class="empty">${D.empresas.length?'Ninguna empresa con ese filtro.':'Aún no hay empresas. Crea la primera con “+ Nueva empresa”.'}</div>`}</div>`;
 };
@@ -124,7 +124,7 @@ function modalEmpresa(id){
     <label class="f">Teléfono / WhatsApp<input class="input" id="eTel" value="${esc(e.telefono)}"></label>
     <label class="f full">Correo de contacto<input class="input" id="eMail" value="${esc(e.email)}"></label>
     <label class="f">Administradores (incluye al CEO)<input class="input" id="eCA" type="number" min="1" value="${e.cupoAdmins||1}"></label>
-    <label class="f">Cobradores<input class="input" id="eCC" type="number" min="1" value="${e.cupoCobradores||1}"></label>
+    <label class="f">Rutas<input class="input" id="eCC" type="number" min="1" value="${e.cupoCobradores||1}"></label>
     <label class="f">Días de gracia antes de bloquear<input class="input" id="eGr" type="number" min="0" value="${e.diasGracia??5}"></label>
     <label class="f">Mensualidad<input class="input" id="eMen" disabled></label>
     <label class="f full">Notas internas<textarea class="input" id="eNot" rows="2">${esc(e.notas||'')}</textarea></label>
@@ -184,7 +184,7 @@ V.empresa = () => {
   <div class="kpis">
     <div class="kpi card"><div class="l">Estado</div><div style="margin-top:8px">${pill(e)}</div><div class="n">${e.pagadoHasta?'Pagado hasta '+fdate(e.pagadoHasta)+(st.limite?' · se bloquea el '+fdate(st.limite):''):'Nunca ha pagado'}</div></div>
     <div class="kpi hl"><div class="l">Mensualidad</div><div class="v">${fmt(planMensual(e))}</div><div class="n">${planDetalle(e).map(x=>x[0]).join(' + ')}</div></div>
-    <div class="kpi sky"><div class="l">Usuarios activos</div><div class="v">${c.admins+c.cobradores}</div><div class="n">${c.admins}/${e.cupoAdmins||1} administradores · ${c.cobradores}/${e.cupoCobradores||1} cobradores</div></div>
+    <div class="kpi sky"><div class="l">Usuarios activos</div><div class="v">${c.admins+c.cobradores}</div><div class="n">${c.admins}/${e.cupoAdmins||1} administradores · ${c.cobradores}/${e.cupoCobradores||1} rutas</div></div>
   </div>
   <div class="grid2">
     <div class="card pad"><div class="row" style="margin-bottom:8px"><h2 style="margin:0">Usuarios</h2><span class="spacer"></span><button class="btn sm" onclick="modalUsuarioPortal('${e.id}')">+ Crear usuario</button></div>
@@ -287,7 +287,7 @@ V.solicitudes = () => {
     const usado=ad?c.admins:c.cobradores, cupo=ad?(e.cupoAdmins||1):(e.cupoCobradores||1);
     const nuevoPlan = usado+1>cupo ? planMensual(Object.assign({},e, ad?{cupoAdmins:usado+1}:{cupoCobradores:usado+1})) : planMensual(e);
     return `<tr><td><div class="who">${ava(u.nombre)}<div><b>${esc(u.nombre)}</b><div class="muted" style="font-size:12px">${esc(u.email)}</div></div></div></td>
-    <td>${esc(e.nombre||'')}</td><td>${ad?'Admin':'Cobrador'}</td><td>${usado} de ${cupo}</td>
+    <td>${esc(e.nombre||'')}</td><td>${ad?'Admin':'Ruta'}</td><td>${usado} de ${cupo}</td>
     <td>${fmt(nuevoPlan)}${nuevoPlan>planMensual(e)?` <span class="pill p-hoy">+${fmt(nuevoPlan-planMensual(e))}</span>`:''}</td>
     <td class="right" style="white-space:nowrap"><button class="btn sm pri" onclick="aprobarUsuario('${u.id}')">Activar</button> <button class="btn sm danger" onclick="eliminarUsuario('${u.id}',true)">Rechazar</button></td></tr>`;}).join('')}
   </tbody></table></div>`:'<div class="empty">No hay solicitudes pendientes.</div>'}</div>`;
@@ -329,7 +329,7 @@ function modalUsuarioPortal(eid){
     <label class="f full">Nombre<input class="input" id="uNom"></label>
     <label class="f">Correo<input class="input" id="uMail" type="email" autocomplete="off"></label>
     <label class="f">Contraseña inicial<input class="input" id="uPass" type="text" autocomplete="off"></label>
-    <label class="f full">Rol<select class="input" id="uRol"><option value="cobrador">Cobrador</option><option value="admin">Admin</option></select></label>
+    <label class="f full">Rol<select class="input" id="uRol"><option value="cobrador">Ruta (cobrador)</option><option value="admin">Admin</option></select></label>
   </div><p class="muted" style="font-size:13px" id="uInfo"></p>
   <div class="actions"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="uSave">Crear y activar</button></div>`);
   const info=()=>{ const ad=document.getElementById('uRol').value==='admin', c=cuposUsados(eid), usado=ad?c.admins:c.cobradores, cupo=ad?(e.cupoAdmins||1):(e.cupoCobradores||1);
@@ -366,7 +366,7 @@ V.ajustes = () => {
   <div class="card pad"><h2>Precios</h2>
     <table><tbody>
       <tr><td>Activación (incluye el primer mes)</td><td class="num">${fmt(PRECIOS.activacion)}</td></tr>
-      <tr><td>Mensualidad (1 administrador + 1 cobrador)</td><td class="num">${fmt(PRECIOS.mensual)}</td></tr>
+      <tr><td>Mensualidad (1 administrador + 1 ruta)</td><td class="num">${fmt(PRECIOS.mensual)}</td></tr>
       <tr><td>Cobrador adicional / mes</td><td class="num">${fmt(PRECIOS.cobradorExtra)}</td></tr>
       <tr><td>Administrador adicional / mes</td><td class="num">${fmt(PRECIOS.adminExtra)}</td></tr>
     </tbody></table>

@@ -14,11 +14,12 @@ import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager
 import { registerPlugin, CapacitorHttp, Capacitor } from '@capacitor/core';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
+import { Device } from '@capacitor/device';
 import { firebaseConfig } from './firebase-config.js';
 
 // GPS en segundo plano (servicio con notificación mientras el cobrador está en jornada)
 const BackgroundGeolocation = registerPlugin('BackgroundGeolocation');
-window.CapPlugins = { Filesystem, Directory, Encoding, Share, BackgroundGeolocation };
+window.CapPlugins = { Filesystem, Directory, Encoding, Share, BackgroundGeolocation, Device };
 
 const configured = !!(firebaseConfig && firebaseConfig.apiKey && !String(firebaseConfig.apiKey).startsWith('PEGA'));
 let app, auth, db;
@@ -123,10 +124,21 @@ window.S = {
   async getRecorrido(uid, fecha) { const s = await getDoc(doc(db, ruta('recorridos'), uid + '_' + fecha)); return s.exists() ? s.data() : null; },
   async getFotos(pid) { try { const s = await getDoc(doc(db, ruta('fotos'), pid)); return s.exists() ? s.data() : null; } catch (e) { return null; } },
   setFotos: (pid, data) => setDoc(doc(db, ruta('fotos'), pid), clean(data)),
+  /* ---------- equipo autorizado (cada ruta solo entra desde su celular) ---------- */
+  equipo: {
+    async get(uid) { const s = await getDoc(doc(db, ruta('equipos'), uid)); return s.exists() ? s.data() : null; },
+    registrar: (uid, data) => setDoc(doc(db, ruta('equipos'), uid), clean(data)),
+    tocar: (uid, data) => updateDoc(doc(db, ruta('equipos'), uid), clean(data)),
+    liberar: uid => deleteDoc(doc(db, ruta('equipos'), uid)),
+    intento: data => setDoc(doc(collection(db, ruta('intentos'))), clean(data)),
+    watch(cb) { return onSnapshot(collection(db, ruta('equipos')), s => cb(list(s)), () => cb([])); },
+    watchIntentos(cb) { return onSnapshot(collection(db, ruta('intentos')), s => cb(list(s)), () => cb([])); },
+    borrarIntento: id => deleteDoc(doc(db, ruta('intentos'), id))
+  },
   /* el CEO solicita un usuario: queda pendiente hasta que Kuota lo active */
-  async solicitarUsuario(nombre, email, pass, rol) {
+  async solicitarUsuario(nombre, email, pass, rol, ruta) {
     const uid = await crearCuenta(email, pass);
-    await setDoc(doc(db, 'users', uid), { nombre, email, rol, empresaId: EID, activo: false, estado: 'pendiente', creado: Date.now(), creadoPor: auth.currentUser.uid });
+    await setDoc(doc(db, 'users', uid), { nombre, email, rol, ...(ruta ? { ruta } : {}), empresaId: EID, activo: false, estado: 'pendiente', creado: Date.now(), creadoPor: auth.currentUser.uid });
     return uid;
   },
 

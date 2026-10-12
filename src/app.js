@@ -17,7 +17,7 @@ let viewState = {};
 let unsub = null;
 const isAdmin = () => !!ME && (ME.rol==='ceo' || ME.rol==='admin');  // CEO y Admin ven todo el negocio
 const isCeo = () => !!ME && ME.rol==='ceo';                            // solo el CEO edita, borra y configura
-const rolDe = u => !u ? '' : u.rol==='ceo' ? 'CEO' : u.rol==='admin' ? 'Admin' : 'Cobrador';
+const rolDe = u => !u ? '' : u.rol==='ceo' ? 'CEO' : u.rol==='admin' ? 'Admin' : 'Ruta';
 const horaDe = t => t ? new Date(t).toLocaleString('es-CO',{day:'2-digit',month:'short',hour:'numeric',minute:'2-digit'}) : '';
 const isNative = () => !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
 
@@ -83,7 +83,11 @@ const clienteById = id => DB.clientes.find(c=>c.id===id);
 const nombreCliente = id => (clienteById(id)||{}).nombre || '(cliente borrado)';
 const userById = id => DB.users.find(u=>u.id===id);
 const nombreUsuario = id => !id ? 'Sin asignar' : (ME && ME.uid===id ? (ME.nombre||'Yo') : ((userById(id)||{}).nombre || 'Usuario'));
-const cobradores = () => DB.users.filter(u=>u.rol==='cobrador').sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
+const cobradores = () => DB.users.filter(u=>u.rol==='cobrador').sort((a,b)=>(a.ruta||a.nombre||'').localeCompare(b.ruta||b.nombre||''));
+/* cada cobrador es una RUTA: tiene nombre de ruta, sus clientes, su base y su cuadre */
+const rutaDe = u => !u ? 'Sin ruta' : (u.ruta ? u.ruta : 'Ruta de '+(u.nombre||''));
+const nombreRuta = id => { if(!id) return 'Sin ruta'; const u = (ME && ME.uid===id) ? Object.assign({}, userById(id)||{}, ME) : userById(id); return u ? (u.rol==='cobrador' ? rutaDe(u) : (u.nombre||'')) : 'Ruta'; };
+const rutaCompleta = u => u.ruta ? `${u.ruta} · ${u.nombre||''}` : rutaDe(u);
 
 function toast(msg){
   const t=document.createElement('div'); t.className='toast'; t.textContent=msg;
@@ -228,7 +232,7 @@ function abrirMas(){
 }
 function tabsCaja(){
   if(!isCeo() || !VISTAS_CAJA.includes(view)) return '';
-  const t=[['movimientos','Movimientos'],['cuadre','Cuadre de cobradores'],['salidas','Gastos']];
+  const t=[['movimientos','Movimientos'],['cuadre','Cuadre de rutas'],['salidas','Gastos']];
   return `<div class="tabs caja-tabs">${t.map(([k,l])=>`<button class="${view===k?'on':''}" onclick="go('${k}')">${l}</button>`).join('')}</div>`;
 }
 const movil = () => window.innerWidth < 760;
@@ -244,7 +248,7 @@ function render(){
   if(!isCeo() && SOLO_CEO.includes(view)) view='cobros';
   renderNav();
   const m = document.getElementById('main');
-  m.innerHTML = avisoSuscripcion() + tabsCaja() + (VIEWS[view]||VIEWS.panel)();
+  m.innerHTML = avisoSuscripcion() + avisoIntentos() + tabsCaja() + (VIEWS[view]||VIEWS.panel)();
   if(AFTER[view]) AFTER[view]();
 }
 
@@ -316,7 +320,7 @@ VIEWS.panel = () => {
         <div><div class="l">Total prestado</div><div class="v">${fmt(r.prestado)}</div></div>
         <div><div class="l">Salidas</div><div class="v">${fmt(r.salidas)}</div></div>
         <div><div class="l">Efectivo total</div><div class="v">${fmt(r.efectivoTotal)}</div></div>
-        <div><div class="l">En manos de cobradores</div><div class="v" style="color:var(--amber)">${fmt(cobradores().reduce((s,u)=>s+cuadreCobrador(u.id).enMano,0))}</div></div>
+        <div><div class="l">En las rutas</div><div class="v" style="color:var(--amber)">${fmt(cobradores().reduce((s,u)=>s+cuadreCobrador(u.id).enMano,0))}</div></div>
       </div>
     </div>
   </div>
@@ -346,7 +350,7 @@ function filtroCobrador(vista){
   const v=viewState.cob??'';
   return `<select class="input" style="width:auto" onchange="go('${vista}',Object.assign({},viewState,{cob:this.value}))">
     <option value="" ${v===''?'selected':''}>Todas las rutas</option><option value="_yo" ${v==='_yo'?'selected':''}>Sin asignar (míos)</option>
-    ${cobradores().map(u=>`<option value="${u.id}" ${v===u.id?'selected':''}>Ruta de ${esc(u.nombre)}</option>`).join('')}</select>`;
+    ${cobradores().map(u=>`<option value="${u.id}" ${v===u.id?'selected':''}>${esc(rutaCompleta(u))}</option>`).join('')}</select>`;
 }
 function pasaFiltroCob(cobradorId){
   const v=viewState.cob||''; if(!v) return true;
@@ -388,7 +392,7 @@ VIEWS.cobros = () => {
   ${tarjetas ? (list.length? `<div class="cobros-grid">${list.map(c=>cobroCard(c,fecha)).join('')}</div>` : `<div class="card"><div class="empty">Nada que cobrar en esta fecha.</div></div>`) : `<div class="card">
   ${list.length? `<div class="tablewrap"><table><thead><tr><th>Cliente</th><th>Teléfono / Dirección</th><th>Estado</th><th class="num">Cuota</th><th class="num">Pendiente</th><th class="num">Saldo</th><th class="num">Pagó</th><th></th></tr></thead><tbody>
   ${list.map(c=>{const cl=clienteById(c.p.clienteId)||{};return `<tr>
-    <td><div class="who">${ava(cl.nombre)}<div><b>${esc(cl.nombre||'(sin cliente)')}</b><div class="muted" style="font-size:12px">${c.p.periodo.toLowerCase()}${cobradores().length?' · '+esc(nombreUsuario(c.p.cobradorId)):''}</div></div></div></td>
+    <td><div class="who">${ava(cl.nombre)}<div><b>${esc(cl.nombre||'(sin cliente)')}</b><div class="muted" style="font-size:12px">${c.p.periodo.toLowerCase()}${cobradores().length?' · '+esc(nombreRuta(c.p.cobradorId)):''}</div></div></div></td>
     <td>${esc(cl.tel1||'')}<div class="muted" style="font-size:12px">${esc(cl.direccion||'')}</div></td>
     <td>${pill(c.e)}</td><td class="num">${fmt(c.p.valorCuota)}</td><td class="num" style="color:${c.e.atraso>0?'var(--red)':'inherit'}">${fmt(c.e.atraso)}</td>
     <td class="num">${fmt(c.e.saldo)}</td><td class="num">${c.pagadoHoy?fmt(c.pagadoHoy):'—'}</td>
@@ -421,7 +425,7 @@ VIEWS.prestamos = () => {
       <div><div class="progress"><i style="width:${Math.min(100,e.pagado/e.totalReal*100)}%"></i></div><div class="muted" style="font-size:11.5px;margin-top:4px">${e.cuotasPagadas} de ${p.cuotas} cuotas pagadas</div></div>${puedeRenovar(p)?`<div class="row"><span class="spacer"></span><button class="btn sm" onclick="event.stopPropagation();modalRenovacion('${p.id}')">${isAdmin()?'Renovar':'Solicitar renovación'}</button></div>`:''}</div>`).join('')}</div>`:`<div class="card"><div class="empty">${DB.prestamos.length?'No hay préstamos con ese filtro.':(isAdmin()?'Aún no hay préstamos.':'Todavía no tienes préstamos asignados.')}</div></div>`) : `<div class="card">
   ${rows.length? `<div class="tablewrap"><table><thead><tr><th>Deudor</th><th>Fecha</th><th class="num">Valor</th><th class="num">% Int.</th><th>Periodo</th><th class="num">Cuota</th><th>Avance</th><th class="num">Saldo</th><th>Estado</th></tr></thead><tbody>
   ${rows.map(({p,e,c})=>`<tr class="click" onclick="modalDetalle('${p.id}')">
-    <td><div class="who">${ava(c.nombre)}<div><b>${esc(c.nombre||'(sin cliente)')}</b><div class="muted" style="font-size:12px">${esc(c.cedula||'')}${isAdmin()&&cobradores().length?' · '+esc(nombreUsuario(p.cobradorId)):''}</div></div></div></td>
+    <td><div class="who">${ava(c.nombre)}<div><b>${esc(c.nombre||'(sin cliente)')}</b><div class="muted" style="font-size:12px">${esc(c.cedula||'')}${isAdmin()&&cobradores().length?' · '+esc(nombreRuta(p.cobradorId)):''}</div></div></div></td>
     <td>${fdate(p.fecha)}</td><td class="num">${fmt(p.monto)}</td><td class="num">${fmtN(p.tasa)}%</td>
     <td>${p.periodo.charAt(0)+p.periodo.slice(1).toLowerCase()} · ${p.cuotas}</td><td class="num">${fmt(p.valorCuota)}</td>
     <td style="min-width:110px"><div class="progress"><i style="width:${Math.min(100,e.pagado/e.totalReal*100)}%"></i></div><div class="muted" style="font-size:11px;margin-top:3px">${e.cuotasPagadas}/${p.cuotas} cuotas</div></td>
@@ -444,12 +448,12 @@ VIEWS.clientes = () => {
   <div class="toolbar"><input class="input search" id="qCli" placeholder="Buscar nombre, cédula o teléfono" value="${esc(viewState.q||'')}">${filtroCobrador('clientes')}</div>
   ${movil() ? (rows.length?`<div class="cobros-grid">${rows.map(c=>{const ps=DB.prestamos.filter(p=>p.clienteId===c.id);const saldo=ps.reduce((s,p)=>s+estadoPrestamo(p).saldo,0);const tel=(c.tel1||'').replace(/[^\d+]/g,'');return `<div class="card cobro">
       <div class="who">${ava(c.nombre)}<div style="min-width:0;flex:1"><b>${esc(c.nombre)}</b><div class="muted" style="font-size:12.5px">${esc(c.direccion||c.tel1||'')}</div></div></div>
-      <div class="cobro-nums"><div><span>Préstamos</span><b>${ps.length}</b></div><div><span>Saldo</span><b>${fmt(saldo)}</b></div><div><span>${isAdmin()?'Ruta':'Cédula'}</span><b style="font-size:13px">${esc(isAdmin()?nombreUsuario(c.cobradorId):(c.cedula||'—'))}</b></div></div>
+      <div class="cobro-nums"><div><span>Préstamos</span><b>${ps.length}</b></div><div><span>Saldo</span><b>${fmt(saldo)}</b></div><div><span>${isAdmin()?'Ruta':'Cédula'}</span><b style="font-size:13px">${esc(isAdmin()?nombreRuta(c.cobradorId):(c.cedula||'—'))}</b></div></div>
       <div class="row">${tel?`<a class="btn sm" href="tel:${esc(tel)}">Llamar</a>`:''}${btnComoLlegar(c)}<span class="spacer"></span>${(()=>{const act=ps.find(p=>puedeRenovar(p)); return act?`<button class="btn sm" onclick="modalRenovacion('${act.id}')">Renovar</button>`:'';})()}${isAdmin()?`<button class="btn sm" onclick="modalPrestamo(null,'${c.id}')">Prestar</button>`:''}<button class="btn sm" onclick="modalCliente('${c.id}')">Editar</button></div></div>`}).join('')}</div>`:`<div class="card"><div class="empty">${DB.clientes.length?'Sin resultados.':'Aún no hay clientes registrados.'}</div></div>`) : `<div class="card">
-  ${rows.length? `<div class="tablewrap"><table><thead><tr><th>Nombre</th><th># Identificación</th><th>Teléfono 1</th><th>Teléfono 2</th><th>Dirección</th><th>Ciudad</th>${isAdmin()?'<th>Cobrador</th>':''}<th class="num">Préstamos</th><th class="num">Saldo</th><th></th></tr></thead><tbody>
+  ${rows.length? `<div class="tablewrap"><table><thead><tr><th>Nombre</th><th># Identificación</th><th>Teléfono 1</th><th>Teléfono 2</th><th>Dirección</th><th>Ciudad</th>${isAdmin()?'<th>Ruta</th>':''}<th class="num">Préstamos</th><th class="num">Saldo</th><th></th></tr></thead><tbody>
   ${rows.map(c=>{const ps=DB.prestamos.filter(p=>p.clienteId===c.id);const saldo=ps.reduce((s,p)=>s+estadoPrestamo(p).saldo,0);return `<tr>
     <td><div class="who">${ava(c.nombre)}<div><b>${esc(c.nombre)}</b>${c.obs?`<div class="muted" style="font-size:12px">${esc(c.obs)}</div>`:''}</div></div></td><td>${esc(c.cedula)}</td><td>${esc(c.tel1)}</td><td>${esc(c.tel2)}</td>
-    <td>${esc(c.direccion)}</td><td>${esc(c.ciudad)}</td>${isAdmin()?`<td>${esc(nombreUsuario(c.cobradorId))}</td>`:''}<td class="num">${ps.length}</td><td class="num">${fmt(saldo)}</td>
+    <td>${esc(c.direccion)}</td><td>${esc(c.ciudad)}</td>${isAdmin()?`<td>${esc(nombreRuta(c.cobradorId))}</td>`:''}<td class="num">${ps.length}</td><td class="num">${fmt(saldo)}</td>
     <td class="right" style="white-space:nowrap">${isAdmin()?`<button class="btn sm" onclick="modalPrestamo(null,'${c.id}')">Prestar</button>`:''} <button class="btn sm" onclick="modalCliente('${c.id}')">Editar</button></td></tr>`}).join('')}
   </tbody></table></div>` : `<div class="empty">${DB.clientes.length?'Sin resultados.':'Aún no hay clientes registrados.'}</div>`}
   </div>`}`;
@@ -536,7 +540,7 @@ VIEWS.ajustes = () => {
   </div>
   <div class="card pad">
     <h2>Respaldo de la información</h2>
-    <p class="muted" style="margin-top:-6px">Todo queda guardado en la nube y se sincroniza con los celulares de los cobradores. Igual puedes descargar una copia cuando quieras.</p>
+    <p class="muted" style="margin-top:-6px">Todo queda guardado en la nube y se sincroniza con los celulares de las rutas. Igual puedes descargar una copia cuando quieras.</p>
     <div class="row" style="margin-bottom:10px">
       <button class="btn" onclick="descargarRespaldo()">Descargar copia (.json)</button>
       <button class="btn" onclick="document.getElementById('impFile').click()">Subir datos de la app anterior</button>
@@ -573,7 +577,7 @@ function movimientos(){
   }
   for(const p of DB.prestamos){
     const per={DIARIO:'diarias',SEMANAL:'semanales',QUINCENAL:'quincenales',MENSUAL:'mensuales'}[p.periodo]||'';
-    L.push({key:'p'+p.id,id:p.id,fecha:p.fecha,orden:3,creado:p.creado||0,tipo:'prestamo',concepto:'Préstamo a '+nombreCliente(p.clienteId),detalle:`${fmtN(p.tasa)}% mensual, ${p.cuotas} cuotas ${per} de ${fmt(p.valorCuota)}`,ent:0,sal:p.monto,por:p.creadoPor});
+    L.push({key:'p'+p.id,id:p.id,fecha:p.fecha,orden:3,creado:p.creado||0,tipo:'prestamo',concepto:'Préstamo a '+nombreCliente(p.clienteId),detalle:`${fmtN(p.tasa)}% mensual, ${p.cuotas} cuotas ${per} de ${fmt(p.valorCuota)}${p.fuente==='ruta'?' · entregado por '+nombreRuta(p.cobradorId):''}`,ent:0,sal:p.monto,por:p.creadoPor});
   }
   for(const x of DB.pagos){
     const p=DB.prestamos.find(y=>y.id===x.prestamoId); if(!p) continue;
@@ -748,7 +752,7 @@ function clienteOptions(sel){
 
 function modalCliente(id, onSaved){
   const c = id? clienteById(id) : {nombre:'',cedula:'',tel1:'',tel2:'',direccion:'',ciudad:'',obs:'',cobradorId:''};
-  const cobSel = isAdmin() ? `<label class="f full">Cobrador asignado (ruta)<select class="input" id="mCob"><option value="">Sin asignar (lo manejo yo)</option>${cobradores().map(u=>`<option value="${u.id}" ${u.id===c.cobradorId?'selected':''}>${esc(u.nombre)}</option>`).join('')}</select></label>` : '';
+  const cobSel = isAdmin() ? `<label class="f full">Ruta<select class="input" id="mCob"><option value="">Sin ruta (lo manejo yo)</option>${cobradores().map(u=>`<option value="${u.id}" ${u.id===c.cobradorId?'selected':''}>${esc(rutaCompleta(u))}</option>`).join('')}</select></label>` : '';
   openModal(`<h3>${id?'Editar cliente':'Nuevo cliente'}</h3>
   <div class="form">
     <label class="f full">Nombre completo *<input class="input" id="mNom" value="${esc(c.nombre)}"></label>
@@ -797,6 +801,7 @@ function modalPrestamo(id, clienteId, preset){
   openModal(`<h3>${id?'Editar préstamo':'Nuevo préstamo'}</h3>
   <div class="form">
     <label class="f full">Deudor *<select class="input" id="pCli">${clienteOptions(p.clienteId)}</select></label>
+    <label class="f full" id="pFueW" style="display:none">¿De dónde sale la plata?<select class="input" id="pFue"><option value="ruta" ${p.fuente!=='oficina'?'selected':''}>De la caja de la ruta (la entrega el cobrador)</option><option value="oficina" ${p.fuente==='oficina'?'selected':''}>De la oficina</option></select></label>
     <label class="f">Fecha del préstamo<input type="date" class="input" id="pFec" value="${esc(p.fecha)}"></label>
     <label class="f">Valor del préstamo *<input class="input" id="pMon" value="${p.monto?Math.round(p.monto).toLocaleString('es-CO'):''}" inputmode="numeric" placeholder="Ej: 500.000"></label>
     <label class="f">% interés mensual<input class="input" id="pTas" value="${esc(p.tasa)}" inputmode="decimal"></label>
@@ -823,9 +828,14 @@ function modalPrestamo(id, clienteId, preset){
   ['pMon','pTas','pMes','pPer'].forEach(k=>document.getElementById(k).addEventListener('input',upd));
   const mon=document.getElementById('pMon');
   mon.addEventListener('blur',()=>{ const n=num(mon.value); if(n) mon.value=n.toLocaleString('es-CO'); });
+  const verFuente = ()=>{ const cl=clienteById(g('pCli')); const r=cl&&cl.cobradorId&&userById(cl.cobradorId);
+    const w=document.getElementById('pFueW'); w.style.display = r&&r.rol==='cobrador' ? '' : 'none';
+    if(r) w.querySelector('option[value=ruta]').textContent = `De la caja de ${rutaDe(r)} (la entrega el cobrador)`; };
+  verFuente();
+  document.getElementById('pCli').addEventListener('change',verFuente);
   document.getElementById('pCli').addEventListener('change',e=>{
     if(e.target.value==='__new'){
-      const keep = {fecha:g('pFec'),monto:num(g('pMon')),tasa:num(g('pTas')),meses:num(g('pMes')),periodo:g('pPer'),excluirDomingos:document.getElementById('pDom').checked,nota:g('pNot'),_fotos:1};
+      const keep = {fecha:g('pFec'),monto:num(g('pMon')),tasa:num(g('pTas')),meses:num(g('pMes')),periodo:g('pPer'),excluirDomingos:document.getElementById('pDom').checked,nota:g('pNot'),fuente:g('pFue'),_fotos:1};
       modalCliente(null, cid=>modalPrestamo(id,cid,keep));
     }
   });
@@ -839,6 +849,7 @@ function modalPrestamo(id, clienteId, preset){
     const data = {clienteId:cli,fecha:g('pFec')||todayStr(),monto,tasa,meses,periodo,excluirDomingos:document.getElementById('pDom').checked,nota:g('pNot').trim(),
       cuotas:c.cuotas,valorCuota:c.valorCuota,interesMes:c.interesMes,total:c.total};
     const cobP = (clienteById(cli)||{}).cobradorId || '';
+    data.fuente = document.getElementById('pFueW').style.display==='none' ? 'oficina' : document.getElementById('pFue').value;
     if(id){ if(cli!==p.clienteId) data.cobradorId=cobP; dbUpd('prestamos',id,data); }
     else {
       const pid = dbAdd('prestamos',{...data, cobradorId:cobP});
@@ -1032,18 +1043,19 @@ VIEWS.usuarios = () => {
   <div class="row"><button class="btn pri" onclick="modalUsuario()">+ Solicitar usuario</button></div></div>
   <div class="kpis">
     <div class="kpi sky"><div class="l">Administradores (incluye al CEO)</div><div class="v">${c.admins} de ${c.cupoAdmins}</div>${barra(c.admins,c.cupoAdmins)}</div>
-    <div class="kpi cream"><div class="l">Cobradores</div><div class="v">${c.cobradores} de ${c.cupoCobradores}</div>${barra(c.cobradores,c.cupoCobradores)}</div>
-    <div class="kpi hl"><div class="l">Tu mensualidad</div><div class="v">${fmt(planMensual(EMPRESA||{}))}</div><div class="n">Cobrador extra $20.000 · Admin extra $35.000</div></div>
+    <div class="kpi cream"><div class="l">Rutas</div><div class="v">${c.cobradores} de ${c.cupoCobradores}</div>${barra(c.cobradores,c.cupoCobradores)}</div>
+    <div class="kpi hl"><div class="l">Tu mensualidad</div><div class="v">${fmt(planMensual(EMPRESA||{}))}</div><div class="n">Ruta extra $20.000 · Admin extra $35.000</div></div>
   </div>
-  <div class="card"><div class="tablewrap"><table><thead><tr><th>Nombre</th><th>Correo</th><th>Rol</th><th class="num">Clientes</th><th class="num">Plata en mano</th><th>Estado</th><th></th></tr></thead><tbody>
+  <div class="card"><div class="tablewrap"><table><thead><tr><th>Nombre</th><th>Correo</th><th>Rol</th><th class="num">Clientes</th><th class="num">Plata en mano</th><th>Celular autorizado</th><th>Estado</th><th></th></tr></thead><tbody>
   ${us.map(u=>{const nc=DB.clientes.filter(x=>x.cobradorId===u.id).length; const cu=cuadreCobrador(u.id); return `<tr>
-    <td><div class="who">${ava(u.nombre)}<b>${esc(u.nombre)}</b>${u.id===ME.uid?' <span class="muted" style="margin-left:6px">(tú)</span>':''}</div></td>
-    <td>${esc(u.email)}</td><td>${u.rol==='ceo'?'<span class="pill p-hoy">CEO</span>':u.rol==='admin'?'<span class="pill p-pag">Admin</span>':'<span class="pill p-ok">Cobrador</span>'}</td>
-    <td class="num">${u.rol==='cobrador'?nc:'—'}</td><td class="num">${u.rol==='cobrador'?fmt(cu.enMano):'—'}</td>
+    <td><div class="who">${ava(u.nombre)}<div><b>${esc(u.nombre)}</b>${u.id===ME.uid?' <span class="muted" style="margin-left:6px">(tú)</span>':''}${u.rol==='cobrador'?`<div class="muted" style="font-size:12px">${esc(rutaDe(u))}</div>`:''}</div></div></td>
+    <td>${esc(u.email)}</td><td>${u.rol==='ceo'?'<span class="pill p-hoy">CEO</span>':u.rol==='admin'?'<span class="pill p-pag">Admin</span>':'<span class="pill p-ok">Ruta</span>'}</td>
+    <td class="num">${u.rol==='cobrador'?nc:'—'}</td><td class="num">${u.rol==='cobrador'?fmt(cu.enMano):'—'}</td><td>${celdaEquipo(u)}</td>
     <td>${u.estado==='pendiente'?'<span class="pill p-hoy">Pendiente de activar</span>':u.activo===false?'<span class="pill p-mora">Desactivado</span>':'<span class="pill p-ok">Activo</span>'}</td>
-    <td class="right" style="white-space:nowrap">${u.id!==ME.uid&&u.rol!=='ceo'?`<button class="btn sm" onclick="modalUsuario('${u.id}')">Editar</button>`:''}</td></tr>`}).join('')}
+    <td class="right" style="white-space:nowrap">${btnLiberar(u)} ${u.id!==ME.uid&&u.rol!=='ceo'?`<button class="btn sm" onclick="modalUsuario('${u.id}')">Editar</button>`:''}</td></tr>`}).join('')}
   </tbody></table></div></div>
-  <p class="muted" style="font-size:13px;margin-top:14px">Al solicitar un usuario, Kuota lo revisa y lo activa; desde ese momento se cobra en tu mensualidad. Si desactivas a alguien, para volver a activarlo debes pedírselo a Kuota.</p>`;
+  <p class="muted" style="font-size:13px;margin-top:14px">Al solicitar un usuario, Kuota lo revisa y lo activa; desde ese momento se cobra en tu mensualidad. Si desactivas a alguien, para volver a activarlo debes pedírselo a Kuota.</p>
+  <p class="muted" style="font-size:13px">Cada ruta queda amarrada al celular (o navegador) desde el que entra la primera vez. Si alguien intenta entrar con ese usuario desde otro equipo, se bloquea y te avisamos aquí. Si la persona cambió de celular, usa “Liberar celular”.</p>`;
 };
 function cupos(){
   const act = DB.users.filter(u=>u.activo!==false);
@@ -1055,22 +1067,24 @@ function modalUsuario(id){
   if(u){
     openModal(`<h3>${esc(u.nombre)}</h3>
     <div class="form"><label class="f full">Nombre<input class="input" id="uNom" value="${esc(u.nombre)}"></label>
+    ${u.rol==='cobrador'?`<label class="f full">Nombre de la ruta<input class="input" id="uRuta" value="${esc(u.ruta||'')}" placeholder="Ej: Ruta Norte"></label>`:''}
     <label class="f full">Correo<input class="input" value="${esc(u.email)}" disabled></label></div>
     <p class="muted" style="font-size:13px">¿Olvidó la contraseña? <button class="btn sm" id="uReset">Enviarle correo para cambiarla</button></p>
     ${u.activo!==false?`<p class="muted" style="font-size:13px">Si esta persona ya no trabaja contigo, desactívala. Deja de poder entrar de inmediato.</p>`:''}
     <div class="actions">${u.activo!==false?`<button class="btn danger" style="margin-right:auto" id="uOff">Desactivar</button>`:''}<button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="uSave">Guardar</button></div>`);
     document.getElementById('uReset').onclick=()=>S.resetPassword(u.email).then(()=>toast('Correo enviado a '+u.email)).catch(()=>toast('No se pudo enviar el correo'));
     if(u.activo!==false) document.getElementById('uOff').onclick=async ()=>{ if(!await confirmar('¿Desactivar a '+u.nombre+'? Para reactivarlo tendrás que pedírselo a Kuota.',{peligro:true,ok:'Desactivar'})) return; dbUpd('users',u.id,{activo:false,estado:'desactivado'}); closeModal(); render(); toast('Usuario desactivado'); };
-    document.getElementById('uSave').onclick=()=>{ const n=document.getElementById('uNom').value.trim(); if(!n) return toast('Escribe el nombre'); dbUpd('users',u.id,{nombre:n}); closeModal(); render(); toast('Usuario actualizado'); };
+    document.getElementById('uSave').onclick=()=>{ const n=document.getElementById('uNom').value.trim(); if(!n) return toast('Escribe el nombre'); const d={nombre:n}; const r=document.getElementById('uRuta'); if(r) d.ruta=r.value.trim().slice(0,60); dbUpd('users',u.id,d); closeModal(); render(); toast('Usuario actualizado'); };
     return;
   }
   openModal(`<h3>Solicitar usuario</h3>
-  <p class="muted" style="margin-top:-8px">Kuota lo activa y se suma a tu mensualidad: cobrador adicional ${fmt(PRECIOS.cobradorExtra)}/mes, administrador adicional ${fmt(PRECIOS.adminExtra)}/mes (tu plan incluye 1 de cada uno).</p>
+  <p class="muted" style="margin-top:-8px">Kuota lo activa y se suma a tu mensualidad: ruta adicional ${fmt(PRECIOS.cobradorExtra)}/mes, administrador adicional ${fmt(PRECIOS.adminExtra)}/mes (tu plan incluye 1 de cada uno).</p>
   <div class="form">
-    <label class="f full">Nombre<input class="input" id="uNom" placeholder="Ej: Pedro cobrador"></label>
+    <label class="f full">Nombre de la persona<input class="input" id="uNom" placeholder="Ej: Pedro Gómez"></label>
+    <label class="f full">Nombre de la ruta (si es cobrador)<input class="input" id="uRuta" placeholder="Ej: Ruta Norte"></label>
     <label class="f">Correo<input class="input" id="uMail" type="email" autocomplete="off"></label>
     <label class="f">Contraseña inicial<input class="input" id="uPass" type="text" autocomplete="off" placeholder="Mínimo 6 caracteres"></label>
-    <label class="f full">Rol<select class="input" id="uRol"><option value="cobrador">Cobrador (solo su ruta: cobra y crea clientes)</option><option value="admin">Admin (ve todo y registra, no edita ni borra)</option></select></label>
+    <label class="f full">Rol<select class="input" id="uRol"><option value="cobrador">Ruta (cobrador: cobra su ruta y crea clientes)</option><option value="admin">Admin (ve todo y registra, no edita ni borra)</option></select></label>
   </div>
   <div class="actions"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="uSave">Enviar solicitud</button></div>`);
   document.getElementById('uSave').onclick=async ()=>{
@@ -1080,7 +1094,7 @@ function modalUsuario(id){
     if(!/^\S+@\S+\.\S+$/.test(email)) return toast('Escribe un correo válido');
     if(pass.length<6) return toast('La contraseña debe tener mínimo 6 caracteres');
     const btn=document.getElementById('uSave'); btn.disabled=true; btn.textContent='Enviando…';
-    try{ await S.solicitarUsuario(nombre,email,pass,rol); closeModal(); toast('Solicitud enviada a Kuota'); }
+    try{ const ruta=rol==='cobrador'?(document.getElementById('uRuta').value.trim().slice(0,60)||''):''; await S.solicitarUsuario(nombre,email,pass,rol,ruta); closeModal(); toast('Solicitud enviada a Kuota'); }
     catch(e){ btn.disabled=false; btn.textContent='Enviar solicitud';
       toast(e.code==='auth/email-already-in-use'?'Ese correo ya tiene un usuario':e.code==='auth/invalid-email'?'Correo no válido':'No se pudo enviar la solicitud'); }
   };
@@ -1095,7 +1109,7 @@ VIEWS.suscripcion = () => {
   <div class="head"><div><h1>Mi suscripción</h1><p class="sub">Tu plan de Kuota, cuándo vence y tus pagos.</p></div></div>
   <div class="kpis">
     <div class="kpi card"><div class="l">Estado</div><div class="v" style="color:${col};font-size:22px">${esc(st.texto)}</div><div class="n">${emp.pagadoHasta?'Pagado hasta el '+fdate(emp.pagadoHasta):''}</div></div>
-    <div class="kpi hl"><div class="l">Mensualidad</div><div class="v">${fmt(planMensual(emp))}</div><div class="n">${c.cupoAdmins} admin · ${c.cupoCobradores} cobrador${c.cupoCobradores>1?'es':''}</div></div>
+    <div class="kpi hl"><div class="l">Mensualidad</div><div class="v">${fmt(planMensual(emp))}</div><div class="n">${c.cupoAdmins} admin · ${c.cupoCobradores} ruta${c.cupoCobradores>1?"s":""}</div></div>
     <div class="kpi sky"><div class="l">Próximo pago</div><div class="v" style="font-size:22px">${emp.pagadoHasta?fdate(sumarDias(emp.pagadoHasta,1)):'—'}</div><div class="n">Días de gracia: ${emp.diasGracia??5}</div></div>
   </div>
   <div class="grid2">
@@ -1229,7 +1243,7 @@ VIEWS.renovaciones = () => {
   if(f==='activas') rows=rows.filter(r=>r.estado==='pendiente'||r.estado==='aprobada');
   rows.sort((a,b)=>(b.creado||0)-(a.creado||0));
   const fb=(k,t)=>`<button class="btn sm ${f===k?'pri':''}" onclick="go('renovaciones',Object.assign({},viewState,{f:'${k}'}))">${t}</button>`;
-  return `<div class="head"><div><h1>Renovaciones</h1><p class="sub">Solicitudes de los cobradores para renovar créditos. Al aprobar, lo que debe el cliente se descuenta del préstamo nuevo y se entrega solo la diferencia.</p></div></div>
+  return `<div class="head"><div><h1>Renovaciones</h1><p class="sub">Solicitudes de las rutas para renovar créditos. Al aprobar, lo que debe el cliente se descuenta del préstamo nuevo y se entrega solo la diferencia.</p></div></div>
   <div class="toolbar">${fb('activas','Por atender')}${fb('todas','Todas')}${filtroCobrador('renovaciones')}</div>
   ${rows.length?`<div class="cobros-grid">${rows.map(tarjetaRenov).join('')}</div>`:'<div class="card"><div class="empty">No hay renovaciones por atender.</div></div>'}`;
 };
@@ -1240,47 +1254,71 @@ function bloqueRenovacionesCobrador(){
 }
 
 /* ---------- cuadre de caja por cobrador ---------- */
+/* ---------- cuadre de cada ruta ----------
+   Plata de la ruta = base recibida + cobrado − préstamos entregados por la ruta − renovaciones entregadas − lo devuelto a la oficina */
 function cuadreCobrador(uidC, fecha){
-  const pagos = DB.pagos.filter(x=>(x.registradoPor||'')===uidC && efectivo(x));
-  const entregas = DB.entregas.filter(x=>x.cobradorId===uidC);
-  const renov = DB.renovaciones.filter(r=>r.estado==='entregada' && r.entregadoPor===uidC);
-  const desembolsado = renov.reduce((s,r)=>s+(Number(r.excedente)||0),0);
   const tot = a=>a.reduce((s,x)=>s+(Number(x.monto ?? x.valor)||0),0);
-  const pDia = fecha? pagos.filter(x=>x.fecha===fecha):[], eDia = fecha? entregas.filter(x=>x.fecha===fecha):[];
-  return { cobradoDia:tot(pDia), nPagosDia:pDia.length, pagosDia:pDia, entregadoDia:tot(eDia), entregasDia:eDia,
-           cobradoTotal:tot(pagos), entregadoTotal:tot(entregas), desembolsado, desembolsadoDia: renov.filter(r=>fecha&&r.entregadoEn&&ymd(new Date(r.entregadoEn))===fecha).reduce((s,r)=>s+(Number(r.excedente)||0),0),
-           enMano: tot(pagos)-tot(entregas)-desembolsado };
+  const totR = a=>a.reduce((s,r)=>s+(Number(r.excedente)||0),0);
+  const fRen = r=>r.entregadoEn ? ymd(new Date(r.entregadoEn)) : (r.fechaRenovacion||'');
+  const pagos = DB.pagos.filter(x=>(x.registradoPor||'')===uidC && efectivo(x));
+  const todasE = DB.entregas.filter(x=>x.cobradorId===uidC);
+  const entregas = todasE.filter(x=>x.tipo!=='base'), bases = todasE.filter(x=>x.tipo==='base');
+  const renov = DB.renovaciones.filter(r=>r.estado==='entregada' && r.entregadoPor===uidC);
+  const prest = DB.prestamos.filter(p=>p.fuente==='ruta' && p.cobradorId===uidC && !p.renovacionDe);
+  const saldo = cond => tot(bases.filter(x=>cond(x.fecha))) + tot(pagos.filter(x=>cond(x.fecha))) - tot(entregas.filter(x=>cond(x.fecha)))
+                      - totR(renov.filter(r=>cond(fRen(r)))) - tot(prest.filter(x=>cond(x.fecha)));
+  const enMano = saldo(()=>true);
+  const r = { cobradoTotal:tot(pagos), entregadoTotal:tot(entregas), basesTotal:tot(bases), desembolsado:totR(renov), prestadoTotal:tot(prest), enMano };
+  if(fecha){
+    const pDia=pagos.filter(x=>x.fecha===fecha), eDia=entregas.filter(x=>x.fecha===fecha), bDia=bases.filter(x=>x.fecha===fecha);
+    const rDia=renov.filter(x=>fRen(x)===fecha), prDia=prest.filter(x=>x.fecha===fecha);
+    Object.assign(r, { pagosDia:pDia, nPagosDia:pDia.length, cobradoDia:tot(pDia), entregasDia:eDia, entregadoDia:tot(eDia), basesDia:bDia, baseDia:tot(bDia),
+      desembolsadoDia:totR(rDia), prestamosDia:prDia, prestadoDia:tot(prDia),
+      saldoInicial:saldo(f=>!!f && f<fecha), saldoFinal:saldo(f=>!!f && f<=fecha) });
+  } else Object.assign(r, { pagosDia:[], nPagosDia:0, cobradoDia:0, entregasDia:[], entregadoDia:0, basesDia:[], baseDia:0, desembolsadoDia:0, prestamosDia:[], prestadoDia:0 });
+  return r;
 }
 VIEWS.cuadre = () => {
   const fecha = viewState.fecha || todayStr();
-  const fechaInput = `<input type="date" class="input" style="width:auto" value="${fecha}" onchange="go('cuadre',{fecha:this.value})">`;
+  const hoy = fecha===todayStr();
+  const fechaInput = `<input type="date" class="input" style="width:auto" value="${fecha}" onchange="go('cuadre',Object.assign({},viewState,{fecha:this.value}))">`;
   if(!isAdmin()){
     const c = cuadreCobrador(ME.uid, fecha);
+    const salidas = c.prestadoDia + c.desembolsadoDia;
     return `
-    <div class="head"><div><h1>Mi cuadre</h1><p class="sub">Lo que cobraste y lo que ya entregaste.</p></div>${fechaInput}</div>
-    <div class="kpis">
-      <div class="kpi hl"><div class="l">Cobrado ${fecha===todayStr()?'hoy':'ese día'}</div><div class="v">${fmt(c.cobradoDia)}</div><div class="n">${c.nPagosDia} pagos</div></div>
-      <div class="kpi sky"><div class="l">Entregado a la oficina ${fecha===todayStr()?'hoy':'ese día'}</div><div class="v">${fmt(c.entregadoDia)}</div>${c.desembolsadoDia?`<div class="n">Y entregaste ${fmt(c.desembolsadoDia)} en renovaciones</div>`:''}</div>
-      <div class="kpi cream"><div class="l">Plata en mano por entregar</div><div class="v">${fmt(c.enMano)}</div><div class="n">Lo cobrado menos lo entregado a la oficina y en renovaciones</div></div>
+    <div class="head"><div><h1>Cuadre de ${esc(nombreRuta(ME.uid))}</h1><p class="sub">Con cuánto abriste, lo que cobraste, lo que prestaste y lo que entregaste.</p></div>${fechaInput}</div>
+    <div class="card pad cuadre-ruta" style="margin-bottom:16px">
+      <div class="cr-fila"><span>Saldo con que abrió ${hoy?'hoy':'ese día'}</span><b>${fmt(c.saldoInicial)}</b></div>
+      <div class="cr-fila mas"><span>+ Base recibida de la oficina</span><b>${fmt(c.baseDia)}</b></div>
+      <div class="cr-fila mas"><span>+ Cobrado (${c.nPagosDia} pagos)</span><b>${fmt(c.cobradoDia)}</b></div>
+      <div class="cr-fila menos"><span>− Préstamos y renovaciones entregados</span><b>${fmt(salidas)}</b></div>
+      <div class="cr-fila menos"><span>− Entregado a la oficina</span><b>${fmt(c.entregadoDia)}</b></div>
+      <div class="cr-fila total"><span>Debes tener en la mano</span><b>${fmt(c.saldoFinal)}</b></div>
     </div>
     ${tablaPagosDia(c.pagosDia)}`;
   }
-  const filas = [{id:ME.uid,nombre:(ME.nombre||'Yo')+' ('+rolDe(ME)+')'}, ...cobradores()].map(u=>({u,c:cuadreCobrador(u.id,fecha)}));
-  const tot = k=>filas.reduce((s,f)=>s+f.c[k],0);
+  const filas = cobradores().map(u=>({u,c:cuadreCobrador(u.id,fecha)}));
+  const yo = cuadreCobrador(ME.uid, fecha);
+  const tot = k=>filas.reduce((s,f)=>s+(f.c[k]||0),0);
   const todosPagos = DB.pagos.filter(x=>x.fecha===fecha && efectivo(x));
   return `
-  <div class="head"><div><h1>Cuadre de caja</h1><p class="sub">Cuánto cobró cada cobrador, cuánto te entregó y cuánto tiene en la mano.</p></div>${fechaInput}</div>
+  <div class="head"><div><h1>Cuadre de rutas</h1><p class="sub">Cada ruta abre con una base, cobra, presta y te entrega. Aquí ves cuánto debe tener cada una.</p></div>${fechaInput}</div>
   <div class="kpis">
-    <div class="kpi hl"><div class="l">Cobrado ese día</div><div class="v">${fmt(todosPagos.reduce((s,x)=>s+x.monto,0))}</div><div class="n">${todosPagos.length} pagos</div></div>
-    <div class="kpi sky"><div class="l">Entregado ese día</div><div class="v">${fmt(tot('entregadoDia'))}</div></div>
-    <div class="kpi cream"><div class="l">En manos de cobradores</div><div class="v">${fmt(filas.slice(1).reduce((s,f)=>s+f.c.enMano,0))}</div><div class="n">Pendiente por entregarte</div></div>
+    <div class="kpi sky"><div class="l">Bases entregadas ${hoy?'hoy':'ese día'}</div><div class="v">${fmt(tot('baseDia'))}</div></div>
+    <div class="kpi hl"><div class="l">Cobrado ${hoy?'hoy':'ese día'}</div><div class="v">${fmt(todosPagos.reduce((s,x)=>s+x.monto,0))}</div><div class="n">${todosPagos.length} pagos${yo.cobradoDia?` · ${fmt(yo.cobradoDia)} en oficina`:''}</div></div>
+    <div class="kpi cream"><div class="l">Plata en las rutas</div><div class="v">${fmt(tot('saldoFinal'))}</div><div class="n">Al cierre del ${fdate(fecha)}</div></div>
   </div>
-  <div class="card" style="margin-bottom:16px"><div class="tablewrap"><table><thead><tr><th>Cobrador</th><th class="num">Pagos</th><th class="num">Cobrado</th><th class="num">Entregado</th><th class="num">En renovaciones</th><th class="num">Plata en mano</th><th></th></tr></thead><tbody>
-  ${filas.map(({u,c},i)=>`<tr><td><div class="who">${ava(u.nombre)}<b>${esc(u.nombre)}</b></div></td><td class="num">${c.nPagosDia}</td><td class="num">${fmt(c.cobradoDia)}</td><td class="num">${fmt(c.entregadoDia)}</td><td class="num">${c.desembolsadoDia?fmt(c.desembolsadoDia):'—'}</td>
-    <td class="num"><b style="color:${i&&c.enMano>0.5?'var(--amber)':'inherit'}">${i?fmt(c.enMano):'—'}</b></td>
-    <td class="right">${i?`<button class="btn sm pri" onclick="modalEntrega('${u.id}','${fecha}')">Recibir plata</button>`:''}</td></tr>`).join('')}
-  </tbody></table></div></div>
-  ${(()=>{const es=DB.entregas.filter(x=>x.fecha===fecha); return es.length?`<div class="card pad" style="margin-bottom:16px"><h2>Entregas recibidas ese día</h2><table><tbody>${es.map(x=>`<tr><td>${esc(nombreUsuario(x.cobradorId))}</td><td>${esc(x.nota||'')}</td><td class="num">${fmt(x.valor)}</td><td class="muted">${esc(nombreUsuario(x.creadoPor))}</td><td class="right">${isCeo()?`<button class="btn sm danger" onclick="borrarEntrega('${x.id}')">Borrar</button>`:''}</td></tr>`).join('')}</tbody></table></div>`:'';})()}
+  ${filas.length?`<div class="cuadre-grid">${filas.map(({u,c})=>`<div class="card pad cuadre-ruta">
+    <div class="row" style="margin-bottom:10px">${ava(u.nombre)}<div style="min-width:0;flex:1"><b>${esc(rutaDe(u))}</b><div class="muted" style="font-size:12px">${esc(u.nombre)}</div></div></div>
+    <div class="cr-fila"><span>Abrió con</span><b>${fmt(c.saldoInicial)}</b></div>
+    <div class="cr-fila mas"><span>+ Base</span><b>${fmt(c.baseDia)}</b></div>
+    <div class="cr-fila mas"><span>+ Cobrado (${c.nPagosDia})</span><b>${fmt(c.cobradoDia)}</b></div>
+    <div class="cr-fila menos"><span>− Prestado / renovaciones</span><b>${fmt(c.prestadoDia + c.desembolsadoDia)}</b></div>
+    <div class="cr-fila menos"><span>− Entregó a la oficina</span><b>${fmt(c.entregadoDia)}</b></div>
+    <div class="cr-fila total"><span>Debe tener</span><b style="color:${c.saldoFinal>0.5?'var(--amber)':'inherit'}">${fmt(c.saldoFinal)}</b></div>
+    <div class="row" style="margin-top:12px"><button class="btn sm" onclick="modalBase('${u.id}','${fecha}')">Asignar base</button><span class="spacer"></span><button class="btn sm pri" onclick="modalEntrega('${u.id}','${fecha}')">Recibir plata</button></div>
+  </div>`).join('')}</div>`:`<div class="card"><div class="empty">Aún no tienes rutas. Solicítalas en Usuarios.</div></div>`}
+  ${(()=>{const es=DB.entregas.filter(x=>x.fecha===fecha); return es.length?`<div class="card pad" style="margin:16px 0"><h2>Bases y entregas de ese día</h2><div class="tablewrap"><table><tbody>${es.map(x=>`<tr><td>${x.tipo==='base'?'<span class="pill p-pag">Base</span>':'<span class="pill p-ok">Entrega</span>'}</td><td>${esc(nombreRuta(x.cobradorId))}</td><td>${esc(x.nota||'')}</td><td class="num">${fmt(x.valor)}</td><td class="muted">${esc(nombreUsuario(x.creadoPor))}</td><td class="right">${isCeo()?`<button class="btn sm danger" onclick="borrarEntrega('${x.id}')">Borrar</button>`:''}</td></tr>`).join('')}</tbody></table></div></div>`:'<div style="height:16px"></div>';})()}
   ${tablaPagosDia(todosPagos,true)}`;
 };
 function tablaPagosDia(pagos, conCobrador){
@@ -1289,20 +1327,25 @@ function tablaPagosDia(pagos, conCobrador){
   ${[...pagos].sort((a,b)=>(b.creado||0)-(a.creado||0)).map(x=>{const p=DB.prestamos.find(y=>y.id===x.prestamoId)||{}; return `<tr><td><div class="who">${ava(nombreCliente(p.clienteId))}${esc(nombreCliente(p.clienteId))}</div></td>${conCobrador?`<td>${esc(nombreUsuario(x.registradoPor))}</td>`:''}<td class="muted">${esc(x.nota||'')}</td><td class="num"><b>${fmt(x.monto)}</b></td></tr>`;}).join('')}
   </tbody></table></div></div>`;
 }
-function modalEntrega(cobradorId, fecha){
-  const c=cuadreCobrador(cobradorId);
-  openModal(`<h3>Recibir plata de ${esc(nombreUsuario(cobradorId))}</h3>
-  <p class="muted" style="margin-top:-8px">Tiene en la mano ${fmt(c.enMano)}.</p>
+function modalEntrega(cobradorId, fecha){ modalMovRuta(cobradorId, fecha, 'entrega'); }
+function modalBase(cobradorId, fecha){ modalMovRuta(cobradorId, fecha, 'base'); }
+function modalMovRuta(cobradorId, fecha, tipo){
+  const c=cuadreCobrador(cobradorId), base = tipo==='base';
+  openModal(`<h3>${base?'Asignar base a':'Recibir plata de'} ${esc(nombreRuta(cobradorId))}</h3>
+  <p class="muted" style="margin-top:-8px">${base?'Es la plata con la que la ruta sale a trabajar (para prestar y dar vueltas). Se suma a lo que debe tener la ruta.':`La ruta tiene en la mano ${fmt(c.enMano)}.`}</p>
   <div class="form">
     <label class="f">Fecha<input type="date" class="input" id="eFec" value="${fecha||todayStr()}"></label>
-    <label class="f">Valor recibido<input class="input" id="eVal" inputmode="numeric" value="${c.enMano>0?Math.round(c.enMano).toLocaleString('es-CO'):''}"></label>
+    <label class="f">${base?'Valor de la base':'Valor recibido'}<input class="input" id="eVal" inputmode="numeric" value="${!base&&c.enMano>0?Math.round(c.enMano).toLocaleString('es-CO'):''}"></label>
     <label class="f full">Nota<input class="input" id="eNot" placeholder="Opcional"></label>
   </div>
-  <div class="actions"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="eSave">Guardar entrega</button></div>`);
+  <div class="actions"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="eSave">${base?'Asignar base':'Guardar entrega'}</button></div>`);
+  const val=document.getElementById('eVal'); val.addEventListener('blur',()=>{ const n=num(val.value); if(n) val.value=n.toLocaleString('es-CO'); });
   document.getElementById('eSave').onclick=()=>{
-    const v=num(document.getElementById('eVal').value); if(v<=0) return toast('Escribe el valor');
-    dbAdd('entregas',{cobradorId,fecha:document.getElementById('eFec').value||todayStr(),valor:v,nota:document.getElementById('eNot').value.trim()});
-    closeModal(); render(); toast('Entrega registrada');
+    const v=num(val.value); if(v<=0) return toast('Escribe el valor');
+    const d={cobradorId,fecha:document.getElementById('eFec').value||todayStr(),valor:v,nota:document.getElementById('eNot').value.trim()};
+    if(base) d.tipo='base';
+    dbAdd('entregas',d);
+    closeModal(); render(); toast(base?'Base asignada':'Entrega registrada');
   };
 }
 async function borrarEntrega(id){ if(!await confirmar('¿Borrar esta entrega?')) return; dbDel('entregas',id); render(); }
@@ -1371,6 +1414,7 @@ function verLogin(msg){
 let EMPRESA=null, KUOTA={}, FACTURAS=[], unsubEmp=[], datosActivos=false;
 function detenerTodo(){
   if(typeof pararRastreo==='function'){ if(pararRastreo() && ME) enviarUbic({activo:false, t:Date.now()}); dejarDeEscuchar(); }
+  if(typeof dejarEquipos==='function') dejarEquipos();
   if(unsub) unsub(); unsub=null; unsubEmp.forEach(u=>u()); unsubEmp=[]; datosActivos=false;
 }
 function iniciarSesion(prof){
@@ -1387,7 +1431,7 @@ function iniciarSesion(prof){
     const st = estadoSuscripcion(emp);
     const ok = st.estado==='activa' || st.estado==='gracia';
     if(!ok){ if(unsub){unsub();unsub=null;} datosActivos=false; pantallaBloqueo(); return; }
-    if(!datosActivos){ arrancarDatos(); } else scheduleRender();
+    if(!datosActivos){ if(ME.rol==='cobrador' && EQUIPO_ESTADO!=='ok'){ if(EQUIPO_ESTADO!=='bloqueado') revisarEquipoYArrancar(); } else arrancarDatos(); } else scheduleRender();
   }, err=>{ console.error(err); pantalla(`<img src="logo_dark.png" class="login-brand" alt="Kuota"><h1 style="font-size:22px">No se pudo cargar tu negocio</h1><p class="sub">Revisa tu conexión o comunícate con Kuota.</p><p style="text-align:center"><button class="btn" onclick="cerrarSesion()">Cerrar sesión</button></p>`); }));
 }
 function arrancarDatos(){
@@ -1409,6 +1453,7 @@ function arrancarDatos(){
     scheduleRender();
   });
   escucharEquipo();
+  escucharEquipos();
   setTimeout(autoJornada, 1500);
   render();
 }

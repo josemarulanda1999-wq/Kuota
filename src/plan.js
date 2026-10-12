@@ -7,9 +7,9 @@ function planMensual(emp){
 }
 function planDetalle(emp){
   const a = Math.max(1, Number(emp.cupoAdmins)||1), c = Math.max(1, Number(emp.cupoCobradores)||1);
-  const r = [['Plan base (1 administrador + 1 cobrador)', PRECIOS.mensual]];
+  const r = [['Plan base (1 administrador + 1 ruta)', PRECIOS.mensual]];
   if (a>1) r.push([`${a-1} administrador${a>2?'es':''} adicional${a>2?'es':''} × $35.000`, (a-1)*PRECIOS.adminExtra]);
-  if (c>1) r.push([`${c-1} cobrador${c>2?'es':''} adicional${c>2?'es':''} × $20.000`, (c-1)*PRECIOS.cobradorExtra]);
+  if (c>1) r.push([`${c-1} ruta${c>2?'s':''} adicional${c>2?'es':''} × $20.000`, (c-1)*PRECIOS.cobradorExtra]);
   return r;
 }
 function ymdK(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
@@ -62,10 +62,10 @@ const avisar = (msg) => confirmar(msg, {solo:true, ok:'Entendido'});
    los tipos de los campos que se muestran o se usan en cálculos. */
 const ID_SEGURO = /^[A-Za-z0-9_-]{1,40}$/;
 const CAMPOS_NUM = ['monto','tasa','meses','cuotas','valorCuota','interesMes','total','valor','excedente','saldoCancelado','saldoAlSolicitar',
-  'capitalInicial','creado','revisadoEn','entregadoEn','cupoAdmins','cupoCobradores','diasGracia','venceMs','meses','lat','lng','prec','t','ubicadoEn'];
-const CAMPOS_ID = ['prestamoId','clienteId','cobradorId','registradoPor','creadoPor','entregadoPor','revisadoPor','nuevoPrestamoId','renovacionDe','empresaId','ceoUid'];
+  'capitalInicial','creado','revisadoEn','entregadoEn','cupoAdmins','cupoCobradores','diasGracia','venceMs','meses','lat','lng','prec','t','ubicadoEn','registrado','ultimoUso'];
+const CAMPOS_ID = ['prestamoId','clienteId','cobradorId','registradoPor','creadoPor','entregadoPor','revisadoPor','nuevoPrestamoId','renovacionDe','empresaId','ceoUid','uid'];
 const CAMPOS_TXT = ['nombre','cedula','tel1','tel2','direccion','ciudad','obs','nota','concepto','email','estado','rol','tipo','negocio','nit','contacto',
-  'telefono','notas','metodo','empresaNombre','fecha','pagadoHasta','anterior','nuevo','fechaRenovacion','fechaCapital'];
+  'telefono','notas','metodo','ruta','fuente','modelo','plataforma','empresaNombre','fecha','pagadoHasta','anterior','nuevo','fechaRenovacion','fechaCapital'];
 const PERIODOS_OK = ['DIARIO','SEMANAL','QUINCENAL','MENSUAL'];
 const FECHA_OK = /^\d{4}-\d{2}-\d{2}$/;
 function sanearDoc(x){

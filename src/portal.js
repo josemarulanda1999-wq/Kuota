@@ -426,7 +426,7 @@ function verLogin(msg){
 async function noAutorizado(user){
   let hay=true; try{ hay=await P().hayEquipo(); }catch(e){}
   pantalla(`<img src="logo_dark.png" class="login-brand" alt="Kuota"><h1 style="font-size:22px">${hay?'Esta cuenta no es del equipo Kuota':'Activar el portal'}</h1>
-    <p class="sub">${hay?'Entra con una cuenta de superadministrador.':`Todavía no hay superadministrador. La cuenta <b>${esc(user.email)}</b> quedará como dueña del portal de Kuota. Solo se puede hacer una vez.`}</p>
+    <p class="sub">${hay?`Entraste como <b>${esc(user.email)}</b>, que no es superadministrador. El portal y la app de Kuota comparten la sesión en este navegador: cierra sesión y entra con el correo del equipo Kuota.`:`Todavía no hay superadministrador. La cuenta <b>${esc(user.email)}</b> quedará como dueña del portal de Kuota. Solo se puede hacer una vez.`}</p>
     ${hay?'':`<label class="f" style="margin-bottom:12px">Tu nombre<input class="input" id="sNom"></label><button class="btn pri" style="width:100%;justify-content:center;padding:12px" id="sGo">Activar como superadministrador</button>`}
     <p style="text-align:center;margin-top:14px"><button class="btn" onclick="salir(true)">Cerrar sesión</button></p>`);
   if(!hay) document.getElementById('sGo').onclick=async ()=>{ const n=document.getElementById('sNom').value.trim(); if(!n) return toast('Escribe tu nombre');

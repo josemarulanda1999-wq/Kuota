@@ -44,19 +44,20 @@ function posicionActual(maxMs=7000){
 
 /* ---------- rastreo de la jornada (Admin y cobradores, en el celular) ---------- */
 const GPS = { ultimo:null, watcherId:null, webId:null, activo:false, ultEnvio:null, ultPunto:null, enviando:false };
-const gpsRastreable = () => !!ME && !isCeo() && isNative();
+const gpsRastreable = () => !!ME && !isCeo() && (isNative() || !!navigator.geolocation);
 const lsGet = k => { try{ return localStorage.getItem(k); }catch(e){ return null; } };
 const lsSet = (k,v) => { try{ v==null ? localStorage.removeItem(k) : localStorage.setItem(k,v); }catch(e){} };
 
 async function iniciarJornada(){
   if(!gpsRastreable() || GPS.activo) return;
   if(lsGet('kuota_gps_ok_'+ME.uid)!=='1'){
-    const ok = await confirmar(`Ubicación durante la jornada\n\nMientras tengas la jornada activa, Kuota comparte tu ubicación con ${(EMPRESA&&EMPRESA.nombre)||'la empresa'} para ver la ruta y validar los cobros. Verás un aviso fijo en el celular mientras esté activa y la puedes terminar cuando acabes de trabajar.\n\n¿Autorizas el uso de tu ubicación?`, {ok:'Acepto', no:'Ahora no'});
+    const ok = await confirmar(`Ubicación durante la jornada\n\nMientras tengas la jornada activa, Kuota comparte tu ubicación con ${(EMPRESA&&EMPRESA.nombre)||'la empresa'} para ver la ruta y validar los cobros. ${isNative()?'Verás un aviso fijo en el celular mientras esté activa':'En el navegador la ubicación se envía mientras tengas Kuota abierto'} y la puedes terminar cuando acabes de trabajar.\n\n¿Autorizas el uso de tu ubicación?`, {ok:'Acepto', no:'Ahora no'});
     if(!ok){ lsSet('kuota_gps_off_'+ME.uid, todayStr()); render(); return; }
     lsSet('kuota_gps_ok_'+ME.uid, '1');
   }
   const BG = window.CapPlugins && window.CapPlugins.BackgroundGeolocation;
   GPS.activo = true; lsSet('kuota_gps_off_'+ME.uid, null);
+  if(!isNative() || !BG){ gpsNavegador(); enviarUbic({activo:true, t:Date.now()}); render(); return; }
   try{
     GPS.watcherId = await BG.addWatcher({
       backgroundTitle:'Kuota · jornada activa',
@@ -75,13 +76,38 @@ async function iniciarJornada(){
     });
   }catch(e){
     console.warn('GPS en segundo plano no disponible, uso el del navegador', e);
-    if(navigator.geolocation) GPS.webId = navigator.geolocation.watchPosition(
-      p=>gpsFix(p.coords.latitude, p.coords.longitude, p.coords.accuracy), ()=>{}, {enableHighAccuracy:true, maximumAge:30000});
+    gpsNavegador();
   }
   enviarUbic({activo:true, t:Date.now()});
   render();
 }
+/* navegador (PC o celular sin la app): rastrea mientras la página esté abierta */
+function gpsNavegador(){
+  if(!navigator.geolocation) return;
+  GPS.webId = navigator.geolocation.watchPosition(
+    p=>gpsFix(p.coords.latitude, p.coords.longitude, p.coords.accuracy),
+    err=>{
+      if(err && err.code===1){   // permiso negado
+        detenerJornada(false);
+        avisar('El navegador bloqueó la ubicación. Toca el candado junto a la dirección de la página, permite "Ubicación" y vuelve a iniciar la jornada.');
+      }
+    }, {enableHighAccuracy:true, maximumAge:30000, timeout:30000});
+  pedirPantallaActiva();
+}
+/* en el celular por navegador, mantener la pantalla encendida ayuda a que no se corte el GPS */
+let _wake = null;
+async function pedirPantallaActiva(){
+  try{ if(!isNative() && GPS.activo && navigator.wakeLock && document.visibilityState==='visible' && /Android|iPhone|iPad/i.test(navigator.userAgent)) _wake = await navigator.wakeLock.request('screen'); }catch(e){}
+}
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState==='visible' && GPS.activo && !isNative()){
+    pedirPantallaActiva();
+    GPS.ultEnvio = null;   // al volver a la página, enviar de inmediato la posición
+    posicionActual(8000).then(p=>{ if(p) gpsFix(p.lat, p.lng, p.prec); });
+  }
+});
 function pararRastreo(){
+  if(_wake){ _wake.release().catch(()=>{}); _wake=null; }
   const BG = window.CapPlugins && window.CapPlugins.BackgroundGeolocation;
   if(GPS.watcherId && BG){ BG.removeWatcher({id:GPS.watcherId}).catch(()=>{}); }
   if(GPS.webId!=null && navigator.geolocation) navigator.geolocation.clearWatch(GPS.webId);
@@ -235,7 +261,7 @@ VIEWS.mapa = () => {
     </div>
     <div class="mapa-side">
       <div class="card"><h3 style="margin-top:0">Equipo</h3><div id="equipoLista">${htmlEquipo()}</div>
-        ${isNative()?'':'<p class="muted" style="font-size:12px;margin:10px 0 0">La ubicación se comparte desde la app del celular mientras cada persona tiene la jornada activa.</p>'}</div>
+        <p class="muted" style="font-size:12px;margin:10px 0 0">Cada persona comparte su ubicación mientras tiene la jornada activa: en la app del celular también con la pantalla apagada; en el navegador, mientras tenga Kuota abierto.</p></div>
       <div class="card"><h3 style="margin-top:0">Alertas de cobro · ${fdate(fecha)}</h3>
         ${al.length ? al.map(({x,a})=>{const p=DB.prestamos.find(y=>y.id===x.prestamoId)||{};return `<div class="alerta-row" onclick="modalDetalle('${p.id||''}','pagos')"><div style="min-width:0"><b>${esc(nombreCliente(p.clienteId))}</b><div class="muted" style="font-size:12px">${fmt(x.monto)} · ${esc(nombreUsuario(x.registradoPor))}${x.creado?' · '+horaDe(x.creado):''}</div></div><span class="gps-tag ${a.nivel}">${a.txt}</span></div>`;}).join('') : '<p class="muted" style="margin:0">Sin alertas. Los cobros se registraron cerca de cada cliente.</p>'}
       </div>

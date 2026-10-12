@@ -237,7 +237,9 @@ function renderNav(){
   const n = cobrosDelDia().filter(c=>c.cobrar>0.5).length;
   const nRen = isAdmin() ? DB.renovaciones.filter(r=>r.estado==='pendiente').length + DB.aprobaciones.filter(a=>a.estado==='pendiente').length : 0;
   const pend = isCeo() ? DB.users.filter(u=>u.estado==='pendiente').length : 0;
-  const M = menu();
+  let M = menu();
+  // en computador (navegador ancho) se muestra todo el menú a lo largo; en celular y en la APK queda el menú corto con "Más"
+  if(!isNative() && !movil() && M.mas.length) M = { main: M.main.concat(M.mas), mas: [] };
   const activo = k => k===view || (k==='caja' && isCeo() && VISTAS_CAJA.includes(view));
   const badge = k => k==='cobros'&&n ? n : k==='renovaciones'&&nRen ? nRen : k==='mas'&&nRen ? nRen : 0;
   const item = ([k,t]) => `<button class="${activo(k)?'on':''}" ${k==='mas'?'onclick="abrirMas()"':`data-go="${k==='caja'?'movimientos':k}"`}><svg viewBox="0 0 24 24" fill="currentColor">${ICONS[k]}</svg><span class="nl">${t}</span><span class="ns">${t}</span>${badge(k)?`<span class="badge">${badge(k)}</span>`:''}</button>`;

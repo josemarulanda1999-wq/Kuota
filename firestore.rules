@@ -25,6 +25,11 @@ service cloud.firestore {
     function own() { return resource.data.cobradorId == uid(); }
     function ownNew() { return request.resource.data.cobradorId == uid(); }
     function firma() { return request.resource.data.creadoPor == uid(); }
+    // el cobrador puede guardar la ubicación de un cliente que no la tiene, pero no moverla
+    function ubicFija() {
+      return !('lat' in resource.data) || (resource.data.lat == 0 && resource.data.lng == 0)
+        || (request.resource.data.get('lat', 0) == resource.data.lat && request.resource.data.get('lng', 0) == resource.data.lng);
+    }
     function soloCambiaRuta() { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['cobradorId']); }
 
     // ---- validaciones de datos ----
@@ -35,10 +40,14 @@ service cloud.firestore {
     function fechaOk(v) { return v is string && v.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'); }
     function numOk(v, min, max) { return v is number && v >= min && v <= max; }
     function periodoOk(v) { return v in ['DIARIO', 'SEMANAL', 'QUINCENAL', 'MENSUAL']; }
+    function optNum(d, k, min, max) { return !(k in d) || numOk(d[k], min, max); }
+    function coordsOk(d) { return optNum(d, 'lat', -90, 90) && optNum(d, 'lng', -180, 180); }
+    function img(d, k) { return !(k in d) || (d[k] is string && d[k].size() < 340000 && d[k].matches('data:image/jpeg;base64,[A-Za-z0-9+/=]+')); }
     function prest(eid, pid) { return get(/databases/$(database)/documents/empresas/$(eid)/prestamos/$(pid)).data; }
 
     function okCliente(d) {
-      return d.keys().hasOnly(['nombre', 'cedula', 'tel1', 'tel2', 'direccion', 'ciudad', 'obs', 'cobradorId', 'creado', 'creadoPor'])
+      return d.keys().hasOnly(['nombre', 'cedula', 'tel1', 'tel2', 'direccion', 'ciudad', 'obs', 'cobradorId', 'lat', 'lng', 'ubicadoEn', 'creado', 'creadoPor'])
+        && coordsOk(d) && optNum(d, 'ubicadoEn', 0, 99999999999999)
         && txt(d.nombre, 120) && d.nombre.size() > 0
         && optTxt(d, 'cedula', 40) && optTxt(d, 'tel1', 40) && optTxt(d, 'tel2', 40)
         && optTxt(d, 'direccion', 200) && optTxt(d, 'ciudad', 80) && optTxt(d, 'obs', 500)
@@ -53,7 +62,8 @@ service cloud.firestore {
         && (!('renovacionDe' in d) || idOk(d.renovacionDe)) && (!('saldoCancelado' in d) || numOk(d.saldoCancelado, 0, 10000000000));
     }
     function okPago(d) {
-      return d.keys().hasOnly(['prestamoId', 'fecha', 'monto', 'nota', 'tipo', 'cobradorId', 'registradoPor', 'creado', 'creadoPor'])
+      return d.keys().hasOnly(['prestamoId', 'fecha', 'monto', 'nota', 'tipo', 'cobradorId', 'registradoPor', 'lat', 'lng', 'prec', 'sinGps', 'creado', 'creadoPor'])
+        && coordsOk(d) && optNum(d, 'prec', 0, 100000) && (!('sinGps' in d) || d.sinGps is bool)
         && idOk(d.prestamoId) && fechaOk(d.fecha) && numOk(d.monto, 1, 10000000000) && optTxt(d, 'nota', 300)
         && d.registradoPor == uid() && d.creadoPor == uid();
     }
@@ -129,7 +139,7 @@ service cloud.firestore {
         allow create: if isSuper() || isCeo(eid)
           || (idOk(id) && firma() && okCliente(request.resource.data) && (soloAdmin(eid) || (isCob(eid) && ownNew())));
         allow update: if isSuper() || isCeo(eid)
-          || (okCliente(request.resource.data) && (soloAdmin(eid) || (isCob(eid) && own() && ownNew())));
+          || (okCliente(request.resource.data) && (soloAdmin(eid) || (isCob(eid) && own() && ownNew() && ubicFija())));
         allow delete: if isSuper() || isCeo(eid);
       }
       match /prestamos/{id} {
@@ -175,6 +185,33 @@ service cloud.firestore {
           || ((soloAdmin(eid) || (isCob(eid) && own())) && resource.data.estado == 'aprobada' && request.resource.data.estado == 'entregada'
               && request.resource.data.entregadoPor == uid()
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estado', 'entregadoPor', 'entregadoEn']));
+        allow delete: if isSuper() || isCeo(eid);
+      }
+      // GPS: cada persona publica solo su propia ubicación; el CEO y el Admin las ven
+      match /ubicaciones/{u} {
+        allow read: if isSuper() || isAdm(eid) || (enEmpresa(eid) && u == uid());
+        allow create, update: if enEmpresa(eid) && vigente(eid) && u == uid()
+          && request.resource.data.keys().hasOnly(['lat', 'lng', 'prec', 't', 'activo', 'nombre', 'rol'])
+          && coordsOk(request.resource.data) && optNum(request.resource.data, 'prec', 0, 100000)
+          && optNum(request.resource.data, 't', 0, 99999999999999) && optTxt(request.resource.data, 'nombre', 80)
+          && optTxt(request.resource.data, 'rol', 20) && (!('activo' in request.resource.data) || request.resource.data.activo is bool);
+        allow delete: if isSuper() || isCeo(eid);
+      }
+      match /recorridos/{rid} {
+        allow read: if isSuper() || isAdm(eid) || (enEmpresa(eid) && rid.matches(uid() + '_.*'));
+        allow create, update: if enEmpresa(eid) && vigente(eid) && rid.matches(uid() + '_[0-9]{4}-[0-9]{2}-[0-9]{2}')
+          && request.resource.data.keys().hasOnly(['uid', 'fecha', 'puntos'])
+          && request.resource.data.uid == uid() && fechaOk(request.resource.data.fecha)
+          && request.resource.data.puntos is list && request.resource.data.puntos.size() <= 3000;
+        allow delete: if isSuper() || isCeo(eid);
+      }
+      // fotos del cliente y la cédula, guardadas por crédito (id = id del préstamo)
+      match /fotos/{pid} {
+        allow read: if isSuper() || isAdm(eid) || (isCob(eid) && prest(eid, pid).get('cobradorId', '') == uid());
+        allow create, update: if isSuper() || ((isCeo(eid) || soloAdmin(eid)) && idOk(pid)
+          && request.resource.data.keys().hasOnly(['foto', 'cedula', 'cedulaReverso', 'clienteId', 'creado', 'creadoPor'])
+          && idOk(request.resource.data.clienteId) && request.resource.data.creadoPor == uid()
+          && img(request.resource.data, 'foto') && img(request.resource.data, 'cedula') && img(request.resource.data, 'cedulaReverso'));
         allow delete: if isSuper() || isCeo(eid);
       }
       // el dinero del negocio (gastos, ingresos extra y capital) solo lo ve el CEO

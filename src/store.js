@@ -10,12 +10,15 @@ import { initializeApp, deleteApp } from 'firebase/app';
 import { initializeAuth, indexedDBLocalPersistence, browserLocalPersistence, inMemoryPersistence,
   onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, setDoc, updateDoc,
-  deleteDoc, onSnapshot, query, where, getDoc, getDocs, writeBatch } from 'firebase/firestore';
+  deleteDoc, onSnapshot, query, where, getDoc, getDocs, writeBatch, arrayUnion } from 'firebase/firestore';
+import { registerPlugin, CapacitorHttp, Capacitor } from '@capacitor/core';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { firebaseConfig } from './firebase-config.js';
 
-window.CapPlugins = { Filesystem, Directory, Encoding, Share };
+// GPS en segundo plano (servicio con notificación mientras el cobrador está en jornada)
+const BackgroundGeolocation = registerPlugin('BackgroundGeolocation');
+window.CapPlugins = { Filesystem, Directory, Encoding, Share, BackgroundGeolocation };
 
 const configured = !!(firebaseConfig && firebaseConfig.apiKey && !String(firebaseConfig.apiKey).startsWith('PEGA'));
 let app, auth, db;
@@ -90,6 +93,36 @@ window.S = {
       await b.commit();
     }
   },
+  /* ---------- GPS y fotos ---------- */
+  setUbicacion: (uid, data) => setDoc(doc(db, ruta('ubicaciones'), uid), clean(data), { merge: true }),
+  addPunto: (uid, fecha, punto) => setDoc(doc(db, ruta('recorridos'), uid + '_' + fecha), { uid, fecha, puntos: arrayUnion(punto) }, { merge: true }),
+  /* Envía la posición del GPS. En el celular va por HTTP nativo (la WebView se frena en segundo plano);
+     en el navegador usa el SDK normal. Las reglas de Firestore validan igual en ambos caminos. */
+  async gpsEnviar(uid, fecha, ubic, punto) {
+    const nativo = Capacitor.isNativePlatform && Capacitor.isNativePlatform();
+    if (!nativo || !auth.currentUser) {
+      await window.S.setUbicacion(uid, ubic);
+      if (punto) await window.S.addPunto(uid, fecha, punto);
+      return;
+    }
+    const token = await auth.currentUser.getIdToken();
+    const base = `projects/${firebaseConfig.projectId}/databases/(default)/documents/`;
+    const val = v => typeof v === 'boolean' ? { booleanValue: v } : typeof v === 'string' ? { stringValue: v }
+      : Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v };
+    const campos = o => { const f = {}; for (const [k, v] of Object.entries(o)) if (v !== undefined && v !== null) f[k] = val(v); return f; };
+    const u = campos(ubic);
+    const writes = [{ update: { name: base + ruta('ubicaciones') + '/' + uid, fields: u }, updateMask: { fieldPaths: Object.keys(u) } }];
+    if (punto) writes.push({ update: { name: base + ruta('recorridos') + '/' + uid + '_' + fecha, fields: campos({ uid, fecha }) },
+      updateMask: { fieldPaths: ['uid', 'fecha'] },
+      updateTransforms: [{ fieldPath: 'puntos', appendMissingElements: { values: [{ mapValue: { fields: campos(punto) } }] } }] });
+    const r = await CapacitorHttp.request({ method: 'POST', url: `https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents:commit`,
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, data: { writes } });
+    if (r.status >= 300) throw new Error('gps ' + r.status);
+  },
+  watchUbicaciones(cb) { return onSnapshot(collection(db, ruta('ubicaciones')), s => cb(list(s)), () => cb([])); },
+  async getRecorrido(uid, fecha) { const s = await getDoc(doc(db, ruta('recorridos'), uid + '_' + fecha)); return s.exists() ? s.data() : null; },
+  async getFotos(pid) { try { const s = await getDoc(doc(db, ruta('fotos'), pid)); return s.exists() ? s.data() : null; } catch (e) { return null; } },
+  setFotos: (pid, data) => setDoc(doc(db, ruta('fotos'), pid), clean(data)),
   /* el CEO solicita un usuario: queda pendiente hasta que Kuota lo active */
   async solicitarUsuario(nombre, email, pass, rol) {
     const uid = await crearCuenta(email, pass);

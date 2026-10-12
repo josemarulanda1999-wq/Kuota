@@ -255,3 +255,43 @@ html,body{overflow-x:hidden}
 .mas-item svg{width:24px;height:24px;color:var(--lime)}
 .mas-item .badge{position:absolute;top:8px;right:10px;background:var(--red);color:#fff;font-size:11px;font-weight:700;border-radius:10px;padding:1px 7px}
 .caja-tabs{margin-bottom:18px;flex-wrap:wrap}
+
+/* ---------- GPS, mapa y fotos ---------- */
+.gps-chip{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.gps-chip i{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.gps-chip.on{background:var(--brand-soft);color:var(--green);border-color:transparent}
+.gps-chip.on i{background:var(--lime);box-shadow:0 0 0 0 rgba(200,241,105,.6);animation:gpsPulso 2s infinite}
+@keyframes gpsPulso{0%{box-shadow:0 0 0 0 rgba(200,241,105,.55)}70%{box-shadow:0 0 0 8px rgba(200,241,105,0)}100%{box-shadow:0 0 0 0 rgba(200,241,105,0)}}
+.gps-tag{display:inline-block;white-space:nowrap;padding:3px 9px;border-radius:999px;font-size:11.5px;font-weight:600}
+.gps-tag.ok{background:var(--green-soft);color:var(--green)}
+.gps-tag.warn{background:var(--amber-soft);color:var(--amber)}
+.gps-tag.bad{background:var(--red-soft);color:var(--red)}
+.gps-est{font-size:12px;color:var(--muted)} .gps-est.ok{color:var(--green)} .gps-est.warn{color:var(--amber)}
+.mapa-wrap{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:16px;align-items:start}
+.mapa-card{padding:8px;overflow:hidden}
+.mapa{height:min(68vh,640px);min-height:340px;border-radius:var(--r-md);overflow:hidden;background:var(--panel-2);z-index:0}
+.mapa-side{display:flex;flex-direction:column;gap:16px;min-width:0}
+.mapa-ley{display:flex;flex-wrap:wrap;gap:6px 14px;padding:10px 8px 4px;font-size:12px;color:var(--muted)}
+.mapa-ley span{display:inline-flex;align-items:center;gap:6px}
+.ley{width:11px;height:11px;border-radius:50%;display:inline-block;border:2px solid var(--bg)}
+.ley.eq{background:var(--lime);border-color:var(--lime-ink);width:14px;height:14px}
+.ley.cl{background:#c6f432} .ley.mo{background:#ff5d5d} .ley.pg{background:#4aa8ff} .ley.al{background:#ffb020}
+.eq-row,.alerta-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line)}
+.eq-row:first-child,.alerta-row:first-of-type{border-top:0}
+.alerta-row{cursor:pointer;justify-content:space-between}
+.mk-eq{width:34px;height:34px;border-radius:50%;background:#8a8a93;color:#0e0e10;font:800 12px/34px "Segoe UI",system-ui,sans-serif;text-align:center;border:3px solid #0e0e10;box-shadow:0 2px 8px rgba(0,0,0,.45)}
+.mk-eq.vivo{background:#c8f169}
+:root:not([data-theme="light"]) .mapa .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.82) contrast(.9) saturate(.6)}
+.mapa .leaflet-popup-content-wrapper,.mapa .leaflet-popup-tip{background:var(--panel);color:var(--ink)}
+.mapa .leaflet-popup-content{font:13px/1.45 "Segoe UI",system-ui,sans-serif;margin:12px 14px}
+.mapa .leaflet-popup-content a{color:var(--green);font-weight:600}
+.mapa .leaflet-control-attribution{background:rgba(0,0,0,.45);color:#bbb} .mapa .leaflet-control-attribution a{color:#ddd}
+.fotos-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:6px}
+.foto-slot{display:flex;flex-direction:column;gap:6px;min-width:0}
+.foto-prev{aspect-ratio:4/3;border-radius:var(--r-sm);background:var(--panel-2);border:1px dashed var(--line);display:flex;align-items:center;justify-content:center;overflow:hidden;text-align:center;font-size:12px;color:var(--muted);padding:4px}
+.foto-prev img{width:100%;height:100%;object-fit:cover;cursor:zoom-in;border-radius:8px}
+.foto-btns{display:flex;flex-wrap:wrap;gap:4px} .foto-btns .btn{padding:5px 9px;font-size:12px}
+.foto-full{position:fixed;inset:0;z-index:95;background:rgba(0,0,0,.92);display:flex;align-items:center;justify-content:center;padding:16px;cursor:zoom-out}
+.foto-full img{max-width:100%;max-height:100%;border-radius:10px}
+@media (max-width:900px){ .mapa-wrap{grid-template-columns:1fr} .mapa{height:58vh} }
+@media (max-width:520px){ .fotos-grid{grid-template-columns:repeat(2,minmax(0,1fr))} .topuser .gps-chip{padding:6px 9px;font-size:12px} }

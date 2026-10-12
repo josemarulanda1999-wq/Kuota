@@ -200,9 +200,9 @@ ICONS.mas='<path d="M6 10a2 2 0 100 4 2 2 0 000-4zm6 0a2 2 0 100 4 2 2 0 000-4zm
 const VISTAS_CAJA = ['movimientos','cuadre','salidas'];
 function menu(){
   if(isCeo()) return { main:[['panel','Panel'],['cobros','Cobros'],['prestamos','Préstamos'],['clientes','Clientes'],['caja','Caja']],
-                       mas:[['renovaciones','Renovaciones'],['usuarios','Usuarios'],['suscripcion','Mi suscripción'],['calculadora','Calculadora'],['ajustes','Ajustes']] };
+                       mas:[['mapa','Mapa'],['renovaciones','Renovaciones'],['usuarios','Usuarios'],['suscripcion','Mi suscripción'],['calculadora','Calculadora'],['ajustes','Ajustes']] };
   if(isAdmin()) return { main:[['cobros','Cobros'],['prestamos','Préstamos'],['clientes','Clientes'],['cuadre','Cuadre']],
-                         mas:[['renovaciones','Renovaciones'],['calculadora','Calculadora']] };
+                         mas:[['mapa','Mapa'],['renovaciones','Renovaciones'],['calculadora','Calculadora']] };
   return { main:[['cobros','Mi ruta'],['clientes','Clientes'],['prestamos','Préstamos'],['cuadre','Cuadre'],['calculadora','Calcular']], mas:[] };
 }
 function renderNav(){
@@ -217,8 +217,8 @@ function renderNav(){
   document.getElementById('nav').innerHTML = M.main.map(item).join('') + (M.mas.length ? item(['mas','Más']).replace('class=""', enMas?'class="on"':'class=""') : '');
   document.getElementById('logoName').innerHTML = `<img src="logo_dark.png" class="brand-img" alt="Kuota"><small>${esc((EMPRESA&&EMPRESA.nombre)||DB.config.negocio||'')}</small>`;
   const who = `<div class="who" style="margin-bottom:8px">${ava(ME.nombre)}<div style="min-width:0"><b style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(ME.nombre||ME.email)}</b><span>${rolDe(ME)}</span></div></div>`;
-  document.getElementById('userBox').innerHTML = who + `<button onclick="cerrarSesion()">Cerrar sesión</button>`;
-  document.getElementById('topUser').innerHTML = `<img src="logo_dark.png" class="brand-img sm" alt="Kuota"><span class="spacer"></span>${ava(ME.nombre)}<button class="btn sm" onclick="cerrarSesion()">Salir</button>`;
+  document.getElementById('userBox').innerHTML = who + (chipGPS()?`<div style="margin-bottom:8px">${chipGPS()}</div>`:'') + `<button onclick="cerrarSesion()">Cerrar sesión</button>`;
+  document.getElementById('topUser').innerHTML = `<img src="logo_dark.png" class="brand-img sm" alt="Kuota"><span class="spacer"></span>${chipGPS()}${ava(ME.nombre)}<button class="btn sm" onclick="cerrarSesion()">Salir</button>`;
   void pend;
 }
 function abrirMas(){
@@ -363,7 +363,7 @@ function cobroCard(c, fecha){
       <div><span>Debe en total</span><b>${fmt(c.e.saldo)}</b></div>
     </div>
     <div class="row">
-      ${tel?`<a class="btn sm" href="tel:${esc(tel)}">Llamar</a>`:''}
+      ${tel?`<a class="btn sm" href="tel:${esc(tel)}">Llamar</a>`:''}${btnUbicRuta(cl)}
       ${puedeRenovar(c.p)?`<button class="btn sm" onclick="modalRenovacion('${c.p.id}')">Renovar</button>`:''}
       <span class="spacer"></span>
       ${c.pagadoHoy?`<span class="pill p-ok">Pagó ${fmt(c.pagadoHoy)}</span>`:''}
@@ -445,7 +445,7 @@ VIEWS.clientes = () => {
   ${movil() ? (rows.length?`<div class="cobros-grid">${rows.map(c=>{const ps=DB.prestamos.filter(p=>p.clienteId===c.id);const saldo=ps.reduce((s,p)=>s+estadoPrestamo(p).saldo,0);const tel=(c.tel1||'').replace(/[^\d+]/g,'');return `<div class="card cobro">
       <div class="who">${ava(c.nombre)}<div style="min-width:0;flex:1"><b>${esc(c.nombre)}</b><div class="muted" style="font-size:12.5px">${esc(c.direccion||c.tel1||'')}</div></div></div>
       <div class="cobro-nums"><div><span>Préstamos</span><b>${ps.length}</b></div><div><span>Saldo</span><b>${fmt(saldo)}</b></div><div><span>${isAdmin()?'Ruta':'Cédula'}</span><b style="font-size:13px">${esc(isAdmin()?nombreUsuario(c.cobradorId):(c.cedula||'—'))}</b></div></div>
-      <div class="row">${tel?`<a class="btn sm" href="tel:${esc(tel)}">Llamar</a>`:''}<span class="spacer"></span>${(()=>{const act=ps.find(p=>puedeRenovar(p)); return act?`<button class="btn sm" onclick="modalRenovacion('${act.id}')">Renovar</button>`:'';})()}${isAdmin()?`<button class="btn sm" onclick="modalPrestamo(null,'${c.id}')">Prestar</button>`:''}<button class="btn sm" onclick="modalCliente('${c.id}')">Editar</button></div></div>`}).join('')}</div>`:`<div class="card"><div class="empty">${DB.clientes.length?'Sin resultados.':'Aún no hay clientes registrados.'}</div></div>`) : `<div class="card">
+      <div class="row">${tel?`<a class="btn sm" href="tel:${esc(tel)}">Llamar</a>`:''}${btnComoLlegar(c)}<span class="spacer"></span>${(()=>{const act=ps.find(p=>puedeRenovar(p)); return act?`<button class="btn sm" onclick="modalRenovacion('${act.id}')">Renovar</button>`:'';})()}${isAdmin()?`<button class="btn sm" onclick="modalPrestamo(null,'${c.id}')">Prestar</button>`:''}<button class="btn sm" onclick="modalCliente('${c.id}')">Editar</button></div></div>`}).join('')}</div>`:`<div class="card"><div class="empty">${DB.clientes.length?'Sin resultados.':'Aún no hay clientes registrados.'}</div></div>`) : `<div class="card">
   ${rows.length? `<div class="tablewrap"><table><thead><tr><th>Nombre</th><th># Identificación</th><th>Teléfono 1</th><th>Teléfono 2</th><th>Dirección</th><th>Ciudad</th>${isAdmin()?'<th>Cobrador</th>':''}<th class="num">Préstamos</th><th class="num">Saldo</th><th></th></tr></thead><tbody>
   ${rows.map(c=>{const ps=DB.prestamos.filter(p=>p.clienteId===c.id);const saldo=ps.reduce((s,p)=>s+estadoPrestamo(p).saldo,0);return `<tr>
     <td><div class="who">${ava(c.nombre)}<div><b>${esc(c.nombre)}</b>${c.obs?`<div class="muted" style="font-size:12px">${esc(c.obs)}</div>`:''}</div></div></td><td>${esc(c.cedula)}</td><td>${esc(c.tel1)}</td><td>${esc(c.tel2)}</td>
@@ -758,13 +758,14 @@ function modalCliente(id, onSaved){
     <label class="f">Teléfono 2<input class="input" id="mT2" value="${esc(c.tel2)}"></label>
     <label class="f full">Dirección<input class="input" id="mDir" value="${esc(c.direccion)}"></label>
     <label class="f full">Observaciones<textarea class="input" id="mObs" rows="2">${esc(c.obs)}</textarea></label>
+    ${bloqueUbicacionCliente(c)}
     ${cobSel}
   </div>
   <div class="actions">${id&&isCeo()?`<button class="btn danger" style="margin-right:auto" onclick="borrarCliente('${id}')">Borrar</button>`:''}<button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="mSave">Guardar</button></div>`);
   document.getElementById('mSave').onclick = ()=>{
     const v = k=>document.getElementById(k).value.trim();
     if(!v('mNom')) return toast('Escribe el nombre del cliente');
-    const data = {nombre:v('mNom'),cedula:v('mCed'),tel1:v('mT1'),tel2:v('mT2'),direccion:v('mDir'),ciudad:v('mCiu'),obs:v('mObs')};
+    const data = Object.assign({nombre:v('mNom'),cedula:v('mCed'),tel1:v('mT1'),tel2:v('mT2'),direccion:v('mDir'),ciudad:v('mCiu'),obs:v('mObs')}, cambiosUbicCliente());
     let cid=id;
     const cob = isAdmin() ? document.getElementById('mCob').value : ME.uid;
     if(id){
@@ -792,6 +793,7 @@ function reasignarCliente(clienteId, cob){
 function modalPrestamo(id, clienteId, preset){
   const p = id ? DB.prestamos.find(x=>x.id===id) : Object.assign({clienteId:clienteId||'',fecha:todayStr(),monto:'',tasa:DB.config.tasaDefecto,meses:1,periodo:'DIARIO',excluirDomingos:DB.config.excluirDomingos,nota:''}, preset||{});
   const tienePagos = id && pagosDe(id).length>0;
+  if(!(preset && preset._fotos)) FOTOS_TMP = {};
   openModal(`<h3>${id?'Editar préstamo':'Nuevo préstamo'}</h3>
   <div class="form">
     <label class="f full">Deudor *<select class="input" id="pCli">${clienteOptions(p.clienteId)}</select></label>
@@ -802,6 +804,7 @@ function modalPrestamo(id, clienteId, preset){
     <label class="f">Periodo de pago<select class="input" id="pPer">${PERIODOS.map(x=>`<option ${x===p.periodo?'selected':''}>${x}</option>`).join('')}</select></label>
     <label class="chk" style="align-self:end;padding-bottom:8px"><input type="checkbox" id="pDom" ${p.excluirDomingos?'checked':''}> No cobrar domingos (diario)</label>
     <label class="f full">Nota<input class="input" id="pNot" value="${esc(p.nota||'')}" placeholder="Opcional: fiador, garantía, etc."></label>
+    ${id?'':bloqueFotos()}
   </div>
   <div class="calcbox" id="pCalc" style="margin-top:16px"></div>
   ${tienePagos?'<p class="muted" style="font-size:12px">Este préstamo ya tiene pagos; si cambias valores, el saldo se recalcula con los pagos existentes.</p>':''}
@@ -822,7 +825,7 @@ function modalPrestamo(id, clienteId, preset){
   mon.addEventListener('blur',()=>{ const n=num(mon.value); if(n) mon.value=n.toLocaleString('es-CO'); });
   document.getElementById('pCli').addEventListener('change',e=>{
     if(e.target.value==='__new'){
-      const keep = {fecha:g('pFec'),monto:num(g('pMon')),tasa:num(g('pTas')),meses:num(g('pMes')),periodo:g('pPer'),excluirDomingos:document.getElementById('pDom').checked,nota:g('pNot')};
+      const keep = {fecha:g('pFec'),monto:num(g('pMon')),tasa:num(g('pTas')),meses:num(g('pMes')),periodo:g('pPer'),excluirDomingos:document.getElementById('pDom').checked,nota:g('pNot'),_fotos:1};
       modalCliente(null, cid=>modalPrestamo(id,cid,keep));
     }
   });
@@ -837,7 +840,11 @@ function modalPrestamo(id, clienteId, preset){
       cuotas:c.cuotas,valorCuota:c.valorCuota,interesMes:c.interesMes,total:c.total};
     const cobP = (clienteById(cli)||{}).cobradorId || '';
     if(id){ if(cli!==p.clienteId) data.cobradorId=cobP; dbUpd('prestamos',id,data); }
-    else dbAdd('prestamos',{...data, cobradorId:cobP});
+    else {
+      const pid = dbAdd('prestamos',{...data, cobradorId:cobP});
+      if(hayFotos(FOTOS_TMP)) guardarFotos(pid, cli, FOTOS_TMP).catch(falloNube);
+      FOTOS_TMP = {};
+    }
     closeModal(); toast(id?'Préstamo actualizado':'Préstamo creado');
     if(!id && view!=='prestamos') go('prestamos'); else render();
   };
@@ -886,7 +893,11 @@ function modalPago(prestamoId, pagoId, fecha){
     if(monto > saldo+0.5 && !await confirmar(`El pago (${fmt(monto)}) es mayor que el saldo (${fmt(saldo)}). ¿Guardar de todas formas?`)) return;
     const nota=document.getElementById('gNot').value.trim();
     if(pago) dbUpd('pagos',pago.id,{prestamoId:pid,fecha:f,monto,nota,cobradorId:p.cobradorId||''});
-    else dbAdd('pagos',{prestamoId:pid,fecha:f,monto,nota,cobradorId:p.cobradorId||'',registradoPor:ME.uid});
+    else {
+      const bt=document.getElementById('gSave'); bt.disabled=true; bt.textContent='Registrando…';
+      const gps = await gpsParaPago();
+      dbAdd('pagos',Object.assign({prestamoId:pid,fecha:f,monto,nota,cobradorId:p.cobradorId||'',registradoPor:ME.uid}, gps));
+    }
     closeModal(); render(); toast('Pago registrado');
     if(viewState._reopen){ viewState._reopen=0; modalDetalle(pid); }
   };
@@ -909,11 +920,11 @@ function modalDetalle(id, tab='cuotas'){
     let st = cubierta?'<span class="cuota-ok">Pagada</span>': parcial? '<span style="color:var(--amber)">Abono parcial</span>' : venc?'<span class="cuota-venc">Vencida</span>':'<span class="muted">Pendiente</span>';
     return `<tr><td>${q.n}</td><td>${fdate(q.fecha)}${q.fecha===hoy?' <span class="pill p-hoy">hoy</span>':''}</td><td class="num">${fmt(p.valorCuota)}</td><td class="num">${fmt(p.monto/p.cuotas)}</td><td class="num">${fmt(p.valorCuota - p.monto/p.cuotas)}</td><td>${st}</td></tr>`;
   }).join('');
-  const pagosHtml = e.pagos.length? e.pagos.map(x=>`<tr><td>${fdate(x.fecha)}</td><td class="num">${fmt(x.monto)}</td><td>${esc(x.nota||'')}</td><td class="muted" style="font-size:12px">${esc(nombreUsuario(x.registradoPor))}</td><td class="right no-print">${isCeo()?`<button class="btn sm" onclick="viewState._reopen=1;modalPago(null,'${x.id}')">Editar</button>`:''}</td></tr>`).join('') : `<tr><td colspan="5" class="muted">Sin pagos todavía.</td></tr>`;
+  const pagosHtml = e.pagos.length? e.pagos.map(x=>`<tr><td>${fdate(x.fecha)}</td><td class="num">${fmt(x.monto)}</td><td>${esc(x.nota||'')}</td><td class="muted" style="font-size:12px">${esc(nombreUsuario(x.registradoPor))}</td>${isAdmin()?`<td style="white-space:nowrap">${celdaGPSPago(x)}</td>`:''}<td class="right no-print">${isCeo()?`<button class="btn sm" onclick="viewState._reopen=1;modalPago(null,'${x.id}')">Editar</button>`:''}</td></tr>`).join('') : `<tr><td colspan="6" class="muted">Sin pagos todavía.</td></tr>`;
   openModal(`
   <div class="row" style="margin-bottom:6px">${ava(c.nombre)}<h3 style="margin:0">${esc(c.nombre||'(sin cliente)')}</h3>${pill(e)}<span class="spacer"></span>
     ${isNative()?'':'<button class="btn sm" onclick="window.print()">Imprimir</button>'}${isCeo()?`<button class="btn sm" onclick="modalPrestamo('${p.id}')">Editar</button>`:''}${puedeRenovar(p)?`<button class="btn sm" onclick="modalRenovacion('${p.id}')">${isAdmin()?'Renovar':'Solicitar renovación'}</button>`:''}<button class="btn sm pri" onclick="viewState._reopen=1;modalPago('${p.id}')">Registrar pago</button><button class="btn sm ghost" onclick="closeModal()">✕</button></div>
-  <p class="muted" style="margin:0 0 14px">${esc(c.cedula||'')} ${c.tel1?'· '+esc(c.tel1):''} ${c.direccion?'· '+esc(c.direccion):''}${p.nota?'<br>Nota: '+esc(p.nota):''}</p>
+  <p class="muted" style="margin:0 0 14px">${esc(c.cedula||'')} ${c.tel1?'· '+esc(c.tel1):''} ${c.direccion?'· '+esc(c.direccion):''} ${btnComoLlegar(c)}${p.nota?'<br>Nota: '+esc(p.nota):''}</p>
   <div class="detail-grid">
     <div><div class="l">Fecha</div><div class="v">${fdate(p.fecha)}</div></div>
     <div><div class="l">Valor prestado</div><div class="v">${fmt(p.monto)}</div></div>
@@ -927,11 +938,13 @@ function modalDetalle(id, tab='cuotas'){
     <div><div class="l">Próxima cuota</div><div class="v">${e.proxima?fdate(e.proxima.fecha):'—'}</div></div>
   </div>
   <div class="progress" style="margin-bottom:16px"><i style="width:${Math.min(100,e.pagado/e.totalReal*100)}%"></i></div>
-  <div class="tabs no-print"><button class="${tab==='cuotas'?'on':''}" onclick="modalDetalle('${id}','cuotas')">Cuotas (${p.cuotas})</button><button class="${tab==='pagos'?'on':''}" onclick="modalDetalle('${id}','pagos')">Pagos (${e.pagos.length})</button></div>
+  <div class="tabs no-print"><button class="${tab==='cuotas'?'on':''}" onclick="modalDetalle('${id}','cuotas')">Cuotas (${p.cuotas})</button><button class="${tab==='pagos'?'on':''}" onclick="modalDetalle('${id}','pagos')">Pagos (${e.pagos.length})</button><button class="${tab==='fotos'?'on':''}" onclick="modalDetalle('${id}','fotos')">Fotos</button></div>
   <div class="tablewrap" style="max-height:380px">
   ${tab==='cuotas'?`<table><thead><tr><th>#</th><th>Fecha</th><th class="num">Cuota</th><th class="num">Capital</th><th class="num">Interés</th><th>Estado</th></tr></thead><tbody>${cuotasHtml}</tbody></table>`
-  :`<table><thead><tr><th>Fecha</th><th class="num">Valor</th><th>Nota</th><th>Registró</th><th></th></tr></thead><tbody>${pagosHtml}</tbody></table>`}
+  :tab==='fotos'?`<div id="fotosBox" style="padding:4px 2px"><div class="empty">Cargando fotos…</div></div>`
+  :`<table><thead><tr><th>Fecha</th><th class="num">Valor</th><th>Nota</th><th>Registró</th>${isAdmin()?'<th>GPS</th>':''}<th></th></tr></thead><tbody>${pagosHtml}</tbody></table>`}
   </div>`, true);
+  if(tab==='fotos') cargarFotosDetalle(id);
 }
 
 function modalSalida(id){
@@ -1356,7 +1369,10 @@ function verLogin(msg){
   };
 }
 let EMPRESA=null, KUOTA={}, FACTURAS=[], unsubEmp=[], datosActivos=false;
-function detenerTodo(){ if(unsub) unsub(); unsub=null; unsubEmp.forEach(u=>u()); unsubEmp=[]; datosActivos=false; }
+function detenerTodo(){
+  if(typeof pararRastreo==='function'){ if(pararRastreo() && ME) enviarUbic({activo:false, t:Date.now()}); dejarDeEscuchar(); }
+  if(unsub) unsub(); unsub=null; unsubEmp.forEach(u=>u()); unsubEmp=[]; datosActivos=false;
+}
 function iniciarSesion(prof){
   if(ME && ME.uid===prof.uid && unsubEmp.length) return;
   detenerTodo();
@@ -1392,6 +1408,8 @@ function arrancarDatos(){
     if(col==='users'){ const me=data.find(u=>u.id===ME.uid); if(me && me.activo===false){ detenerTodo(); S.logout(); return; } if(me) ME=Object.assign(ME,me); }
     scheduleRender();
   });
+  escucharEquipo();
+  setTimeout(autoJornada, 1500);
   render();
 }
 function cerrarSesion(){

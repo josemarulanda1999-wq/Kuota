@@ -8,6 +8,7 @@
   "android": {
     "backgroundColor": "#0e0e10",
     "webContentsDebuggingEnabled": false,
-    "allowMixedContent": false
+    "allowMixedContent": false,
+    "useLegacyBridge": true
   }
 }

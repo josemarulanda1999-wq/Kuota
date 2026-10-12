@@ -180,6 +180,7 @@ V.empresa = () => {
   <div class="head"><div><p class="sub" style="margin:0 0 4px"><button class="btn ghost sm" data-go="empresas">← Empresas</button></p><h1>${esc(e.nombre)}</h1><p class="sub">${esc([e.nit,e.ciudad,e.contacto,e.telefono,e.email].filter(Boolean).join(' · '))}</p></div>
   <div class="row"><button class="btn" onclick="modalEmpresa('${e.id}')">Editar datos y plan</button>
     ${e.estado==='bloqueada'?`<button class="btn" onclick="bloquear('${e.id}',false)">Desbloquear</button>`:`<button class="btn danger" onclick="bloquear('${e.id}',true)">Bloquear</button>`}
+    <button class="btn" onclick="entrarComoCeo('${e.id}')">Entrar como CEO</button>
     <button class="btn pri" onclick="modalPagoKuota('${e.id}')">Registrar pago</button></div></div>
   <div class="kpis">
     <div class="kpi card"><div class="l">Estado</div><div style="margin-top:8px">${pill(e)}</div><div class="n">${e.pagadoHasta?'Pagado hasta '+fdate(e.pagadoHasta)+(st.limite?' · se bloquea el '+fdate(st.limite):''):'Nunca ha pagado'}</div></div>
@@ -456,3 +457,9 @@ S.watchAuth(async (user)=>{
   let nombre=''; try{ const u=D.users.find(x=>x.id===user.uid); nombre=u&&u.nombre; }catch(e){}
   entrar(user, nombre);
 });
+
+/* modo soporte: abre la app de la empresa con la vista del CEO, usando la sesión del superadministrador */
+function entrarComoCeo(eid){
+  try{ localStorage.setItem('kuota_soporte', eid); }catch(e){ return toast('Tu navegador no permite el modo soporte'); }
+  location.href = 'index.html';
+}

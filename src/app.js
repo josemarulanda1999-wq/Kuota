@@ -272,7 +272,7 @@ function render(){
   if(!isCeo() && SOLO_CEO.includes(view)) view='cobros';
   renderNav();
   const m = document.getElementById('main');
-  m.innerHTML = avisoSuscripcion() + avisoIntentos() + tabsCaja() + (VIEWS[view]||VIEWS.panel)();
+  m.innerHTML = avisoSoporte() + avisoSuscripcion() + avisoIntentos() + tabsCaja() + (VIEWS[view]||VIEWS.panel)();
   if(AFTER[view]) AFTER[view]();
 }
 
@@ -1523,11 +1523,17 @@ function arrancarDatos(){
   setTimeout(autoJornada, 1500);
   render();
 }
+function avisoSoporte(){
+  if(!ME || !ME.soporte) return '';
+  return `<div class="banner">Modo soporte: estás viendo <b>${esc((EMPRESA&&EMPRESA.nombre)||'la empresa')}</b> como su CEO. Lo que hagas aquí queda guardado en su cuenta.<span class="spacer"></span><button class="btn sm" onclick="salirSoporte()">Volver al portal</button></div>`;
+}
+function salirSoporte(){ try{ localStorage.removeItem('kuota_soporte'); }catch(e){} detenerTodo(); ME=null; location.href='portal.html'; }
 function cerrarSesion(){
   openModal(`<h3>¿Cerrar sesión?</h3><p class="muted" style="margin-top:-8px">Para volver a entrar necesitas tu correo y contraseña.</p>
   <div class="actions"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="btnSalir">Cerrar sesión</button></div>`);
   document.getElementById('btnSalir').onclick=async ()=>{
     closeModal(); detenerTodo(); ME=null;
+    try{ localStorage.removeItem('kuota_soporte'); }catch(e){}
     try{ await S.logout(); }catch(e){ console.error(e); }
     verLogin();
   };

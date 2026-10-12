@@ -70,7 +70,8 @@ window.S = {
     const uns = [];
     const admin = me.rol === 'ceo' || me.rol === 'admin';
     const ceo = me.rol === 'ceo';
-    const cols = ceo ? ['clientes', 'prestamos', 'pagos', 'salidas', 'capital', 'ingresos', 'entregas', 'renovaciones'] : ['clientes', 'prestamos', 'pagos', 'entregas', 'renovaciones'];
+    const ruta_ = ['movruta', 'visitas', 'cierres', 'aprobaciones', 'rutas'];
+    const cols = (ceo ? ['clientes', 'prestamos', 'pagos', 'salidas', 'capital', 'ingresos', 'entregas', 'renovaciones'] : ['clientes', 'prestamos', 'pagos', 'entregas', 'renovaciones']).concat(ruta_);
     for (const c of cols) {
       const q = admin ? collection(db, ruta(c)) : query(collection(db, ruta(c)), where('cobradorId', '==', me.uid));
       uns.push(onSnapshot(q, snap => cb(c, list(snap)), err => cb('error', err)));

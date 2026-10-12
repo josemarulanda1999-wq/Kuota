@@ -414,7 +414,7 @@ async function cargarFoto(k, input){
 }
 function hayFotos(o){ return TIPOS_FOTO.some(([k])=>fotoSegura(o[k])); }
 function guardarFotos(pid, clienteId, fotos){
-  const d = {clienteId, creado:Date.now(), creadoPor:ME.uid};
+  const d = {clienteId, cobradorId:(clienteById(clienteId)||{}).cobradorId||'', creado:Date.now(), creadoPor:ME.uid};
   for(const [k] of TIPOS_FOTO){ const v = fotoSegura(fotos[k]); if(v) d[k] = v; }
   return S.setFotos(pid, d);
 }

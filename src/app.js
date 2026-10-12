@@ -7,8 +7,11 @@ const PERIODOS = ['DIARIO','SEMANAL','QUINCENAL','MENSUAL'];
 const COLS = ['clientes','prestamos','pagos','salidas','capital','ingresos','entregas','renovaciones','users'];
 
 const defaultConfig = () => ({ negocio:'Kuota', capitalInicial:0, fechaCapital:'',
-  factores:{DIARIO:30,SEMANAL:4,QUINCENAL:2,MENSUAL:1}, tasaDefecto:20, excluirDomingos:false, redondeo:0 });
-const emptyDB = () => ({ config:defaultConfig(), clientes:[], prestamos:[], pagos:[], salidas:[], capital:[], ingresos:[], entregas:[], renovaciones:[], users:[] });
+  factores:{DIARIO:30,SEMANAL:4,QUINCENAL:2,MENSUAL:1}, tasaDefecto:20, excluirDomingos:false, redondeo:0,
+  pais:'CO', conceptosGasto:['Gasolina','Alimentación','Transporte','Arreglo de moto','Celular y recargas','Papelería','Otros'],
+  conceptosIngreso:['Multa','Seguro del cliente','Aporte a la ruta','Otros'], mensajeRecibo:'Gracias por su pago puntual.' });
+const emptyDB = () => ({ config:defaultConfig(), clientes:[], prestamos:[], pagos:[], salidas:[], capital:[], ingresos:[], entregas:[], renovaciones:[], users:[],
+  movruta:[], visitas:[], cierres:[], aprobaciones:[], rutas:[] });
 
 let DB = emptyDB();
 let ME = null;            // perfil del usuario: {uid, nombre, email, rol, activo}
@@ -28,6 +31,11 @@ function migrateConfig(c){
   out.excluirDomingos=!!out.excluirDomingos;
   out.factores = Object.assign(defaultConfig().factores, (c||{}).factores||{});
   for(const k of Object.keys(out.factores)) out.factores[k]=Math.min(31,Math.max(1,Number(out.factores[k])||1));
+  if(!MONEDAS[out.pais]) out.pais='CO';
+  const lista = (v, def) => Array.isArray(v) ? v.filter(x=>typeof x==='string' && x.trim()).map(x=>x.trim().slice(0,40)).slice(0,40) : def;
+  out.conceptosGasto = lista(out.conceptosGasto, defaultConfig().conceptosGasto);
+  out.conceptosIngreso = lista(out.conceptosIngreso, defaultConfig().conceptosIngreso);
+  out.mensajeRecibo = String(out.mensajeRecibo||'').slice(0,300);
   return out;
 }
 
@@ -70,7 +78,18 @@ function scheduleRender(){
 }
 
 /* ---------- utilidades ---------- */
-const fmt = n => '$ ' + Math.round(Number(n)||0).toLocaleString('es-CO');
+/* moneda del negocio (Colombia, Perú, etc.) */
+const MONEDAS = {
+  CO:{pais:'Colombia', simbolo:'$', dec:0, loc:'es-CO', tel:'57'}, PE:{pais:'Perú', simbolo:'S/', dec:2, loc:'es-PE', tel:'51'},
+  EC:{pais:'Ecuador', simbolo:'US$', dec:2, loc:'es-EC', tel:'593'}, MX:{pais:'México', simbolo:'$', dec:2, loc:'es-MX', tel:'52'},
+  VE:{pais:'Venezuela', simbolo:'$', dec:2, loc:'es-VE', tel:'58'}, CL:{pais:'Chile', simbolo:'$', dec:0, loc:'es-CL', tel:'56'},
+  BO:{pais:'Bolivia', simbolo:'Bs', dec:2, loc:'es-BO', tel:'591'}, PA:{pais:'Panamá', simbolo:'B/.', dec:2, loc:'es-PA', tel:'507'},
+  DO:{pais:'Rep. Dominicana', simbolo:'RD$', dec:2, loc:'es-DO', tel:'1'}, GT:{pais:'Guatemala', simbolo:'Q', dec:2, loc:'es-GT', tel:'502'},
+  US:{pais:'Estados Unidos', simbolo:'US$', dec:2, loc:'en-US', tel:'1'}
+};
+const MON = () => MONEDAS[(DB && DB.config && DB.config.pais) || 'CO'] || MONEDAS.CO;
+const fmt = n => { const m=MON(); return m.simbolo + ' ' + (Number(n)||0).toLocaleString(m.loc,{minimumFractionDigits:m.dec, maximumFractionDigits:m.dec}); };
+const fmtIn = n => (Number(n)||0).toLocaleString(MON().loc,{maximumFractionDigits:MON().dec});
 const fmtN = n => (Number(n)||0).toLocaleString('es-CO',{maximumFractionDigits:2});
 const esc = s => String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const todayStr = () => { const d=new Date(); return ymd(d); };
@@ -78,7 +97,12 @@ const ymd = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+
 const parseD = s => { const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d); };
 const fdate = s => { if(!s) return ''; const d=parseD(s); return d.toLocaleDateString('es-CO',{day:'2-digit',month:'short',year:'numeric'}); };
 const fdateShort = s => { const d=parseD(s); return d.toLocaleDateString('es-CO',{day:'2-digit',month:'short'}); };
-const num = v => { if(typeof v==='number') return v; const s=String(v||'').replace(/[^\d,.-]/g,'').replace(/\./g,'').replace(',','.'); return Number(s)||0; };
+const num = v => { if(typeof v==='number') return v;
+  const dsep = (1.5).toLocaleString(MON().loc).charAt(1);           // separador decimal del país
+  let s = String(v||'').replace(/[^\d,.-]/g,'');
+  s = dsep===',' ? s.replace(/\./g,'').replace(',','.') : s.replace(/,/g,'');
+  if(!MON().dec && dsep!==',') s = s.replace(/\.(?=\d{3}(\D|$))/g,'');
+  return Number(s)||0; };
 const clienteById = id => DB.clientes.find(c=>c.id===id);
 const nombreCliente = id => (clienteById(id)||{}).nombre || '(cliente borrado)';
 const userById = id => DB.users.find(u=>u.id===id);
@@ -157,9 +181,9 @@ function resumen(){
     if(e.estado!=='Pagado'){ cartera += e.saldo; activos++; }
     if(e.estado==='En mora'){ mora += e.atrasoMora; enMora++; }
   }
-  const salidas = DB.salidas.reduce((s,x)=>s+x.valor,0);
+  const salidas = DB.salidas.reduce((s,x)=>s+x.valor,0) + DB.movruta.filter(x=>x.tipo==='gasto').reduce((s,x)=>s+x.valor,0);
   const aportes = DB.capital.reduce((s,x)=>s+x.valor,0);
-  const ingresos = DB.ingresos.reduce((s,x)=>s+x.valor,0);
+  const ingresos = DB.ingresos.reduce((s,x)=>s+x.valor,0) + DB.movruta.filter(x=>x.tipo==='ingreso').reduce((s,x)=>s+x.valor,0);
   const capital = DB.config.capitalInicial + aportes;
   const caja = capital - prestado + recaudo + ingresos - salidas;
   const recaudoHoy = DB.pagos.filter(x=>x.fecha===hoy && efectivo(x)).reduce((s,x)=>s+x.monto,0);
@@ -204,14 +228,14 @@ ICONS.mas='<path d="M6 10a2 2 0 100 4 2 2 0 000-4zm6 0a2 2 0 100 4 2 2 0 000-4zm
 const VISTAS_CAJA = ['movimientos','cuadre','salidas'];
 function menu(){
   if(isCeo()) return { main:[['panel','Panel'],['cobros','Cobros'],['prestamos','Préstamos'],['clientes','Clientes'],['caja','Caja']],
-                       mas:[['mapa','Mapa'],['renovaciones','Renovaciones'],['usuarios','Usuarios'],['suscripcion','Mi suscripción'],['calculadora','Calculadora'],['ajustes','Ajustes']] };
+                       mas:[['mapa','Mapa'],['renovaciones','Aprobaciones'],['usuarios','Usuarios'],['suscripcion','Mi suscripción'],['calculadora','Calculadora'],['ajustes','Ajustes']] };
   if(isAdmin()) return { main:[['cobros','Cobros'],['prestamos','Préstamos'],['clientes','Clientes'],['cuadre','Cuadre']],
-                         mas:[['mapa','Mapa'],['renovaciones','Renovaciones'],['calculadora','Calculadora']] };
+                         mas:[['mapa','Mapa'],['renovaciones','Aprobaciones'],['calculadora','Calculadora']] };
   return { main:[['cobros','Mi ruta'],['clientes','Clientes'],['prestamos','Préstamos'],['cuadre','Cuadre'],['calculadora','Calcular']], mas:[] };
 }
 function renderNav(){
   const n = cobrosDelDia().filter(c=>c.cobrar>0.5).length;
-  const nRen = isAdmin() ? DB.renovaciones.filter(r=>r.estado==='pendiente').length : 0;
+  const nRen = isAdmin() ? DB.renovaciones.filter(r=>r.estado==='pendiente').length + DB.aprobaciones.filter(a=>a.estado==='pendiente').length : 0;
   const pend = isCeo() ? DB.users.filter(u=>u.estado==='pendiente').length : 0;
   const M = menu();
   const activo = k => k===view || (k==='caja' && isCeo() && VISTAS_CAJA.includes(view));
@@ -226,7 +250,7 @@ function renderNav(){
   void pend;
 }
 function abrirMas(){
-  const M = menu(), nRen = DB.renovaciones.filter(r=>r.estado==='pendiente').length, pend = isCeo()?DB.users.filter(u=>u.estado==='pendiente').length:0;
+  const M = menu(), nRen = DB.renovaciones.filter(r=>r.estado==='pendiente').length + DB.aprobaciones.filter(a=>a.estado==='pendiente').length, pend = isCeo()?DB.users.filter(u=>u.estado==='pendiente').length:0;
   openModal(`<h3>Más opciones</h3><div class="mas-grid">${M.mas.map(([k,t])=>`<button class="mas-item" onclick="closeModal();go('${k}')"><svg viewBox="0 0 24 24" fill="currentColor">${ICONS[k]}</svg><span>${t}</span>${k==='renovaciones'&&nRen?`<span class="badge">${nRen}</span>`:''}${k==='usuarios'&&pend?`<span class="badge">${pend}</span>`:''}</button>`).join('')}</div>
   <div class="actions"><button class="btn" onclick="closeModal()">Cerrar</button></div>`);
 }
@@ -370,24 +394,28 @@ function cobroCard(c, fecha){
       ${tel?`<a class="btn sm" href="tel:${esc(tel)}">Llamar</a>`:''}${btnUbicRuta(cl)}
       ${puedeRenovar(c.p)?`<button class="btn sm" onclick="modalRenovacion('${c.p.id}')">Renovar</button>`:''}
       <span class="spacer"></span>
-      ${c.pagadoHoy?`<span class="pill p-ok">Pagó ${fmt(c.pagadoHoy)}</span>`:''}
+      ${c.pagadoHoy?`<span class="pill p-ok">Pagó ${fmt(c.pagadoHoy)}</span>`:chipVisita(c.p, fecha)}
+      ${c.cobrar>0.5&&!c.pagadoHoy&&!visitaDe(c.p.id, fecha)?`<button class="btn sm" onclick="modalNoPago('${c.p.id}','${fecha}')">No pagó</button>`:''}
       ${c.cobrar>0.5?`<button class="btn pri" onclick="modalPago('${c.p.id}',null,'${fecha}')">Cobrar</button>`:''}
     </div></div>`;
 }
 VIEWS.cobros = () => {
   const fecha = viewState.fecha || todayStr();
-  const list = cobrosDelDia(fecha).filter(c=>pasaFiltroCob(c.p.cobradorId));
+  const ordenC = c => Number((clienteById(c.p.clienteId)||{}).orden)||1e9;
+  const list = cobrosDelDia(fecha).filter(c=>pasaFiltroCob(c.p.cobradorId)).sort((a,b)=>ordenC(a)-ordenC(b) || b.e.atraso-a.e.atraso);
+  const visitados = list.filter(c=>c.pagadoHoy>0 || visitaDe(c.p.id, fecha)).length;
   const tarjetas = !isAdmin() || movil();
   const totalCobrar = list.reduce((s,c)=>s+c.cobrar,0);
   const totalPagado = list.reduce((s,c)=>s+c.pagadoHoy,0);
   return `
   <div class="head"><div><h1>${isAdmin()?'Cobros del día':'Mi ruta'}</h1><p class="sub">Cuotas que vencen y préstamos atrasados. Marca el pago apenas cobres.</p></div>
-  <div class="row">${isAdmin()?'':`<button class="btn pri" onclick="elegirRenovacion()">Solicitar renovación</button>`}${filtroCobrador('cobros')}<input type="date" class="input" style="width:auto" value="${fecha}" onchange="go('cobros',Object.assign({},viewState,{fecha:this.value}))">${isNative()?'':'<button class="btn no-print" onclick="window.print()">Imprimir ruta</button>'}</div></div>
+  <div class="row">${isAdmin()?'':`${puedePrestarRuta()?`<button class="btn pri" onclick="modalPrestamo()">+ Crédito nuevo</button>`:''}<button class="btn ${puedePrestarRuta()?'':'pri'}" onclick="elegirRenovacion()">Solicitar renovación</button>`}<button class="btn" onclick="modalEnrutar()">Orden de visita</button>${filtroCobrador('cobros')}<input type="date" class="input" style="width:auto" value="${fecha}" onchange="go('cobros',Object.assign({},viewState,{fecha:this.value}))">${isNative()?'':'<button class="btn no-print" onclick="window.print()">Imprimir ruta</button>'}</div></div>
   <div class="kpis">
-    <div class="kpi sky"><div class="l">Clientes a visitar</div><div class="v">${list.length}</div></div>
+    <div class="kpi sky"><div class="l">Visitados</div><div class="v">${visitados} de ${list.length}</div><div class="progress" style="margin-top:8px"><i style="width:${list.length?visitados/list.length*100:0}%"></i></div></div>
     <div class="kpi cream"><div class="l">Pendiente por cobrar</div><div class="v">${fmt(totalCobrar)}</div></div>
     <div class="kpi hl"><div class="l">Cobrado ese día</div><div class="v">${fmt(totalPagado)}</div></div>
   </div>
+  ${miRutaCerrada(fecha)?'<div class="banner">Tu ruta de este día ya está cerrada. Para registrar algo más, pídele a la oficina que la reabra.</div>':''}
   ${!isAdmin()?bloqueRenovacionesCobrador():(DB.renovaciones.some(r=>r.estado==='pendiente')?`<div class="banner">Hay ${DB.renovaciones.filter(r=>r.estado==='pendiente').length} solicitud(es) de renovación esperando aprobación. <button class="btn sm" data-go="renovaciones">Revisar</button></div>`:'')}
   ${tarjetas ? (list.length? `<div class="cobros-grid">${list.map(c=>cobroCard(c,fecha)).join('')}</div>` : `<div class="card"><div class="empty">Nada que cobrar en esta fecha.</div></div>`) : `<div class="card">
   ${list.length? `<div class="tablewrap"><table><thead><tr><th>Cliente</th><th>Teléfono / Dirección</th><th>Estado</th><th class="num">Cuota</th><th class="num">Pendiente</th><th class="num">Saldo</th><th class="num">Pagó</th><th></th></tr></thead><tbody>
@@ -413,7 +441,7 @@ VIEWS.prestamos = () => {
   const fb = (k,t)=>`<button class="btn sm ${f===k?'pri':''}" onclick="go('prestamos',Object.assign({},viewState,{f:'${k}'}))">${t}</button>`;
   return `
   <div class="head"><div><h1>Préstamos</h1><p class="sub">${DB.prestamos.length} préstamos registrados</p></div>
-  ${isAdmin()?`<div class="row"><button class="btn" onclick="exportCSV('prestamos')">Exportar a Excel</button><button class="btn pri" onclick="modalPrestamo()">+ Nuevo préstamo</button></div>`:''}</div>
+  ${isAdmin()?`<div class="row"><button class="btn" onclick="exportCSV('prestamos')">Exportar a Excel</button><button class="btn pri" onclick="modalPrestamo()">+ Nuevo préstamo</button></div>`:(puedePrestarRuta()?`<div class="row"><button class="btn pri" onclick="modalPrestamo()">+ Crédito nuevo</button></div>`:'')}</div>
   <div class="toolbar">
     <input class="input search" id="qPrest" placeholder="Buscar por nombre o cédula" value="${esc(viewState.q||'')}">
     ${filtroCobrador('prestamos')}
@@ -538,6 +566,7 @@ VIEWS.ajustes = () => {
     ${DB.capital.length?`<table style="margin-bottom:10px"><tbody>${DB.capital.map(x=>`<tr><td>${fdate(x.fecha)}</td><td>${esc(x.concepto)}</td><td class="num">${fmt(x.valor)}</td><td class="right"><button class="btn sm danger" onclick="borrarCapital('${x.id}')">Borrar</button></td></tr>`).join('')}</tbody></table>`:''}
     <button class="btn" onclick="modalCapital()">+ Registrar aporte / retiro</button>
   </div>
+  ${bloqueAjustesRuta()}
   <div class="card pad">
     <h2>Respaldo de la información</h2>
     <p class="muted" style="margin-top:-6px">Todo queda guardado en la nube y se sincroniza con los celulares de las rutas. Igual puedes descargar una copia cuando quieras.</p>
@@ -585,6 +614,10 @@ function movimientos(){
     L.push({key:'g'+x.id,id:x.id,prestamoId:p.id,fecha:x.fecha,orden:2,creado:x.creado||0,tipo:x.tipo==='renovacion'?'renov':'pago',concepto:(x.tipo==='renovacion'?'Renovación de ':'Pago de ')+nombreCliente(p.clienteId),detalle:`Capital ${fmt(x.monto-int)} + interés ${fmt(int)}${x.nota?' — '+x.nota:''}`,ent:x.monto,sal:0,interes:int,por:x.registradoPor||x.creadoPor});
   }
   for(const x of DB.salidas) L.push({key:'s'+x.id,id:x.id,fecha:x.fecha,orden:4,creado:x.creado||0,tipo:'gasto',concepto:x.concepto,detalle:'Salida de dinero',ent:0,sal:x.valor,por:x.creadoPor});
+  for(const x of DB.movruta){
+    if(x.tipo==='gasto') L.push({key:'r'+x.id,id:x.id,fecha:x.fecha,orden:4,creado:x.creado||0,tipo:'gasto',concepto:x.concepto+' · '+nombreRuta(x.cobradorId),detalle:'Gasto de la ruta'+(x.nota?' — '+x.nota:''),ent:0,sal:x.valor,por:x.creadoPor});
+    else L.push({key:'r'+x.id,id:x.id,fecha:x.fecha,orden:2,creado:x.creado||0,tipo:'ingreso',concepto:x.concepto+' · '+nombreRuta(x.cobradorId),detalle:'Ingreso de la ruta'+(x.nota?' — '+x.nota:''),ent:x.valor,sal:0,por:x.creadoPor});
+  }
   for(const x of DB.ingresos) L.push({key:'i'+x.id,id:x.id,fecha:x.fecha,orden:2,creado:x.creado||0,tipo:'ingreso',concepto:x.concepto,detalle:'Ingreso extra',ent:x.valor,sal:0,por:x.creadoPor});
   L.sort((a,b)=>a.fecha.localeCompare(b.fecha)||a.orden-b.orden||a.creado-b.creado);
   let s=0; for(const m of L){ s+=m.ent-m.sal; m.saldo=s; }
@@ -592,6 +625,7 @@ function movimientos(){
 }
 function abrirMov(key){
   const m=movimientos().find(x=>x.key===key); if(!m) return;
+  if(m.key.startsWith('r')) return modalVerMov(m);
   if(m.tipo==='prestamo') return modalDetalle(m.id);
   if(!isCeo()) return modalVerMov(m);
   if(m.tipo==='capital') return go('ajustes');
@@ -709,7 +743,7 @@ function modalMovimiento(tipo='ingreso', id){
   <div class="form">
     <label class="f full">Tipo de movimiento<select class="input" id="mvTip" ${id?'disabled':''}>${opts.map(([k,t])=>`<option value="${k}" ${k===tipo?'selected':''}>${t}</option>`).join('')}</select></label>
     <label class="f">Fecha<input type="date" class="input" id="mvFec" value="${rec?rec.fecha:todayStr()}"></label>
-    <label class="f">Valor<input class="input" id="mvVal" inputmode="numeric" value="${rec?Math.round(Math.abs(rec.valor)).toLocaleString('es-CO'):''}"></label>
+    <label class="f">Valor<input class="input" id="mvVal" inputmode="numeric" value="${rec?fmtIn(Math.abs(rec.valor)):''}"></label>
     <label class="f full">Concepto<input class="input" id="mvCon" value="${esc(rec?rec.concepto:'')}" placeholder="Ej: multa por mora, aporte de socio, papelería"></label>
   </div>
   <div class="actions">${id?`<button class="btn danger" style="margin-right:auto" id="mvDel">Borrar</button>`:''}<button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="mvSave">Guardar</button></div>`);
@@ -718,7 +752,7 @@ function modalMovimiento(tipo='ingreso', id){
     if(sel.value==='prestamo') return modalPrestamo();
     if(sel.value==='pago') return modalPago();
   });
-  const val=document.getElementById('mvVal'); val.addEventListener('blur',()=>{ const n=num(val.value); if(n) val.value=n.toLocaleString('es-CO'); });
+  const val=document.getElementById('mvVal'); val.addEventListener('blur',()=>{ const n=num(val.value); if(n) val.value=fmtIn(n); });
   if(id) document.getElementById('mvDel').onclick=async ()=>{
     if(!(await confirmar('¿Borrar este movimiento?',{peligro:true,ok:'Borrar'}))) return;
     dbDel(tipo==='ingreso'?'ingresos':'capital', id);
@@ -802,8 +836,8 @@ function modalPrestamo(id, clienteId, preset){
   <div class="form">
     <label class="f full">Deudor *<select class="input" id="pCli">${clienteOptions(p.clienteId)}</select></label>
     <label class="f full" id="pFueW" style="display:none">¿De dónde sale la plata?<select class="input" id="pFue"><option value="ruta" ${p.fuente!=='oficina'?'selected':''}>De la caja de la ruta (la entrega el cobrador)</option><option value="oficina" ${p.fuente==='oficina'?'selected':''}>De la oficina</option></select></label>
-    <label class="f">Fecha del préstamo<input type="date" class="input" id="pFec" value="${esc(p.fecha)}"></label>
-    <label class="f">Valor del préstamo *<input class="input" id="pMon" value="${p.monto?Math.round(p.monto).toLocaleString('es-CO'):''}" inputmode="numeric" placeholder="Ej: 500.000"></label>
+    <label class="f">Fecha del préstamo<input type="date" class="input" id="pFec" value="${esc(isAdmin()?p.fecha:todayStr())}" ${isAdmin()?'':'disabled'}></label>
+    <label class="f">Valor del préstamo *<input class="input" id="pMon" value="${p.monto?fmtIn(p.monto):''}" inputmode="numeric" placeholder="Ej: 500.000"></label>
     <label class="f">% interés mensual<input class="input" id="pTas" value="${esc(p.tasa)}" inputmode="decimal"></label>
     <label class="f">No. de meses<input class="input" id="pMes" value="${esc(p.meses)}" inputmode="decimal"></label>
     <label class="f">Periodo de pago<select class="input" id="pPer">${PERIODOS.map(x=>`<option ${x===p.periodo?'selected':''}>${x}</option>`).join('')}</select></label>
@@ -827,7 +861,7 @@ function modalPrestamo(id, clienteId, preset){
   const g = k=>document.getElementById(k).value;
   ['pMon','pTas','pMes','pPer'].forEach(k=>document.getElementById(k).addEventListener('input',upd));
   const mon=document.getElementById('pMon');
-  mon.addEventListener('blur',()=>{ const n=num(mon.value); if(n) mon.value=n.toLocaleString('es-CO'); });
+  mon.addEventListener('blur',()=>{ const n=num(mon.value); if(n) mon.value=fmtIn(n); });
   const verFuente = ()=>{ const cl=clienteById(g('pCli')); const r=cl&&cl.cobradorId&&userById(cl.cobradorId);
     const w=document.getElementById('pFueW'); w.style.display = r&&r.rol==='cobrador' ? '' : 'none';
     if(r) w.querySelector('option[value=ruta]').textContent = `De la caja de ${rutaDe(r)} (la entrega el cobrador)`; };
@@ -848,8 +882,22 @@ function modalPrestamo(id, clienteId, preset){
     const c = calcular(monto,tasa,meses,periodo);
     const data = {clienteId:cli,fecha:g('pFec')||todayStr(),monto,tasa,meses,periodo,excluirDomingos:document.getElementById('pDom').checked,nota:g('pNot').trim(),
       cuotas:c.cuotas,valorCuota:c.valorCuota,interesMes:c.interesMes,total:c.total};
-    const cobP = (clienteById(cli)||{}).cobradorId || '';
+    let cobP = (clienteById(cli)||{}).cobradorId || '';
     data.fuente = document.getElementById('pFueW').style.display==='none' ? 'oficina' : document.getElementById('pFue').value;
+    if(!isAdmin()){
+      // la ruta presta desde su caja; si pasa el tope, queda como solicitud para la oficina
+      if(rutaBloqueada()) return;
+      cobP = ME.uid; data.fuente = 'ruta'; data.fecha = todayStr();
+      const max = Number(rutaCfg(ME.uid).maxPrestamo)||0;
+      if(!max || monto > max){
+        const pid = S.newId('prestamos');
+        if(hayFotos(FOTOS_TMP)) guardarFotos(pid, cli, FOTOS_TMP).catch(falloNube);
+        FOTOS_TMP = {};
+        dbAdd('aprobaciones', {tipo:'prestamo', cobradorId:ME.uid, clienteId:cli, monto, tasa, meses, periodo, excluirDomingos:data.excluirDomingos, nota:data.nota, fecha:todayStr(), estado:'pendiente', prestamoId:pid});
+        closeModal(); render();
+        return avisar(max ? `El crédito pasa el tope de tu ruta (${fmt(max)}). Quedó como solicitud y la oficina lo debe aprobar antes de entregar la plata.` : 'Quedó como solicitud. La oficina la debe aprobar antes de entregar la plata.');
+      }
+    }
     if(id){ if(cli!==p.clienteId) data.cobradorId=cobP; dbUpd('prestamos',id,data); }
     else {
       const pid = dbAdd('prestamos',{...data, cobradorId:cobP});
@@ -870,13 +918,15 @@ async function borrarPrestamo(id){
 
 function modalPago(prestamoId, pagoId, fecha){
   const pago = pagoId ? DB.pagos.find(x=>x.id===pagoId) : null;
+  if(!pago && !isAdmin() && rutaBloqueada()) return;
+  if(!isAdmin()) fecha = todayStr();          // la ruta solo registra pagos del día
   const activos = DB.prestamos.filter(p=>estadoPrestamo(p).estado!=='Pagado' || p.id===prestamoId);
   const sel = pago? pago.prestamoId : (prestamoId||'');
   openModal(`<h3>${pago?'Editar pago':'Registrar pago'}</h3>
   <div class="form">
     <label class="f full">Préstamo<select class="input" id="gPre"><option value="">— Selecciona —</option>${activos.sort((a,b)=>nombreCliente(a.clienteId).localeCompare(nombreCliente(b.clienteId))).map(p=>`<option value="${p.id}" ${p.id===sel?'selected':''}>${esc(nombreCliente(p.clienteId))} · ${fmt(p.monto)} · ${p.periodo.toLowerCase()}</option>`).join('')}</select></label>
-    <label class="f">Fecha del pago<input type="date" class="input" id="gFec" value="${pago?pago.fecha:(fecha||todayStr())}"></label>
-    <label class="f">Valor pagado<input class="input" id="gVal" inputmode="numeric" value="${pago?Math.round(pago.monto).toLocaleString('es-CO'):''}"></label>
+    <label class="f">Fecha del pago<input type="date" class="input" id="gFec" value="${pago?pago.fecha:(fecha||todayStr())}" ${isAdmin()?'':'disabled'}></label>
+    <label class="f">Valor pagado<input class="input" id="gVal" inputmode="numeric" value="${pago?fmtIn(pago.monto):''}"></label>
     <label class="f full">Nota<input class="input" id="gNot" value="${esc(pago?pago.nota:'')}" placeholder="Opcional"></label>
   </div>
   <div id="gInfo" class="calcbox" style="margin-top:14px"></div>
@@ -890,10 +940,10 @@ function modalPago(prestamoId, pagoId, fecha){
       <div><div class="l">Pendiente hasta hoy</div><div class="v" style="color:${e.atraso?'var(--red)':'inherit'}">${fmt(e.atraso)}</div></div>
       <div><div class="l">Saldo</div><div class="v">${fmt(e.saldo + (pago?pago.monto:0))}</div></div>
       <div><div class="l">Cuotas pagadas</div><div class="v">${e.cuotasPagadas}/${p.cuotas}</div></div>`;
-    const val=document.getElementById('gVal'); if(!pago && !val.value) val.value=Math.round(Math.min(Math.max(p.valorCuota, e.atraso), e.saldo)).toLocaleString('es-CO');
+    const val=document.getElementById('gVal'); if(!pago && !val.value) val.value=fmtIn(Math.min(Math.max(p.valorCuota, e.atraso), e.saldo));
   };
   document.getElementById('gPre').addEventListener('change',()=>{ if(!pago) document.getElementById('gVal').value=''; info(); });
-  const val=document.getElementById('gVal'); val.addEventListener('blur',()=>{ const n=num(val.value); if(n) val.value=n.toLocaleString('es-CO'); });
+  const val=document.getElementById('gVal'); val.addEventListener('blur',()=>{ const n=num(val.value); if(n) val.value=fmtIn(n); });
   info();
   document.getElementById('gSave').onclick=async ()=>{
     const pid=document.getElementById('gPre').value, monto=num(val.value), f=document.getElementById('gFec').value||todayStr();
@@ -907,7 +957,8 @@ function modalPago(prestamoId, pagoId, fecha){
     else {
       const bt=document.getElementById('gSave'); bt.disabled=true; bt.textContent='Registrando…';
       const gps = await gpsParaPago();
-      dbAdd('pagos',Object.assign({prestamoId:pid,fecha:f,monto,nota,cobradorId:p.cobradorId||'',registradoPor:ME.uid}, gps));
+      const nuevo = dbAdd('pagos',Object.assign({prestamoId:pid,fecha:f,monto,nota,cobradorId:p.cobradorId||'',registradoPor:ME.uid}, gps));
+      closeModal(); render(); viewState._reopen=0; modalRecibo(nuevo); return;
     }
     closeModal(); render(); toast('Pago registrado');
     if(viewState._reopen){ viewState._reopen=0; modalDetalle(pid); }
@@ -963,7 +1014,7 @@ function modalSalida(id){
   openModal(`<h3>${id?'Editar salida':'+ Registrar salida de dinero'}</h3>
   <div class="form">
     <label class="f">Fecha<input type="date" class="input" id="sFec" value="${s.fecha}"></label>
-    <label class="f">Valor<input class="input" id="sVal" inputmode="numeric" value="${s.valor?Math.round(s.valor).toLocaleString('es-CO'):''}"></label>
+    <label class="f">Valor<input class="input" id="sVal" inputmode="numeric" value="${s.valor?fmtIn(s.valor):''}"></label>
     <label class="f full">Concepto<input class="input" id="sCon" value="${esc(s.concepto)}" placeholder="Ej: gasolina, papelería, pago cobrador"></label>
   </div>
   <div class="actions">${id?`<button class="btn danger" style="margin-right:auto" onclick="borrarSalida('${id}')">Borrar</button>`:''}<button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="sSave">Guardar</button></div>`);
@@ -1067,14 +1118,14 @@ function modalUsuario(id){
   if(u){
     openModal(`<h3>${esc(u.nombre)}</h3>
     <div class="form"><label class="f full">Nombre<input class="input" id="uNom" value="${esc(u.nombre)}"></label>
-    ${u.rol==='cobrador'?`<label class="f full">Nombre de la ruta<input class="input" id="uRuta" value="${esc(u.ruta||'')}" placeholder="Ej: Ruta Norte"></label>`:''}
+    ${u.rol==='cobrador'?`<label class="f full">Nombre de la ruta<input class="input" id="uRuta" value="${esc(u.ruta||'')}" placeholder="Ej: Ruta Norte"></label>${bloqueCfgRuta(u.id)}`:''}
     <label class="f full">Correo<input class="input" value="${esc(u.email)}" disabled></label></div>
     <p class="muted" style="font-size:13px">¿Olvidó la contraseña? <button class="btn sm" id="uReset">Enviarle correo para cambiarla</button></p>
     ${u.activo!==false?`<p class="muted" style="font-size:13px">Si esta persona ya no trabaja contigo, desactívala. Deja de poder entrar de inmediato.</p>`:''}
     <div class="actions">${u.activo!==false?`<button class="btn danger" style="margin-right:auto" id="uOff">Desactivar</button>`:''}<button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="uSave">Guardar</button></div>`);
     document.getElementById('uReset').onclick=()=>S.resetPassword(u.email).then(()=>toast('Correo enviado a '+u.email)).catch(()=>toast('No se pudo enviar el correo'));
     if(u.activo!==false) document.getElementById('uOff').onclick=async ()=>{ if(!await confirmar('¿Desactivar a '+u.nombre+'? Para reactivarlo tendrás que pedírselo a Kuota.',{peligro:true,ok:'Desactivar'})) return; dbUpd('users',u.id,{activo:false,estado:'desactivado'}); closeModal(); render(); toast('Usuario desactivado'); };
-    document.getElementById('uSave').onclick=()=>{ const n=document.getElementById('uNom').value.trim(); if(!n) return toast('Escribe el nombre'); const d={nombre:n}; const r=document.getElementById('uRuta'); if(r) d.ruta=r.value.trim().slice(0,60); dbUpd('users',u.id,d); closeModal(); render(); toast('Usuario actualizado'); };
+    document.getElementById('uSave').onclick=()=>{ const n=document.getElementById('uNom').value.trim(); if(!n) return toast('Escribe el nombre'); const d={nombre:n}; const r=document.getElementById('uRuta'); if(r) d.ruta=r.value.trim().slice(0,60); dbUpd('users',u.id,d); if(u.rol==='cobrador') guardarCfgRuta(u.id); closeModal(); render(); toast('Usuario actualizado'); };
     return;
   }
   openModal(`<h3>Solicitar usuario</h3>
@@ -1162,7 +1213,7 @@ function modalRenovacion(prestamoId, renovacionId){
     <div><div class="l">Debe hoy (con intereses)</div><div class="v" style="color:var(--red)">${fmt(e.saldo)}</div></div>
   </div>
   <div class="form">
-    <label class="f">Valor del nuevo préstamo<input class="input" id="rMon" inputmode="numeric" value="${Math.round(base.monto).toLocaleString('es-CO')}"></label>
+    <label class="f">Valor del nuevo préstamo<input class="input" id="rMon" inputmode="numeric" value="${fmtIn(base.monto)}"></label>
     <label class="f">% interés mensual<input class="input" id="rTas" inputmode="decimal" value="${esc(num(base.tasa))}"></label>
     <label class="f">No. de meses<input class="input" id="rMes" inputmode="decimal" value="${esc(num(base.meses))}"></label>
     <label class="f">Periodo de pago<select class="input" id="rPer">${PERIODOS.map(x=>`<option ${x===base.periodo?'selected':''}>${x}</option>`).join('')}</select></label>
@@ -1182,7 +1233,7 @@ function modalRenovacion(prestamoId, renovacionId){
     return {monto,exc,c};
   };
   ['rMon','rTas','rMes','rPer'].forEach(k=>$(k).addEventListener('input',calc)); calc();
-  $('rMon').addEventListener('blur',()=>{ const n=num($('rMon').value); if(n) $('rMon').value=n.toLocaleString('es-CO'); });
+  $('rMon').addEventListener('blur',()=>{ const n=num($('rMon').value); if(n) $('rMon').value=fmtIn(n); });
   if(aprobar) $('rNo').onclick=async ()=>{ if(!await confirmar('¿Rechazar esta solicitud de renovación?')) return; dbUpd('renovaciones',ren.id,{estado:'rechazada',revisadoPor:ME.uid,revisadoEn:Date.now()}); closeModal(); render(); toast('Renovación rechazada'); };
   $('rOk').onclick=async ()=>{
     const {monto,exc}=calc();
@@ -1243,14 +1294,17 @@ VIEWS.renovaciones = () => {
   if(f==='activas') rows=rows.filter(r=>r.estado==='pendiente'||r.estado==='aprobada');
   rows.sort((a,b)=>(b.creado||0)-(a.creado||0));
   const fb=(k,t)=>`<button class="btn sm ${f===k?'pri':''}" onclick="go('renovaciones',Object.assign({},viewState,{f:'${k}'}))">${t}</button>`;
-  return `<div class="head"><div><h1>Renovaciones</h1><p class="sub">Solicitudes de las rutas para renovar créditos. Al aprobar, lo que debe el cliente se descuenta del préstamo nuevo y se entrega solo la diferencia.</p></div></div>
+  const aps = DB.aprobaciones.filter(a=>pasaFiltroCob(a.cobradorId)).filter(a=>f!=='activas'||a.estado==='pendiente').sort((a,b)=>(b.creado||0)-(a.creado||0));
+  return `<div class="head"><div><h1>Aprobaciones</h1><p class="sub">Créditos nuevos que pasan el tope de la ruta y renovaciones. Al renovar, lo que debe el cliente se descuenta del préstamo nuevo y se entrega solo la diferencia.</p></div></div>
+  ${aps.length?`<h2 style="margin:6px 0 12px">Créditos nuevos</h2><div class="cobros-grid" style="margin-bottom:22px">${aps.map(tarjetaAprobacion).join('')}</div><h2 style="margin:6px 0 12px">Renovaciones</h2>`:''}
   <div class="toolbar">${fb('activas','Por atender')}${fb('todas','Todas')}${filtroCobrador('renovaciones')}</div>
   ${rows.length?`<div class="cobros-grid">${rows.map(tarjetaRenov).join('')}</div>`:'<div class="card"><div class="empty">No hay renovaciones por atender.</div></div>'}`;
 };
 function bloqueRenovacionesCobrador(){
   const rs=DB.renovaciones.filter(r=>r.cobradorId===ME.uid && (r.estado==='pendiente'||r.estado==='aprobada'));
-  if(!rs.length) return '';
-  return `<h2 style="margin:4px 0 12px">Renovaciones</h2><div class="cobros-grid" style="margin-bottom:22px">${rs.map(tarjetaRenov).join('')}</div>`;
+  const aps=DB.aprobaciones.filter(a=>a.cobradorId===ME.uid && (a.estado==='pendiente' || (a.fecha===todayStr())));
+  return (aps.length?`<h2 style="margin:4px 0 12px">Créditos solicitados</h2><div class="cobros-grid" style="margin-bottom:22px">${aps.map(tarjetaAprobacion).join('')}</div>`:'')
+    + (rs.length?`<h2 style="margin:4px 0 12px">Renovaciones</h2><div class="cobros-grid" style="margin-bottom:22px">${rs.map(tarjetaRenov).join('')}</div>`:'');
 }
 
 /* ---------- cuadre de caja por cobrador ---------- */
@@ -1265,8 +1319,10 @@ function cuadreCobrador(uidC, fecha){
   const entregas = todasE.filter(x=>x.tipo!=='base'), bases = todasE.filter(x=>x.tipo==='base');
   const renov = DB.renovaciones.filter(r=>r.estado==='entregada' && r.entregadoPor===uidC);
   const prest = DB.prestamos.filter(p=>p.fuente==='ruta' && p.cobradorId===uidC && !p.renovacionDe);
+  const mr = DB.movruta.filter(x=>x.cobradorId===uidC), gastos = mr.filter(x=>x.tipo==='gasto'), ingresos = mr.filter(x=>x.tipo==='ingreso');
   const saldo = cond => tot(bases.filter(x=>cond(x.fecha))) + tot(pagos.filter(x=>cond(x.fecha))) - tot(entregas.filter(x=>cond(x.fecha)))
-                      - totR(renov.filter(r=>cond(fRen(r)))) - tot(prest.filter(x=>cond(x.fecha)));
+                      - totR(renov.filter(r=>cond(fRen(r)))) - tot(prest.filter(x=>cond(x.fecha)))
+                      - tot(gastos.filter(x=>cond(x.fecha))) + tot(ingresos.filter(x=>cond(x.fecha)));
   const enMano = saldo(()=>true);
   const r = { cobradoTotal:tot(pagos), entregadoTotal:tot(entregas), basesTotal:tot(bases), desembolsado:totR(renov), prestadoTotal:tot(prest), enMano };
   if(fecha){
@@ -1274,8 +1330,9 @@ function cuadreCobrador(uidC, fecha){
     const rDia=renov.filter(x=>fRen(x)===fecha), prDia=prest.filter(x=>x.fecha===fecha);
     Object.assign(r, { pagosDia:pDia, nPagosDia:pDia.length, cobradoDia:tot(pDia), entregasDia:eDia, entregadoDia:tot(eDia), basesDia:bDia, baseDia:tot(bDia),
       desembolsadoDia:totR(rDia), prestamosDia:prDia, prestadoDia:tot(prDia),
+      gastosDia:tot(gastos.filter(x=>x.fecha===fecha)), ingresosDia:tot(ingresos.filter(x=>x.fecha===fecha)),
       saldoInicial:saldo(f=>!!f && f<fecha), saldoFinal:saldo(f=>!!f && f<=fecha) });
-  } else Object.assign(r, { pagosDia:[], nPagosDia:0, cobradoDia:0, entregasDia:[], entregadoDia:0, basesDia:[], baseDia:0, desembolsadoDia:0, prestamosDia:[], prestadoDia:0 });
+  } else Object.assign(r, { pagosDia:[], nPagosDia:0, cobradoDia:0, entregasDia:[], entregadoDia:0, basesDia:[], baseDia:0, desembolsadoDia:0, prestamosDia:[], prestadoDia:0, gastosDia:0, ingresosDia:0 });
   return r;
 }
 VIEWS.cuadre = () => {
@@ -1291,10 +1348,15 @@ VIEWS.cuadre = () => {
       <div class="cr-fila"><span>Saldo con que abrió ${hoy?'hoy':'ese día'}</span><b>${fmt(c.saldoInicial)}</b></div>
       <div class="cr-fila mas"><span>+ Base recibida de la oficina</span><b>${fmt(c.baseDia)}</b></div>
       <div class="cr-fila mas"><span>+ Cobrado (${c.nPagosDia} pagos)</span><b>${fmt(c.cobradoDia)}</b></div>
+      ${c.ingresosDia?`<div class="cr-fila mas"><span>+ Otros ingresos</span><b>${fmt(c.ingresosDia)}</b></div>`:''}
       <div class="cr-fila menos"><span>− Préstamos y renovaciones entregados</span><b>${fmt(salidas)}</b></div>
+      <div class="cr-fila menos"><span>− Gastos de la ruta</span><b>${fmt(c.gastosDia)}</b></div>
       <div class="cr-fila menos"><span>− Entregado a la oficina</span><b>${fmt(c.entregadoDia)}</b></div>
       <div class="cr-fila total"><span>Debes tener en la mano</span><b>${fmt(c.saldoFinal)}</b></div>
+      ${(()=>{ const ci=cierreDe(ME.uid, fecha); return ci ? `<div class="banner" style="margin:14px 0 0">Ruta cerrada a las ${new Date(ci.cerradoEn).toLocaleTimeString('es-CO',{hour:'numeric',minute:'2-digit'})}.</div>`
+        : hoy ? `<div class="row" style="margin-top:14px"><button class="btn sm" onclick="modalGastoRuta('gasto')">+ Gasto</button><button class="btn sm" onclick="modalGastoRuta('ingreso')">+ Ingreso</button><span class="spacer"></span><button class="btn sm pri" onclick="cerrarMiRuta()">Cerrar ruta del día</button></div>` : ''; })()}
     </div>
+    ${tablaMovRuta(ME.uid, fecha)}
     ${tablaPagosDia(c.pagosDia)}`;
   }
   const filas = cobradores().map(u=>({u,c:cuadreCobrador(u.id,fecha)}));
@@ -1313,10 +1375,14 @@ VIEWS.cuadre = () => {
     <div class="cr-fila"><span>Abrió con</span><b>${fmt(c.saldoInicial)}</b></div>
     <div class="cr-fila mas"><span>+ Base</span><b>${fmt(c.baseDia)}</b></div>
     <div class="cr-fila mas"><span>+ Cobrado (${c.nPagosDia})</span><b>${fmt(c.cobradoDia)}</b></div>
+    ${c.ingresosDia?`<div class="cr-fila mas"><span>+ Otros ingresos</span><b>${fmt(c.ingresosDia)}</b></div>`:''}
     <div class="cr-fila menos"><span>− Prestado / renovaciones</span><b>${fmt(c.prestadoDia + c.desembolsadoDia)}</b></div>
+    <div class="cr-fila menos"><span>− Gastos de la ruta</span><b>${fmt(c.gastosDia)}</b></div>
     <div class="cr-fila menos"><span>− Entregó a la oficina</span><b>${fmt(c.entregadoDia)}</b></div>
     <div class="cr-fila total"><span>Debe tener</span><b style="color:${c.saldoFinal>0.5?'var(--amber)':'inherit'}">${fmt(c.saldoFinal)}</b></div>
-    <div class="row" style="margin-top:12px"><button class="btn sm" onclick="modalBase('${u.id}','${fecha}')">Asignar base</button><span class="spacer"></span><button class="btn sm pri" onclick="modalEntrega('${u.id}','${fecha}')">Recibir plata</button></div>
+    ${(()=>{ const ci=cierreDe(u.id, fecha); return ci ? `<div class="row" style="margin-top:10px"><span class="pill p-ok">Cerrada ${new Date(ci.cerradoEn).toLocaleTimeString('es-CO',{hour:'numeric',minute:'2-digit'})}</span><span class="spacer"></span><button class="btn sm" onclick="reabrirRuta('${u.id}','${fecha}')">Reabrir</button></div>`
+      : `<div class="row" style="margin-top:10px"><span class="pill p-hoy">Abierta</span><span class="spacer"></span><button class="btn sm ghost" onclick="cerrarRutaOficina('${u.id}','${fecha}')">Cerrar</button></div>`; })()}
+    <div class="row" style="margin-top:10px"><button class="btn sm" onclick="modalBase('${u.id}','${fecha}')">Asignar base</button><button class="btn sm" onclick="modalGastoRuta('gasto','${u.id}','${fecha}')">+ Gasto</button><span class="spacer"></span><button class="btn sm pri" onclick="modalEntrega('${u.id}','${fecha}')">Recibir plata</button></div>
   </div>`).join('')}</div>`:`<div class="card"><div class="empty">Aún no tienes rutas. Solicítalas en Usuarios.</div></div>`}
   ${(()=>{const es=DB.entregas.filter(x=>x.fecha===fecha); return es.length?`<div class="card pad" style="margin:16px 0"><h2>Bases y entregas de ese día</h2><div class="tablewrap"><table><tbody>${es.map(x=>`<tr><td>${x.tipo==='base'?'<span class="pill p-pag">Base</span>':'<span class="pill p-ok">Entrega</span>'}</td><td>${esc(nombreRuta(x.cobradorId))}</td><td>${esc(x.nota||'')}</td><td class="num">${fmt(x.valor)}</td><td class="muted">${esc(nombreUsuario(x.creadoPor))}</td><td class="right">${isCeo()?`<button class="btn sm danger" onclick="borrarEntrega('${x.id}')">Borrar</button>`:''}</td></tr>`).join('')}</tbody></table></div></div>`:'<div style="height:16px"></div>';})()}
   ${tablaPagosDia(todosPagos,true)}`;
@@ -1335,11 +1401,11 @@ function modalMovRuta(cobradorId, fecha, tipo){
   <p class="muted" style="margin-top:-8px">${base?'Es la plata con la que la ruta sale a trabajar (para prestar y dar vueltas). Se suma a lo que debe tener la ruta.':`La ruta tiene en la mano ${fmt(c.enMano)}.`}</p>
   <div class="form">
     <label class="f">Fecha<input type="date" class="input" id="eFec" value="${fecha||todayStr()}"></label>
-    <label class="f">${base?'Valor de la base':'Valor recibido'}<input class="input" id="eVal" inputmode="numeric" value="${!base&&c.enMano>0?Math.round(c.enMano).toLocaleString('es-CO'):''}"></label>
+    <label class="f">${base?'Valor de la base':'Valor recibido'}<input class="input" id="eVal" inputmode="numeric" value="${!base&&c.enMano>0?fmtIn(c.enMano):''}"></label>
     <label class="f full">Nota<input class="input" id="eNot" placeholder="Opcional"></label>
   </div>
   <div class="actions"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="eSave">${base?'Asignar base':'Guardar entrega'}</button></div>`);
-  const val=document.getElementById('eVal'); val.addEventListener('blur',()=>{ const n=num(val.value); if(n) val.value=n.toLocaleString('es-CO'); });
+  const val=document.getElementById('eVal'); val.addEventListener('blur',()=>{ const n=num(val.value); if(n) val.value=fmtIn(n); });
   document.getElementById('eSave').onclick=()=>{
     const v=num(val.value); if(v<=0) return toast('Escribe el valor');
     const d={cobradorId,fecha:document.getElementById('eFec').value||todayStr(),valor:v,nota:document.getElementById('eNot').value.trim()};

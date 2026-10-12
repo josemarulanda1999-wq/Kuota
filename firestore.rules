@@ -281,6 +281,15 @@ service cloud.firestore {
           && request.resource.data.estado in ['aprobada', 'rechazada'] && request.resource.data.revisadoPor == uid());
         allow delete: if isSuper() || isCeo(eid);
       }
+      // capital destinado a cada ruta: solo el CEO lo asigna
+      match /caprutas/{id} {
+        allow read: if isSuper() || isAdm(eid) || (isCob(eid) && own());
+        allow create: if isSuper() || (isCeo(eid) && idOk(id) && firma()
+          && request.resource.data.keys().hasOnly(['cobradorId', 'fecha', 'valor', 'nota', 'creado', 'creadoPor'])
+          && idOk(request.resource.data.cobradorId) && fechaOk(request.resource.data.fecha)
+          && numOk(request.resource.data.valor, -100000000000, 100000000000) && optTxt(request.resource.data, 'nota', 200));
+        allow update, delete: if isSuper() || isCeo(eid);
+      }
       // notas de la oficina para cada ruta
       match /notas/{id} {
         allow read: if isSuper() || isAdm(eid) || (isCob(eid) && own());

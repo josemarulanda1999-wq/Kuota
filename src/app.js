@@ -11,7 +11,7 @@ const defaultConfig = () => ({ negocio:'Kuota', capitalInicial:0, fechaCapital:'
   pais:'CO', conceptosGasto:['Gasolina','Alimentación','Transporte','Arreglo de moto','Celular y recargas','Papelería','Otros'],
   conceptosIngreso:['Multa','Seguro del cliente','Aporte a la ruta','Otros'], mensajeRecibo:'Gracias por su pago puntual.' });
 const emptyDB = () => ({ config:defaultConfig(), clientes:[], prestamos:[], pagos:[], salidas:[], capital:[], ingresos:[], entregas:[], renovaciones:[], users:[],
-  movruta:[], visitas:[], cierres:[], aprobaciones:[], rutas:[], notas:[] });
+  movruta:[], visitas:[], cierres:[], aprobaciones:[], rutas:[], notas:[], caprutas:[] });
 
 let DB = emptyDB();
 let ME = null;            // perfil del usuario: {uid, nombre, email, rol, activo}
@@ -922,7 +922,7 @@ function modalPrestamo(id, clienteId, preset){
     }
   });
   upd();
-  document.getElementById('pSave').onclick = ()=>{
+  document.getElementById('pSave').onclick = async ()=>{
     const cli=g('pCli'), monto=num(g('pMon')), tasa=num(g('pTas')), meses=num(g('pMes')), periodo=g('pPer');
     if(!cli||cli==='__new') return toast('Selecciona el deudor');
     if(monto<=0) return toast('Escribe el valor del préstamo');
@@ -939,15 +939,18 @@ function modalPrestamo(id, clienteId, preset){
       if(maxC && c.cuotas > maxC) return avisar(`Tu ruta permite máximo ${maxC} cuotas por crédito. Este tiene ${c.cuotas}.`);
       cobP = ME.uid; data.fuente = 'ruta'; data.fecha = todayStr();
       const max = Number(rutaCfg(ME.uid).maxPrestamo)||0;
-      if(!max || monto > max){
+      const capOk = await revisarCapitalAlPrestar(ME.uid, monto);
+      if(!max || monto > max || capOk==='solicitud'){
         const pid = S.newId('prestamos');
         if(hayFotos(FOTOS_TMP)) guardarFotos(pid, cli, FOTOS_TMP).catch(falloNube);
         FOTOS_TMP = {};
         dbAdd('aprobaciones', {tipo:'prestamo', cobradorId:ME.uid, clienteId:cli, monto, tasa, meses, periodo, excluirDomingos:data.excluirDomingos, nota:data.nota, fecha:todayStr(), estado:'pendiente', prestamoId:pid});
         closeModal(); render();
-        return avisar(max ? `El crédito pasa el tope de tu ruta (${fmt(max)}). Quedó como solicitud y la oficina lo debe aprobar antes de entregar la plata.` : 'Quedó como solicitud. La oficina la debe aprobar antes de entregar la plata.');
+        return avisar(capOk==='solicitud' ? `Tu ruta no tiene capital disponible para este crédito (quedan ${fmt(Math.max(0,capitalRuta(ME.uid).disponible))}). Quedó como solicitud para que la oficina lo apruebe o le añada capital.`
+          : max ? `El crédito pasa el tope de tu ruta (${fmt(max)}). Quedó como solicitud y la oficina lo debe aprobar antes de entregar la plata.` : 'Quedó como solicitud. La oficina la debe aprobar antes de entregar la plata.');
       }
     }
+    if(!id && isAdmin() && cobP && !await revisarCapitalAlPrestar(cobP, monto)) return;
     if(id){ if(cli!==p.clienteId) data.cobradorId=cobP; dbUpd('prestamos',id,data); }
     else {
       const pid = dbAdd('prestamos',{...data, cobradorId:cobP});
@@ -1184,7 +1187,7 @@ function modalUsuario(id){
   if(u){
     openModal(`<h3>${esc(u.nombre)}</h3>
     <div class="form"><label class="f full">Nombre<input class="input" id="uNom" value="${esc(u.nombre)}"></label>
-    ${u.rol==='cobrador'?`<label class="f full">Nombre de la ruta<input class="input" id="uRuta" value="${esc(u.ruta||'')}" placeholder="Ej: Ruta Norte"></label>${bloqueCfgRuta(u.id)}${bloqueNominaRuta(u.id)}`:''}
+    ${u.rol==='cobrador'?`<label class="f full">Nombre de la ruta<input class="input" id="uRuta" value="${esc(u.ruta||'')}" placeholder="Ej: Ruta Norte"></label>${bloqueCapitalRuta(u.id)}${bloqueCfgRuta(u.id)}${bloqueNominaRuta(u.id)}`:''}
     <label class="f full">Correo<input class="input" value="${esc(u.email)}" disabled></label></div>
     <p class="muted" style="font-size:13px">¿Olvidó la contraseña? <button class="btn sm" id="uReset">Enviarle correo para cambiarla</button></p>
     ${u.activo!==false?`<div class="card pad" style="background:var(--panel-2);margin:6px 0 10px"><b>${u.suspendido?'Acceso suspendido':'Acceso activo'}</b>
@@ -1205,6 +1208,7 @@ function modalUsuario(id){
   <div class="form">
     <label class="f full">Nombre de la persona<input class="input" id="uNom" placeholder="Ej: Pedro Gómez"></label>
     <label class="f full">Nombre de la ruta (si es cobrador)<input class="input" id="uRuta" placeholder="Ej: Ruta Norte"></label>
+    <label class="f full">Capital para esa ruta (opcional)<input class="input" id="uCap" inputmode="decimal" placeholder="Ej: 40.000.000"></label>
     <label class="f">Correo<input class="input" id="uMail" type="email" autocomplete="off"></label>
     <label class="f">Contraseña inicial<input class="input" id="uPass" type="text" autocomplete="off" placeholder="Mínimo 6 caracteres"></label>
     <label class="f full">Rol<select class="input" id="uRol"><option value="cobrador">Ruta (cobrador: cobra su ruta y crea clientes)</option><option value="admin">Admin (ve todo y registra, no edita ni borra)</option></select></label>
@@ -1217,7 +1221,7 @@ function modalUsuario(id){
     if(!/^\S+@\S+\.\S+$/.test(email)) return toast('Escribe un correo válido');
     if(pass.length<6) return toast('La contraseña debe tener mínimo 6 caracteres');
     const btn=document.getElementById('uSave'); btn.disabled=true; btn.textContent='Enviando…';
-    try{ const ruta=rol==='cobrador'?(document.getElementById('uRuta').value.trim().slice(0,60)||''):''; await S.solicitarUsuario(nombre,email,pass,rol,ruta); closeModal(); toast('Solicitud enviada a Kuota'); }
+    try{ const ruta=rol==='cobrador'?(document.getElementById('uRuta').value.trim().slice(0,60)||''):''; const nuevoUid = await S.solicitarUsuario(nombre,email,pass,rol,ruta); const cap=num((document.getElementById('uCap')||{}).value); if(rol==='cobrador' && cap>0 && nuevoUid) dbAdd('caprutas',{cobradorId:nuevoUid, fecha:todayStr(), valor:cap, nota:'Capital inicial de la ruta'}); closeModal(); toast('Solicitud enviada a Kuota'); }
     catch(e){ btn.disabled=false; btn.textContent='Enviar solicitud';
       toast(e.code==='auth/email-already-in-use'?'Ese correo ya tiene un usuario':e.code==='auth/invalid-email'?'Correo no válido':'No se pudo enviar la solicitud'); }
   };
@@ -1453,6 +1457,7 @@ VIEWS.cuadre = () => {
   </div>
   ${filas.length?`<div class="cuadre-grid">${filas.map(({u,c})=>`<div class="card pad cuadre-ruta">
     <div class="row" style="margin-bottom:10px">${ava(u.nombre)}<div style="min-width:0;flex:1"><b>${esc(rutaDe(u))}</b><div class="muted" style="font-size:12px">${esc(u.nombre)}</div></div></div>
+    ${(()=>{ const k=capitalRuta(u.id); return k.tiene?`<div class="capruta" style="margin-bottom:8px"><div><span>Capital</span><b>${fmt(k.asignado)}</b></div><div><span>En la calle</span><b>${fmt(k.enCalle)}</b></div><div><span>Disponible</span><b style="color:${k.disponible<0?'var(--red)':'var(--green)'}">${fmt(k.disponible)}</b></div></div>`:''; })()}
     <div class="cr-fila"><span>Abrió con</span><b>${fmt(c.saldoInicial)}</b></div>
     <div class="cr-fila mas"><span>+ Base</span><b>${fmt(c.baseDia)}</b></div>
     <div class="cr-fila mas"><span>+ Cobrado en efectivo (${c.nPagosDia})</span><b>${fmt(c.cobradoDia)}</b></div>

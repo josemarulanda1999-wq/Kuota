@@ -223,3 +223,51 @@ async function pagarNomina(uid, valor, desde, hasta){
   auditar('liquidar', 'nomina', uid, `${nombreRuta(uid)}: ${fmt(valor)}`);
   render(); toast('Pago de nómina registrado');
 }
+
+/* ---------- capital asignado a cada ruta ----------
+   El CEO destina un fondo a cada ruta (ej. 40 millones). Disponible para prestar = capital asignado − capital en la calle − pérdidas. */
+function capitalRuta(uid){
+  const asignado = DB.caprutas.filter(x=>x.cobradorId===uid).reduce((s,x)=>s+(Number(x.valor)||0),0);
+  let enCalle=0, perdido=0, ganado=0;
+  for(const p of DB.prestamos.filter(p=>p.cobradorId===uid)){
+    const e = estadoPrestamo(p), base = (Number(p.valorCuota)||0)*(Number(p.cuotas)||0);
+    const recuperado = base>0 ? Math.min(p.monto, e.pagado*p.monto/base) : 0;
+    const pend = Math.max(0, p.monto - recuperado);
+    ganado += e.utilidad;
+    if(e.estado==='Castigado') perdido += pend; else if(e.estado!=='Pagado') enCalle += pend;
+  }
+  return { asignado, enCalle, perdido, ganado, disponible: asignado - enCalle - perdido, tiene: DB.caprutas.some(x=>x.cobradorId===uid) };
+}
+function bloqueCapitalRuta(uid){
+  const k = capitalRuta(uid), movs = DB.caprutas.filter(x=>x.cobradorId===uid).sort((a,b)=>(b.creado||0)-(a.creado||0));
+  return `<div class="f full"><span>Capital de la ruta</span>
+    <div class="capruta">
+      <div><span>Asignado</span><b>${fmt(k.asignado)}</b></div><div><span>En la calle</span><b>${fmt(k.enCalle)}</b></div>
+      <div><span>Disponible para prestar</span><b style="color:${k.disponible<0?'var(--red)':'var(--green)'}">${fmt(k.disponible)}</b></div>
+    </div>
+    ${isCeo()?`<div class="row" style="margin-top:8px"><button type="button" class="btn sm pri" onclick="modalCapitalRuta('${uid}',1)">+ Añadir capital</button><button type="button" class="btn sm" onclick="modalCapitalRuta('${uid}',-1)">Retirar capital</button></div>`:''}
+    ${movs.length?`<div class="muted" style="font-size:12px;margin-top:6px">${movs.slice(0,4).map(x=>`${fdate(x.fecha)}: ${x.valor>=0?'+ ':'− '}${fmt(Math.abs(x.valor))}${x.nota?' · '+esc(x.nota):''}`).join('<br>')}</div>`:''}</div>`;
+}
+function modalCapitalRuta(uid, signo){
+  openModal(`<h3>${signo>0?'Añadir capital a':'Retirar capital de'} ${esc(nombreRuta(uid))}</h3>
+    <p class="muted" style="margin-top:-8px">${signo>0?'Es la plata que destinas solo para esta ruta. La ruta puede prestar hasta lo disponible.':'Baja el fondo de la ruta (por ejemplo, si le sobra capital).'}</p>
+    <div class="form"><label class="f">Valor<input class="input" id="kVal" inputmode="decimal" placeholder="Ej: 40.000.000"></label>
+    <label class="f">Fecha<input type="date" class="input" id="kFec" value="${todayStr()}"></label>
+    <label class="f full">Nota<input class="input" id="kNot" placeholder="Opcional"></label></div>
+    <div class="actions"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="kOk">${signo>0?'Añadir':'Retirar'}</button></div>`);
+  const v=document.getElementById('kVal'); v.addEventListener('blur',()=>{ const n=num(v.value); if(n) v.value=fmtIn(n); });
+  document.getElementById('kOk').onclick = ()=>{
+    const n = num(v.value); if(n<=0) return toast('Escribe el valor');
+    dbAdd('caprutas', {cobradorId:uid, fecha:document.getElementById('kFec').value||todayStr(), valor:signo*n, nota:document.getElementById('kNot').value.trim().slice(0,200)});
+    auditar('capital', 'ruta', uid, `${nombreRuta(uid)}: ${signo>0?'+':'−'}${fmt(n)}`);
+    closeModal(); render(); toast(signo>0?'Capital añadido a la ruta':'Capital retirado de la ruta');
+  };
+}
+/* al prestar en una ruta con capital asignado, avisa si se pasa de lo disponible */
+async function revisarCapitalAlPrestar(cobradorId, monto){
+  if(!cobradorId) return true;
+  const k = capitalRuta(cobradorId);
+  if(!k.tiene || monto <= k.disponible + 0.5) return true;
+  if(!isAdmin()) return 'solicitud';
+  return confirmar(`${nombreRuta(cobradorId)} solo tiene ${fmt(Math.max(0,k.disponible))} disponible de su capital. Este crédito es de ${fmt(monto)}.${isCeo()?'\n\nPuedes añadirle capital en Usuarios → Editar.':''}\n\n¿Prestar de todas formas?`, {ok:'Prestar igual'});
+}

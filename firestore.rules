@@ -59,7 +59,7 @@ service cloud.firestore {
     }
     function okPrestamo(d) {
       return d.keys().hasOnly(['clienteId', 'fecha', 'monto', 'tasa', 'meses', 'periodo', 'excluirDomingos', 'nota', 'cuotas',
-                               'valorCuota', 'interesMes', 'total', 'cobradorId', 'renovacionDe', 'saldoCancelado', 'fuente', 'creado', 'creadoPor'])
+                               'valorCuota', 'interesMes', 'total', 'cobradorId', 'renovacionDe', 'saldoCancelado', 'fuente', 'importado', 'castigado', 'creado', 'creadoPor'])
         && (!('fuente' in d) || d.fuente in ['ruta', 'oficina'])
         && idOk(d.clienteId) && fechaOk(d.fecha) && numOk(d.monto, 1, 10000000000) && numOk(d.tasa, 0, 100)
         && numOk(d.meses, 0.01, 120) && periodoOk(d.periodo) && d.cuotas is int && d.cuotas >= 1 && d.cuotas <= 1000
@@ -158,6 +158,7 @@ service cloud.firestore {
               && request.resource.data.get('fuente', '') == 'ruta' && !('renovacionDe' in request.resource.data)
               && exists(/databases/$(database)/documents/empresas/$(eid)/rutas/$(uid()))
               && cfgRuta(eid).get('puedePrestar', false) == true && request.resource.data.monto <= cfgRuta(eid).get('maxPrestamo', 0)
+              && (cfgRuta(eid).get('maxCuotas', 0) == 0 || request.resource.data.cuotas <= cfgRuta(eid).get('maxCuotas', 0))
               && get(/databases/$(database)/documents/empresas/$(eid)/clientes/$(request.resource.data.clienteId)).data.cobradorId == uid()
               && abierta(eid, request.resource.data.fecha));
         allow update: if isSuper() || isCeo(eid) || (soloAdmin(eid) && soloCambiaRuta() && idOVacio(request.resource.data.cobradorId));
@@ -232,7 +233,7 @@ service cloud.firestore {
       match /rutas/{u} {
         allow read: if isSuper() || isAdm(eid) || (isCob(eid) && u == uid());
         allow write: if isSuper() || ((isCeo(eid) || soloAdmin(eid)) && idOk(u)
-          && request.resource.data.keys().hasOnly(['cobradorId', 'puedePrestar', 'maxPrestamo', 'maxGasto', 'actualizado'])
+          && request.resource.data.keys().hasOnly(['cobradorId', 'puedePrestar', 'maxPrestamo', 'maxGasto', 'salario', 'periodoPago', 'pctRecaudo', 'pctVentas', 'maxCuotas', 'maxRenov', 'actualizado'])
           && request.resource.data.cobradorId == u && request.resource.data.puedePrestar is bool
           && numOk(request.resource.data.maxPrestamo, 0, 10000000000) && numOk(request.resource.data.maxGasto, 0, 10000000000));
       }
@@ -279,6 +280,24 @@ service cloud.firestore {
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estado', 'prestamoId', 'revisadoPor', 'revisadoEn'])
           && request.resource.data.estado in ['aprobada', 'rechazada'] && request.resource.data.revisadoPor == uid());
         allow delete: if isSuper() || isCeo(eid);
+      }
+      // notas de la oficina para cada ruta
+      match /notas/{id} {
+        allow read: if isSuper() || isAdm(eid) || (isCob(eid) && own());
+        allow create: if isSuper() || ((isCeo(eid) || soloAdmin(eid)) && idOk(id) && firma()
+          && request.resource.data.keys().hasOnly(['cobradorId', 'texto', 'fecha', 'leida', 'creado', 'creadoPor'])
+          && idOk(request.resource.data.cobradorId) && txt(request.resource.data.texto, 300) && request.resource.data.leida == false);
+        allow update: if isSuper() || isAdm(eid) || (isCob(eid) && own()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['leida']) && request.resource.data.leida == true);
+        allow delete: if isSuper() || isCeo(eid);
+      }
+      // auditoría: cualquiera de la empresa deja constancia de lo que hace; solo el CEO la lee; nadie la cambia
+      match /auditoria/{id} {
+        allow read: if isSuper() || isCeo(eid);
+        allow create: if enEmpresa(eid) && request.resource.data.por == uid()
+          && request.resource.data.keys().hasOnly(['accion', 'col', 'docId', 'detalle', 'por', 'nombre', 't', 'fecha'])
+          && txt(request.resource.data.accion, 20) && txt(request.resource.data.col, 40) && txt(request.resource.data.detalle, 200) && optTxt(request.resource.data, 'nombre', 80);
+        allow update, delete: if false;
       }
       // equipo autorizado de cada ruta: se registra solo una vez; solo el CEO lo libera
       match /equipos/{u} {

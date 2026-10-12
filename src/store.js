@@ -75,7 +75,7 @@ window.S = {
     const uns = [];
     const admin = me.rol === 'ceo' || me.rol === 'admin';
     const ceo = me.rol === 'ceo';
-    const ruta_ = ['movruta', 'visitas', 'cierres', 'aprobaciones', 'rutas'];
+    const ruta_ = ['movruta', 'visitas', 'cierres', 'aprobaciones', 'rutas', 'notas'];
     const cols = (ceo ? ['clientes', 'prestamos', 'pagos', 'salidas', 'capital', 'ingresos', 'entregas', 'renovaciones'] : ['clientes', 'prestamos', 'pagos', 'entregas', 'renovaciones']).concat(ruta_);
     for (const c of cols) {
       const q = admin ? collection(db, ruta(c)) : query(collection(db, ruta(c)), where('cobradorId', '==', me.uid));
@@ -130,6 +130,8 @@ window.S = {
   async getRecorrido(uid, fecha) { const s = await getDoc(doc(db, ruta('recorridos'), uid + '_' + fecha)); return s.exists() ? s.data() : null; },
   async getFotos(pid) { try { const s = await getDoc(doc(db, ruta('fotos'), pid)); return s.exists() ? s.data() : null; } catch (e) { return null; } },
   setFotos: (pid, data) => setDoc(doc(db, ruta('fotos'), pid), clean(data)),
+  auditar: data => setDoc(doc(collection(db, ruta('auditoria'))), clean(data)),
+  async leerAuditoria() { try { const s = await getDocs(collection(db, ruta('auditoria'))); return list(s); } catch (e) { return []; } },
   async getComprobante(id) { try { const s = await getDoc(doc(db, ruta('comprobantes'), id)); return s.exists() ? s.data() : null; } catch (e) { return null; } },
   setComprobante: (id, data) => setDoc(doc(db, ruta('comprobantes'), id), clean(data)),
   /* ---------- equipo autorizado (cada ruta solo entra desde su celular) ---------- */

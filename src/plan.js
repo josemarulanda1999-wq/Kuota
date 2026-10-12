@@ -62,10 +62,10 @@ const avisar = (msg) => confirmar(msg, {solo:true, ok:'Entendido'});
    los tipos de los campos que se muestran o se usan en cálculos. */
 const ID_SEGURO = /^[A-Za-z0-9_-]{1,40}$/;
 const CAMPOS_NUM = ['monto','tasa','meses','cuotas','valorCuota','interesMes','total','valor','excedente','saldoCancelado','saldoAlSolicitar',
-  'capitalInicial','creado','revisadoEn','entregadoEn','cupoAdmins','cupoCobradores','diasGracia','venceMs','meses','lat','lng','prec','t','ubicadoEn','registrado','ultimoUso','orden','maxPrestamo','maxGasto','cerradoEn','actualizado'];
+  'capitalInicial','creado','revisadoEn','entregadoEn','cupoAdmins','cupoCobradores','diasGracia','venceMs','meses','lat','lng','prec','t','ubicadoEn','registrado','ultimoUso','orden','maxPrestamo','maxGasto','cerradoEn','actualizado','salario','pctRecaudo','pctVentas','maxCuotas','maxRenov'];
 const CAMPOS_ID = ['prestamoId','clienteId','cobradorId','registradoPor','creadoPor','entregadoPor','revisadoPor','nuevoPrestamoId','renovacionDe','empresaId','ceoUid','uid'];
 const CAMPOS_TXT = ['nombre','cedula','tel1','tel2','direccion','ciudad','obs','nota','concepto','email','estado','rol','tipo','negocio','nit','contacto',
-  'telefono','notas','metodo','ruta','fuente','modelo','plataforma','resultado','motivo','volver','empresaNombre','fecha','pagadoHasta','anterior','nuevo','fechaRenovacion','fechaCapital'];
+  'telefono','notas','metodo','ruta','fuente','modelo','plataforma','resultado','motivo','volver','texto','accion','col','docId','detalle','periodoPago','empresaNombre','fecha','pagadoHasta','anterior','nuevo','fechaRenovacion','fechaCapital'];
 const PERIODOS_OK = ['DIARIO','SEMANAL','QUINCENAL','MENSUAL'];
 const FECHA_OK = /^\d{4}-\d{2}-\d{2}$/;
 function sanearDoc(x){

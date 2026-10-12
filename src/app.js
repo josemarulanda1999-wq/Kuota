@@ -11,7 +11,7 @@ const defaultConfig = () => ({ negocio:'Kuota', capitalInicial:0, fechaCapital:'
   pais:'CO', conceptosGasto:['Gasolina','Alimentación','Transporte','Arreglo de moto','Celular y recargas','Papelería','Otros'],
   conceptosIngreso:['Multa','Seguro del cliente','Aporte a la ruta','Otros'], mensajeRecibo:'Gracias por su pago puntual.' });
 const emptyDB = () => ({ config:defaultConfig(), clientes:[], prestamos:[], pagos:[], salidas:[], capital:[], ingresos:[], entregas:[], renovaciones:[], users:[],
-  movruta:[], visitas:[], cierres:[], aprobaciones:[], rutas:[] });
+  movruta:[], visitas:[], cierres:[], aprobaciones:[], rutas:[], notas:[] });
 
 let DB = emptyDB();
 let ME = null;            // perfil del usuario: {uid, nombre, email, rol, activo}
@@ -50,10 +50,20 @@ function dbAdd(col, data){
 }
 function dbUpd(col, id, data){
   const cur = DB[col].find(x=>x.id===id);
+  if(['prestamos','pagos','clientes'].includes(col) && typeof auditar==='function' && !('orden' in data && Object.keys(data).length===1) && !('lat' in data) && !('castigado' in data))
+    auditar('editar', COLS_AUDIT[col], id, describirDoc(col, cur) + ' → ' + Object.keys(data).filter(k=>cur && String(cur[k])!==String(data[k])).join(', '));
   if(cur) Object.assign(cur, data);
   S.update(col, id, data).catch(falloNube);
 }
+const COLS_AUDIT = {prestamos:'préstamo', pagos:'pago', clientes:'cliente', entregas:'entrega/base', movruta:'gasto de ruta', salidas:'egreso', ingresos:'ingreso', capital:'capital', cierres:'cierre de ruta', renovaciones:'renovación'};
+function describirDoc(col, x){
+  if(!x) return '';
+  if(col==='pagos'||col==='prestamos'){ const p = col==='pagos' ? DB.prestamos.find(y=>y.id===x.prestamoId)||{} : x; return `${nombreCliente(p.clienteId)} · ${fmt(x.monto)} · ${fdate(x.fecha)}`; }
+  if(col==='clientes') return x.nombre||'';
+  return [x.concepto, x.valor!=null?fmt(x.valor):'', x.fecha?fdate(x.fecha):''].filter(Boolean).join(' · ');
+}
 function dbDel(col, id){
+  if(COLS_AUDIT[col] && typeof auditar==='function') auditar(col==='cierres'?'reabrir':'borrar', COLS_AUDIT[col], id, describirDoc(col, (DB[col]||[]).find(x=>x.id===id)));
   DB[col] = DB[col].filter(x=>x.id!==id);
   S.remove(col, id).catch(falloNube);
 }
@@ -136,7 +146,11 @@ function calcular(monto, tasa, meses, periodo){
 }
 function addPeriodo(d, periodo, excluirDomingos){
   const n = new Date(d);
-  if(periodo==='DIARIO'){ n.setDate(n.getDate()+1); if(excluirDomingos && n.getDay()===0) n.setDate(n.getDate()+1); }
+  if(periodo==='DIARIO'){
+    n.setDate(n.getDate()+1);
+    const fest = (DB.config && DB.config.festivos) || [];
+    for(let i=0;i<10;i++){ if((excluirDomingos && n.getDay()===0) || fest.includes(ymd(n))) n.setDate(n.getDate()+1); else break; }
+  }
   else if(periodo==='SEMANAL') n.setDate(n.getDate()+7);
   else if(periodo==='QUINCENAL') n.setDate(n.getDate()+15);
   else { const day=n.getDate(); n.setMonth(n.getMonth()+1); if(n.getDate()!==day) n.setDate(0); }
@@ -147,11 +161,22 @@ function cronograma(p){
   for(let i=1;i<=p.cuotas;i++){ d=addPeriodo(d,p.periodo,p.excluirDomingos); out.push({n:i,fecha:ymd(d)}); }
   return out;
 }
+/* multa por no pago: cada N visitas "no pagó" se suma una cuota (o un valor fijo) al saldo */
+function multaDe(p){
+  const m = (DB.config && DB.config.multa) || {};
+  if(!m.activa || !(Number(m.cada)>0)) return {valor:0, n:0, veces:0};
+  const n = DB.visitas.filter(v=>v.prestamoId===p.id && (!m.desde || v.fecha>=m.desde)).length;
+  const veces = Math.floor(n / Number(m.cada));
+  const unidad = m.tipo==='fijo' ? (Number(m.valor)||0) : (Number(p.valorCuota)||0);
+  return {valor: veces*unidad, n, veces};
+}
 function pagosDe(id){ return DB.pagos.filter(x=>x.prestamoId===id).sort((a,b)=>a.fecha.localeCompare(b.fecha)); }
 function estadoPrestamo(p, hoy=todayStr()){
   const pagos = pagosDe(p.id);
   const pagado = pagos.reduce((s,x)=>s+x.monto,0);
-  const totalReal = p.valorCuota * p.cuotas; // lo que realmente se cobra
+  const base = p.valorCuota * p.cuotas;
+  const multa = multaDe(p);
+  const totalReal = base + multa.valor; // lo que realmente se cobra (cuotas + multas por no pago)
   const saldo = Math.max(0, totalReal - pagado);
   const cron = cronograma(p);
   const vencidas = cron.filter(c=>c.fecha<=hoy).length;
@@ -162,14 +187,17 @@ function estadoPrestamo(p, hoy=todayStr()){
   const cuotasAtraso = atrasoMora>0 ? Math.ceil(atrasoMora / p.valorCuota - 1e-6) : 0;
   const cuotasPagadas = Math.min(p.cuotas, Math.floor((pagado+1) / p.valorCuota));
   const proxima = cron.find(c=>c.n>cuotasPagadas);
-  const fracInteres = totalReal>0 ? (totalReal - p.monto)/totalReal : 0;
-  const utilidad = Math.min(pagado, totalReal) * fracInteres;
+  const fracInteres = base>0 ? (base - p.monto)/base : 0;
+  const pagadoImp = pagos.filter(x=>x.tipo==='importado').reduce((s,x)=>s+x.monto,0);
+  const utilidad = Math.min(pagado, base) * fracInteres + Math.max(0, Math.min(pagado, totalReal) - base);
   const venceHoy = cron.some(c=>c.fecha===hoy);
   let estado = 'Al día';
   if(saldo<1) estado='Pagado';
+  else if(p.castigado) estado='Castigado';
   else if(atrasoMora>0) estado='En mora';
   const diasMora = (estado==='En mora' && proxima) ? Math.max(0, Math.round((parseD(hoy)-parseD(proxima.fecha))/864e5)) : 0;
-  return { pagado, saldo, totalReal, atraso, atrasoMora, cuotasAtraso, cuotasPagadas, proxima, utilidad, estado, venceHoy, cron, pagos, diasMora,
+  if(p.castigado){ atraso=0; atrasoMora=0; }
+  return { pagado, pagadoImp, multa, saldo, totalReal, atraso, atrasoMora, cuotasAtraso, cuotasPagadas, proxima, utilidad, estado, venceHoy, cron, pagos, diasMora,
            ultimoPago: pagos.length? pagos[pagos.length-1].fecha : null };
 }
 function resumen(){
@@ -177,8 +205,9 @@ function resumen(){
   let prestado=0, recaudo=0, utilidad=0, cartera=0, mora=0, activos=0, enMora=0;
   for(const p of DB.prestamos){
     const e = estadoPrestamo(p,hoy);
-    prestado += p.monto; recaudo += e.pagado; utilidad += e.utilidad;
-    if(e.estado!=='Pagado'){ cartera += e.saldo; activos++; }
+    if(!p.importado) prestado += p.monto;
+    recaudo += e.pagado - e.pagadoImp; utilidad += e.utilidad * (e.pagado ? (e.pagado - e.pagadoImp)/e.pagado : 0);
+    if(e.estado!=='Pagado' && e.estado!=='Castigado'){ cartera += e.saldo; activos++; }
     if(e.estado==='En mora'){ mora += e.atrasoMora; enMora++; }
   }
   const salidas = DB.salidas.reduce((s,x)=>s+x.valor,0) + DB.movruta.filter(x=>x.tipo==='gasto').reduce((s,x)=>s+x.valor,0);
@@ -194,7 +223,7 @@ function cobrosDelDia(hoy=todayStr()){
   const out=[];
   for(const p of DB.prestamos){
     const e = estadoPrestamo(p,hoy);
-    if(e.estado==='Pagado') continue;
+    if(e.estado==='Pagado' || e.estado==='Castigado') continue;
     const pagadoHoy = e.pagos.filter(x=>x.fecha===hoy).reduce((s,x)=>s+x.monto,0);
     if(e.atraso>0.5 || e.venceHoy || pagadoHoy>0){
       out.push({p,e,pagadoHoy,cobrar: e.atraso});
@@ -221,14 +250,14 @@ const NAV_ADMIN = [['panel','Panel','Panel'],['cobros','Cobros del día','Cobros
 const NAV_COB = [['cobros','Mi ruta','Ruta'],['clientes','Mis clientes','Clientes'],['prestamos','Préstamos','Préstamos'],['cuadre','Mi cuadre','Cuadre']];
 const PERMITIDAS_COB = ['cobros','clientes','prestamos','cuadre','calculadora'];
 ICONS.renovaciones='<path d="M12 4V1L8 5l4 4V6a6 6 0 016 6 6 6 0 01-.7 2.8l1.5 1.5A8 8 0 0020 12a8 8 0 00-8-8zm0 14a6 6 0 01-6-6c0-1 .3-2 .7-2.8L5.2 7.7A8 8 0 004 12a8 8 0 008 8v3l4-4-4-4z"/>';
-const SOLO_CEO = ['panel','movimientos','salidas','usuarios','ajustes','suscripcion','analisis'];  // el Admin no ve el dinero del negocio
+const SOLO_CEO = ['panel','movimientos','salidas','usuarios','ajustes','suscripcion','analisis','nomina','auditoria'];  // el Admin no ve el dinero del negocio
 /* menú: pocas opciones principales y el resto en "Más" */
 ICONS.caja=ICONS.movimientos;
 ICONS.mas='<path d="M6 10a2 2 0 100 4 2 2 0 000-4zm6 0a2 2 0 100 4 2 2 0 000-4zm6 0a2 2 0 100 4 2 2 0 000-4z"/>';
 const VISTAS_CAJA = ['movimientos','cuadre','salidas'];
 function menu(){
   if(isCeo()) return { main:[['panel','Panel'],['cobros','Cobros'],['prestamos','Préstamos'],['clientes','Clientes'],['caja','Caja']],
-                       mas:[['analisis','Análisis de rutas'],['mapa','Mapa'],['renovaciones','Aprobaciones'],['usuarios','Usuarios'],['suscripcion','Mi suscripción'],['calculadora','Calculadora'],['ajustes','Ajustes']] };
+                       mas:[['analisis','Análisis de rutas'],['mapa','Mapa'],['renovaciones','Aprobaciones'],['usuarios','Usuarios'],['nomina','Liquidación'],['auditoria','Auditoría'],['suscripcion','Mi suscripción'],['calculadora','Calculadora'],['ajustes','Ajustes']] };
   if(isAdmin()) return { main:[['cobros','Cobros'],['prestamos','Préstamos'],['clientes','Clientes'],['cuadre','Cuadre']],
                          mas:[['mapa','Mapa'],['renovaciones','Aprobaciones'],['calculadora','Calculadora']] };
   return { main:[['cobros','Mi ruta'],['clientes','Clientes'],['prestamos','Préstamos'],['cuadre','Cuadre'],['calculadora','Calcular']], mas:[] };
@@ -368,6 +397,7 @@ function ava(nombre){
 
 function pill(e){
   if(e.estado==='Pagado') return '<span class="pill p-pag">Pagado</span>';
+  if(e.estado==='Castigado') return '<span class="pill p-mora">Castigado</span>';
   if(e.estado==='En mora') return `<span class="pill p-mora">Mora · ${e.cuotasAtraso} cuota${e.cuotasAtraso>1?'s':''}</span>`;
   if(e.venceHoy && e.atraso>0) return '<span class="pill p-hoy">Paga hoy</span>';
   return '<span class="pill p-ok">Al día</span>';
@@ -419,6 +449,7 @@ VIEWS.cobros = () => {
     <div class="kpi cream"><div class="l">Pendiente por cobrar</div><div class="v">${fmt(totalCobrar)}</div></div>
     <div class="kpi hl"><div class="l">Cobrado ese día</div><div class="v">${fmt(totalPagado)}</div></div>
   </div>
+  ${bloqueNotasRuta()}
   ${miRutaCerrada(fecha)?'<div class="banner">Tu ruta de este día ya está cerrada. Para registrar algo más, pídele a la oficina que la reabra.</div>':''}
   ${!isAdmin()?bloqueRenovacionesCobrador():(DB.renovaciones.some(r=>r.estado==='pendiente')?`<div class="banner">Hay ${DB.renovaciones.filter(r=>r.estado==='pendiente').length} solicitud(es) de renovación esperando aprobación. <button class="btn sm" data-go="renovaciones">Revisar</button></div>`:'')}
   ${tarjetas ? (list.length? `<div class="cobros-grid">${list.map(c=>cobroCard(c,fecha)).join('')}</div>` : `<div class="card"><div class="empty">Nada que cobrar en esta fecha.</div></div>`) : `<div class="card">
@@ -571,12 +602,20 @@ VIEWS.ajustes = () => {
     <button class="btn" onclick="modalCapital()">+ Registrar aporte / retiro</button>
   </div>
   ${bloqueAjustesRuta()}
+  ${bloqueAjustesFase2()}
   <div class="card pad">
     <h2>Respaldo de la información</h2>
     <p class="muted" style="margin-top:-6px">Todo queda guardado en la nube y se sincroniza con los celulares de las rutas. Igual puedes descargar una copia cuando quieras.</p>
     <div class="row" style="margin-bottom:10px">
       <button class="btn" onclick="descargarRespaldo()">Descargar copia (.json)</button>
       <button class="btn" onclick="document.getElementById('impFile').click()">Subir datos de la app anterior</button>
+    </div>
+    <h2 style="margin-top:18px">Importar clientes y créditos desde Excel</h2>
+    <p class="muted" style="margin-top:-6px">Para pasar tu cartera desde otro sistema. Descarga la plantilla, llénala en Excel y guárdala como CSV.</p>
+    <div class="row" style="margin-bottom:10px">
+      <button class="btn" onclick="descargarPlantilla()">Descargar plantilla</button>
+      <button class="btn pri" onclick="document.getElementById('impXls').click()">Subir archivo (.csv)</button>
+      <input type="file" id="impXls" accept=".csv,text/csv,text/plain" style="display:none" onchange="importarExcel(this.files[0]);this.value=''">
       <input type="file" id="impFile" accept=".json,application/json" style="display:none" onchange="importar(this.files[0])">
     </div>
     <div class="row" style="margin-bottom:10px">
@@ -609,11 +648,12 @@ function movimientos(){
     else L.push({key:'k'+x.id,id:x.id,fecha:x.fecha,orden:4,creado:x.creado||0,tipo:'retiro',concepto:'Retiro de capital',detalle:x.concepto,ent:0,sal:-x.valor,por:x.creadoPor});
   }
   for(const p of DB.prestamos){
+    if(p.importado) continue;            // los créditos importados de otro sistema no movieron la caja de Kuota
     const per={DIARIO:'diarias',SEMANAL:'semanales',QUINCENAL:'quincenales',MENSUAL:'mensuales'}[p.periodo]||'';
     L.push({key:'p'+p.id,id:p.id,fecha:p.fecha,orden:3,creado:p.creado||0,tipo:'prestamo',concepto:'Préstamo a '+nombreCliente(p.clienteId),detalle:`${fmtN(p.tasa)}% mensual, ${p.cuotas} cuotas ${per} de ${fmt(p.valorCuota)}${p.fuente==='ruta'?' · entregado por '+nombreRuta(p.cobradorId):''}`,ent:0,sal:p.monto,por:p.creadoPor});
   }
   for(const x of DB.pagos){
-    const p=DB.prestamos.find(y=>y.id===x.prestamoId); if(!p) continue;
+    const p=DB.prestamos.find(y=>y.id===x.prestamoId); if(!p || x.tipo==='importado') continue;
     const tot=p.valorCuota*p.cuotas, fr= tot>0?(tot-p.monto)/tot:0, int=x.monto*fr;
     L.push({key:'g'+x.id,id:x.id,prestamoId:p.id,fecha:x.fecha,orden:2,creado:x.creado||0,tipo:x.tipo==='renovacion'?'renov':'pago',concepto:(x.tipo==='renovacion'?'Renovación de ':'Pago de ')+nombreCliente(p.clienteId),detalle:`Capital ${fmt(x.monto-int)} + interés ${fmt(int)}${x.nota?' — '+x.nota:''}`,ent:x.monto,sal:0,interes:int,por:x.registradoPor||x.creadoPor});
   }
@@ -847,6 +887,7 @@ function modalPrestamo(id, clienteId, preset){
     <label class="f">Periodo de pago<select class="input" id="pPer">${PERIODOS.map(x=>`<option ${x===p.periodo?'selected':''}>${x}</option>`).join('')}</select></label>
     <label class="chk" style="align-self:end;padding-bottom:8px"><input type="checkbox" id="pDom" ${p.excluirDomingos?'checked':''}> No cobrar domingos (diario)</label>
     <label class="f full">Nota<input class="input" id="pNot" value="${esc(p.nota||'')}" placeholder="Opcional: fiador, garantía, etc."></label>
+    ${id?'':`<label class="f">Seguro del crédito (opcional)<input class="input" id="pSeg" inputmode="decimal" placeholder="${Number(DB.config.seguroPct)?fmtN(DB.config.seguroPct)+'% del valor':'0'}"></label>`}
     ${id?'':bloqueFotos()}
   </div>
   <div class="calcbox" id="pCalc" style="margin-top:16px"></div>
@@ -864,6 +905,9 @@ function modalPrestamo(id, clienteId, preset){
   };
   const g = k=>document.getElementById(k).value;
   ['pMon','pTas','pMes','pPer'].forEach(k=>document.getElementById(k).addEventListener('input',upd));
+  const seg=document.getElementById('pSeg'); let segTocado=false;
+  if(seg){ seg.addEventListener('input',()=>segTocado=true);
+    document.getElementById('pMon').addEventListener('input',()=>{ if(!segTocado && Number(DB.config.seguroPct)) seg.value=fmtIn(num(g('pMon'))*DB.config.seguroPct/100); }); }
   const mon=document.getElementById('pMon');
   mon.addEventListener('blur',()=>{ const n=num(mon.value); if(n) mon.value=fmtIn(n); });
   const verFuente = ()=>{ const cl=clienteById(g('pCli')); const r=cl&&cl.cobradorId&&userById(cl.cobradorId);
@@ -891,6 +935,8 @@ function modalPrestamo(id, clienteId, preset){
     if(!isAdmin()){
       // la ruta presta desde su caja; si pasa el tope, queda como solicitud para la oficina
       if(rutaBloqueada()) return;
+      const maxC = Number(rutaCfg(ME.uid).maxCuotas)||0;
+      if(maxC && c.cuotas > maxC) return avisar(`Tu ruta permite máximo ${maxC} cuotas por crédito. Este tiene ${c.cuotas}.`);
       cobP = ME.uid; data.fuente = 'ruta'; data.fecha = todayStr();
       const max = Number(rutaCfg(ME.uid).maxPrestamo)||0;
       if(!max || monto > max){
@@ -905,6 +951,7 @@ function modalPrestamo(id, clienteId, preset){
     if(id){ if(cli!==p.clienteId) data.cobradorId=cobP; dbUpd('prestamos',id,data); }
     else {
       const pid = dbAdd('prestamos',{...data, cobradorId:cobP});
+      registrarSeguro(seg?num(seg.value):0, pid, cli, cobP, data.fuente==='ruta');
       if(hayFotos(FOTOS_TMP)) guardarFotos(pid, cli, FOTOS_TMP).catch(falloNube);
       FOTOS_TMP = {};
     }
@@ -1004,7 +1051,7 @@ function modalDetalle(id, tab='cuotas'){
   const pagosHtml = e.pagos.length? e.pagos.map(x=>`<tr><td>${fdate(x.fecha)}</td><td class="num">${fmt(x.monto)}</td><td>${esc(x.nota||'')}<div style="margin-top:3px">${etiquetaMedio(x)}</div></td><td class="muted" style="font-size:12px">${esc(nombreUsuario(x.registradoPor))}</td>${isAdmin()?`<td style="white-space:nowrap">${celdaGPSPago(x)}</td>`:''}<td class="right no-print">${isCeo()?`<button class="btn sm" onclick="viewState._reopen=1;modalPago(null,'${x.id}')">Editar</button>`:''}</td></tr>`).join('') : `<tr><td colspan="6" class="muted">Sin pagos todavía.</td></tr>`;
   openModal(`
   <div class="row" style="margin-bottom:6px">${ava(c.nombre)}<h3 style="margin:0">${esc(c.nombre||'(sin cliente)')}</h3>${pill(e)}<span class="spacer"></span>
-    ${isNative()?'':'<button class="btn sm" onclick="window.print()">Imprimir</button>'}${isCeo()?`<button class="btn sm" onclick="modalPrestamo('${p.id}')">Editar</button>`:''}${puedeRenovar(p)?`<button class="btn sm" onclick="modalRenovacion('${p.id}')">${isAdmin()?'Renovar':'Solicitar renovación'}</button>`:''}<button class="btn sm pri" onclick="viewState._reopen=1;modalPago('${p.id}')">Registrar pago</button><button class="btn sm ghost" onclick="closeModal()">✕</button></div>
+    ${isNative()?'':'<button class="btn sm" onclick="window.print()">Imprimir</button>'}${isCeo()?`<button class="btn sm" onclick="modalPrestamo('${p.id}')">Editar</button>`:''}${isCeo()&&e.estado!=='Pagado'?`<button class="btn sm ${p.castigado?'':'danger'}" onclick="castigarPrestamo('${p.id}',${p.castigado?'true':'false'})">${p.castigado?'Reactivar':'Castigar'}</button>`:''}${puedeRenovar(p)?`<button class="btn sm" onclick="modalRenovacion('${p.id}')">${isAdmin()?'Renovar':'Solicitar renovación'}</button>`:''}<button class="btn sm pri" onclick="viewState._reopen=1;modalPago('${p.id}')">Registrar pago</button><button class="btn sm ghost" onclick="closeModal()">✕</button></div>
   <p class="muted" style="margin:0 0 14px">${esc(c.cedula||'')} ${c.tel1?'· '+esc(c.tel1):''} ${c.direccion?'· '+esc(c.direccion):''} ${btnComoLlegar(c)}${p.nota?'<br>Nota: '+esc(p.nota):''}</p>
   <div class="detail-grid">
     <div><div class="l">Fecha</div><div class="v">${fdate(p.fecha)}</div></div>
@@ -1014,7 +1061,7 @@ function modalDetalle(id, tab='cuotas'){
     <div><div class="l">Valor cuota</div><div class="v">${fmt(p.valorCuota)}</div></div>
     <div><div class="l">Total a pagar</div><div class="v">${fmt(e.totalReal)}</div></div>
     <div><div class="l">Pagado</div><div class="v" style="color:var(--green)">${fmt(e.pagado)}</div></div>
-    <div><div class="l">Saldo (deuda actual)</div><div class="v">${fmt(e.saldo)}</div></div>
+    <div><div class="l">Saldo (deuda actual)</div><div class="v">${fmt(e.saldo)}</div>${e.multa.valor?`<div class="muted" style="font-size:12px">Incluye multas ${fmt(e.multa.valor)} (${e.multa.n} no pagos)</div>`:''}</div>
     <div><div class="l">En mora</div><div class="v" style="color:${e.atrasoMora?'var(--red)':'inherit'}">${fmt(e.atrasoMora)}${e.diasMora?` · ${e.diasMora} días`:''}</div></div>
     <div><div class="l">Próxima cuota</div><div class="v">${e.proxima?fdate(e.proxima.fecha):'—'}</div></div>
   </div>
@@ -1137,7 +1184,7 @@ function modalUsuario(id){
   if(u){
     openModal(`<h3>${esc(u.nombre)}</h3>
     <div class="form"><label class="f full">Nombre<input class="input" id="uNom" value="${esc(u.nombre)}"></label>
-    ${u.rol==='cobrador'?`<label class="f full">Nombre de la ruta<input class="input" id="uRuta" value="${esc(u.ruta||'')}" placeholder="Ej: Ruta Norte"></label>${bloqueCfgRuta(u.id)}`:''}
+    ${u.rol==='cobrador'?`<label class="f full">Nombre de la ruta<input class="input" id="uRuta" value="${esc(u.ruta||'')}" placeholder="Ej: Ruta Norte"></label>${bloqueCfgRuta(u.id)}${bloqueNominaRuta(u.id)}`:''}
     <label class="f full">Correo<input class="input" value="${esc(u.email)}" disabled></label></div>
     <p class="muted" style="font-size:13px">¿Olvidó la contraseña? <button class="btn sm" id="uReset">Enviarle correo para cambiarla</button></p>
     ${u.activo!==false?`<div class="card pad" style="background:var(--panel-2);margin:6px 0 10px"><b>${u.suspendido?'Acceso suspendido':'Acceso activo'}</b>
@@ -1222,8 +1269,14 @@ function pantallaBloqueo(){
    El cliente debe un saldo (capital + intereses). Se le hace un préstamo nuevo:
    el saldo viejo se cancela con un "pago por renovación" (no es efectivo) y
    solo se le entrega en efectivo la diferencia (excedente). */
-const efectivo = x => x.tipo !== 'renovacion';           // los cruces por renovación no son plata que entra
-function puedeRenovar(p){ return estadoPrestamo(p).estado !== 'Pagado' && !DB.renovaciones.some(r=>r.prestamoId===p.id && r.estado==='pendiente'); }
+const efectivo = x => x.tipo !== 'renovacion' && x.tipo !== 'importado';   // cruces por renovación y saldos importados no son plata que entra
+function puedeRenovar(p){
+  const est = estadoPrestamo(p).estado;
+  if(est==='Pagado' || est==='Castigado' || DB.renovaciones.some(r=>r.prestamoId===p.id && r.estado==='pendiente')) return false;
+  const max = Number(rutaCfg(p.cobradorId).maxRenov)||0;                 // tope de renovaciones por cliente de la ruta
+  if(max && !isCeo() && DB.prestamos.filter(x=>x.clienteId===p.clienteId && x.renovacionDe).length >= max) return false;
+  return true;
+}
 function modalRenovacion(prestamoId, renovacionId){
   const ren = renovacionId ? DB.renovaciones.find(r=>r.id===renovacionId) : null;
   const p = DB.prestamos.find(x=>x.id===(ren?ren.prestamoId:prestamoId)); if(!p) return;
@@ -1411,7 +1464,7 @@ VIEWS.cuadre = () => {
     <div class="cr-fila transf"><span>Por transferencia (${c.nTransfDia})</span><b>${fmt(c.transfDia)}</b></div>
     ${(()=>{ const ci=cierreDe(u.id, fecha); return ci ? `<div class="row" style="margin-top:10px"><span class="pill p-ok">Cerrada ${new Date(ci.cerradoEn).toLocaleTimeString('es-CO',{hour:'numeric',minute:'2-digit'})}</span><span class="spacer"></span><button class="btn sm" onclick="reabrirRuta('${u.id}','${fecha}')">Reabrir</button></div>`
       : `<div class="row" style="margin-top:10px"><span class="pill p-hoy">Abierta</span><span class="spacer"></span><button class="btn sm ghost" onclick="cerrarRutaOficina('${u.id}','${fecha}')">Cerrar</button></div>`; })()}
-    <div class="row" style="margin-top:10px"><button class="btn sm" onclick="modalBase('${u.id}','${fecha}')">Asignar base</button><button class="btn sm" onclick="modalGastoRuta('gasto','${u.id}','${fecha}')">+ Gasto</button><button class="btn sm" onclick="modalGastoRuta('ingreso','${u.id}','${fecha}')">+ Ingreso</button><span class="spacer"></span><button class="btn sm pri" onclick="modalEntrega('${u.id}','${fecha}')">Recibir plata</button></div>
+    <div class="row" style="margin-top:10px"><button class="btn sm" onclick="modalBase('${u.id}','${fecha}')">Asignar base</button><button class="btn sm" onclick="modalGastoRuta('gasto','${u.id}','${fecha}')">+ Gasto</button><button class="btn sm" onclick="modalGastoRuta('ingreso','${u.id}','${fecha}')">+ Ingreso</button><button class="btn sm ghost" onclick="modalNota('${u.id}')">Nota</button><span class="spacer"></span><button class="btn sm pri" onclick="modalEntrega('${u.id}','${fecha}')">Recibir plata</button></div>
   </div>`).join('')}</div>`:`<div class="card"><div class="empty">Aún no tienes rutas. Solicítalas en Usuarios.</div></div>`}
   ${(()=>{const es=DB.entregas.filter(x=>x.fecha===fecha); return es.length?`<div class="card pad" style="margin:16px 0"><h2>Bases y entregas de ese día</h2><div class="tablewrap"><table><tbody>${es.map(x=>`<tr><td>${x.tipo==='base'?'<span class="pill p-pag">Base</span>':'<span class="pill p-ok">Entrega</span>'}</td><td>${esc(nombreRuta(x.cobradorId))}</td><td>${esc(x.nota||'')}</td><td class="num">${fmt(x.valor)}</td><td class="muted">${esc(nombreUsuario(x.creadoPor))}</td><td class="right">${isCeo()?`<button class="btn sm danger" onclick="borrarEntrega('${x.id}')">Borrar</button>`:''}</td></tr>`).join('')}</tbody></table></div></div>`:'<div style="height:16px"></div>';})()}
   ${tablaPagosDia(todosPagos,true)}`;

@@ -219,7 +219,11 @@ function bloqueCfgRuta(uid){
 }
 function guardarCfgRuta(uid){
   const el = document.getElementById('rPrest'); if(!el) return;
-  const d = {cobradorId:uid, puedePrestar:el.checked, maxPrestamo:num(document.getElementById('rMax').value), maxGasto:num(document.getElementById('rGas').value), actualizado:Date.now()};
+  const g = id => document.getElementById(id) ? document.getElementById(id).value : '';
+  const d = {cobradorId:uid, puedePrestar:el.checked, maxPrestamo:num(g('rMax')), maxGasto:num(g('rGas')),
+    salario:num(g('rSal')), periodoPago:['SEMANAL','QUINCENAL','MENSUAL'].includes(g('rPer'))?g('rPer'):'QUINCENAL',
+    pctRecaudo:Math.min(100,Math.max(0,num(g('rPR')))), pctVentas:Math.min(100,Math.max(0,num(g('rPV')))),
+    maxCuotas:Math.max(0,Math.round(num(g('rMC')))), maxRenov:Math.max(0,Math.round(num(g('rMR')))), actualizado:Date.now()};
   S.set('rutas', uid, d).catch(falloNube);
   const i = DB.rutas.findIndex(x=>x.id===uid); if(i>=0) DB.rutas[i]=Object.assign({id:uid}, d); else DB.rutas.push(Object.assign({id:uid}, d));
 }
@@ -287,7 +291,7 @@ function metricasRuta(uid, desde, hasta){
   for(const x of pagos){ const p=prest.find(y=>y.id===x.prestamoId); cobrado+=x.monto; intereses+=x.monto*fraccionInteres(p); if(x.medio==='transferencia') transf+=x.monto; }
   const gastos = DB.movruta.filter(m=>m.cobradorId===uid && m.tipo==='gasto' && enR(m.fecha)).reduce((s,m)=>s+m.valor,0);
   const ingresos = DB.movruta.filter(m=>m.cobradorId===uid && m.tipo==='ingreso' && enR(m.fecha)).reduce((s,m)=>s+m.valor,0);
-  const nuevos = prest.filter(p=>enR(p.fecha));
+  const nuevos = prest.filter(p=>enR(p.fecha) && !p.importado && !p.renovacionDe);
   return { cobrado, transf, intereses, gastos, ingresos, utilidad: intereses + ingresos - gastos, prestado: nuevos.reduce((s,p)=>s+p.monto,0), nNuevos: nuevos.length };
 }
 function estadoCarteraRuta(uid){

@@ -53,8 +53,11 @@ jobs:
           cd android
           chmod +x gradlew
           if [ -n "$KUOTA_KEYSTORE" ] && [ -n "$KUOTA_KS_PASS" ]; then
-            echo "$KUOTA_KEYSTORE" | base64 -d > "$RUNNER_TEMP/kuota-release.jks"
+            # se limpian espacios y saltos de línea que se cuelan al pegar los secretos desde Windows
+            printf '%s' "$KUOTA_KEYSTORE" | tr -d ' \r\n\t' | base64 -d > "$RUNNER_TEMP/kuota-release.jks" || { echo "::error::El secreto KUOTA_KEYSTORE no es un texto base64 válido. Vuelve a pegar el contenido completo de KUOTA_KEYSTORE.txt"; exit 1; }
+            export KUOTA_KS_PASS="$(printf '%s' "$KUOTA_KS_PASS" | tr -d '\r\n')"
             export KUOTA_KS="$RUNNER_TEMP/kuota-release.jks"
+            keytool -list -keystore "$KUOTA_KS" -storepass "$KUOTA_KS_PASS" -alias kuota > /dev/null || { echo "::error::La llave o la contraseña no coinciden. Revisa que KUOTA_KS_PASS sea exactamente el contenido de KUOTA_KS_PASS.txt"; exit 1; }
             ./gradlew assembleRelease --no-daemon
             cp app/build/outputs/apk/release/app-release.apk ../Kuota.apk
             rm -f "$RUNNER_TEMP/kuota-release.jks"

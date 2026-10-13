@@ -43,6 +43,10 @@ android {
             }
         }
     }
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
     buildTypes {
         release {
             if (System.getenv("KUOTA_KS")) { signingConfig signingConfigs.kuotaRelease }

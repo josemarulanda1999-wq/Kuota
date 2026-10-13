@@ -198,6 +198,7 @@ function modalRecibo(pagoId){
   <div class="actions"><button class="btn" onclick="closeModal()">Listo</button>
   ${wa?`<a class="btn pri" href="https://wa.me/${wa}?text=${encodeURIComponent(t)}" target="_blank" rel="noopener" onclick="setTimeout(closeModal,300)">Enviar por WhatsApp</a>`:''}
   ${x.comprobante?`<button class="btn" onclick="verComprobante('${pagoId}')">Ver comprobante</button>`:''}
+  ${urlReciboCorreo(pagoId)?`<a class="btn" href="${urlReciboCorreo(pagoId)}" onclick="setTimeout(closeModal,300)">Enviar por correo</a>`:''}
   <button class="btn ${wa?'':'pri'}" onclick="compartirRecibo('${pagoId}')">Compartir</button></div>`);
 }
 async function compartirRecibo(pagoId){

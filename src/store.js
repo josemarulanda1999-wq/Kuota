@@ -19,7 +19,8 @@ import { firebaseConfig } from './firebase-config.js';
 
 // GPS en segundo plano (servicio con notificación mientras el cobrador está en jornada)
 const BackgroundGeolocation = registerPlugin('BackgroundGeolocation');
-window.CapPlugins = { Filesystem, Directory, Encoding, Share, BackgroundGeolocation, Device };
+const LocalNotifications = registerPlugin('LocalNotifications');
+window.CapPlugins = { Filesystem, Directory, Encoding, Share, BackgroundGeolocation, Device, LocalNotifications };
 
 const configured = !!(firebaseConfig && firebaseConfig.apiKey && !String(firebaseConfig.apiKey).startsWith('PEGA'));
 let app, auth, db;
@@ -75,7 +76,7 @@ window.S = {
     const uns = [];
     const admin = me.rol === 'ceo' || me.rol === 'admin';
     const ceo = me.rol === 'ceo';
-    const ruta_ = ['movruta', 'visitas', 'cierres', 'aprobaciones', 'rutas', 'notas', 'caprutas'];
+    const ruta_ = ['movruta', 'visitas', 'cierres', 'aprobaciones', 'rutas', 'notas', 'caprutas', 'avisos'];
     const cols = (ceo ? ['clientes', 'prestamos', 'pagos', 'salidas', 'capital', 'ingresos', 'entregas', 'renovaciones'] : ['clientes', 'prestamos', 'pagos', 'entregas', 'renovaciones']).concat(ruta_);
     for (const c of cols) {
       const q = admin ? collection(db, ruta(c)) : query(collection(db, ruta(c)), where('cobradorId', '==', me.uid));

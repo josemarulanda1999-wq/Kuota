@@ -330,3 +330,15 @@ html,body{overflow-x:hidden}
 
 .capruta{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;background:var(--brand-soft);border-radius:14px;padding:10px 12px}
 .capruta span{display:block;font-size:11.5px;color:var(--muted)} .capruta b{font-variant-numeric:tabular-nums}
+
+/* ---------- notificaciones y avisos ---------- */
+.campana{position:relative;padding:7px 10px}
+.campana .badge{position:absolute;top:-5px;right:-5px;background:var(--red);color:#fff;font-size:10.5px;font-weight:700;border-radius:10px;padding:1px 6px}
+.aside-foot .campana{width:auto}
+.notif-lista{display:flex;flex-direction:column;gap:6px;max-height:60vh;overflow:auto;margin:6px 0}
+.notif{all:unset;cursor:pointer;display:flex;flex-direction:column;gap:2px;padding:10px 12px;border-radius:var(--r-sm);background:var(--panel-2)}
+.notif.nueva{box-shadow:inset 3px 0 0 var(--lime)}
+.notif b{font-size:13.5px} .notif span{font-size:13px;color:var(--ink)} .notif small{font-size:11.5px;color:var(--muted)}
+.aviso-txt{font-size:13px;line-height:1.45;background:var(--panel-2);border-radius:12px;padding:10px 12px;color:var(--ink)}
+.aside-foot #userBox button.campana-lat{display:flex;align-items:center;gap:7px;color:var(--ink);margin-bottom:10px}
+.campana-lat .badge{background:var(--red);color:#fff;font-size:10.5px;font-weight:700;border-radius:10px;padding:1px 7px}

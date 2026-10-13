@@ -11,7 +11,7 @@ const defaultConfig = () => ({ negocio:'Kuota', capitalInicial:0, fechaCapital:'
   pais:'CO', conceptosGasto:['Gasolina','Alimentación','Transporte','Arreglo de moto','Celular y recargas','Papelería','Otros'],
   conceptosIngreso:['Multa','Seguro del cliente','Aporte a la ruta','Otros'], mensajeRecibo:'Gracias por su pago puntual.' });
 const emptyDB = () => ({ config:defaultConfig(), clientes:[], prestamos:[], pagos:[], salidas:[], capital:[], ingresos:[], entregas:[], renovaciones:[], users:[],
-  movruta:[], visitas:[], cierres:[], aprobaciones:[], rutas:[], notas:[], caprutas:[] });
+  movruta:[], visitas:[], cierres:[], aprobaciones:[], rutas:[], notas:[], caprutas:[], avisos:[] });
 
 let DB = emptyDB();
 let ME = null;            // perfil del usuario: {uid, nombre, email, rol, activo}
@@ -36,6 +36,9 @@ function migrateConfig(c){
   out.conceptosGasto = lista(out.conceptosGasto, defaultConfig().conceptosGasto);
   out.conceptosIngreso = lista(out.conceptosIngreso, defaultConfig().conceptosIngreso);
   out.mensajeRecibo = String(out.mensajeRecibo||'').slice(0,300);
+  if(out.plantillas && typeof out.plantillas==='object'){ const pl={}; for(const k of ['recordatorio','mora','pazysalvo']) if(typeof out.plantillas[k]==='string') pl[k]=out.plantillas[k].slice(0,500); out.plantillas=pl; } else delete out.plantillas;
+  if(out.notif && typeof out.notif==='object'){ const n={}; for(const k of ['pagos','creditos','nopago','cierres']) n[k]=!!out.notif[k]; out.notif=n; } else delete out.notif;
+  for(const k of ['telDueno','mailDueno']) out[k]=String(out[k]||'').slice(0,120);
   return out;
 }
 
@@ -248,7 +251,7 @@ ICONS.suscripcion='<path d="M20 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V6
 ICONS.usuarios='<path d="M12 12a4 4 0 100-8 4 4 0 000 8zm0 2c-3.3 0-8 1.7-8 5v1h16v-1c0-3.3-4.7-5-8-5zm7-6h2v2h2v2h-2v2h-2v-2h-2v-2h2z"/>';
 const NAV_ADMIN = [['panel','Panel','Panel'],['cobros','Cobros del día','Cobros'],['movimientos','Movimientos','Caja'],['cuadre','Cuadre de caja','Cuadre'],['renovaciones','Renovaciones','Renovar'],['prestamos','Préstamos','Préstamos'],['clientes','Clientes','Clientes'],['salidas','Salidas de dinero','Gastos'],['usuarios','Usuarios','Usuarios'],['suscripcion','Mi suscripción','Plan'],['calculadora','Calculadora','Calcular'],['ajustes','Ajustes y respaldo','Ajustes']];
 const NAV_COB = [['cobros','Mi ruta','Ruta'],['clientes','Mis clientes','Clientes'],['prestamos','Préstamos','Préstamos'],['cuadre','Mi cuadre','Cuadre']];
-const PERMITIDAS_COB = ['cobros','clientes','prestamos','cuadre','calculadora'];
+const PERMITIDAS_COB = ['cobros','clientes','prestamos','cuadre','calculadora','avisos'];
 ICONS.renovaciones='<path d="M12 4V1L8 5l4 4V6a6 6 0 016 6 6 6 0 01-.7 2.8l1.5 1.5A8 8 0 0020 12a8 8 0 00-8-8zm0 14a6 6 0 01-6-6c0-1 .3-2 .7-2.8L5.2 7.7A8 8 0 004 12a8 8 0 008 8v3l4-4-4-4z"/>';
 const SOLO_CEO = ['panel','movimientos','salidas','usuarios','ajustes','suscripcion','analisis','nomina','auditoria'];  // el Admin no ve el dinero del negocio
 /* menú: pocas opciones principales y el resto en "Más" */
@@ -257,9 +260,9 @@ ICONS.mas='<path d="M6 10a2 2 0 100 4 2 2 0 000-4zm6 0a2 2 0 100 4 2 2 0 000-4zm
 const VISTAS_CAJA = ['movimientos','cuadre','salidas'];
 function menu(){
   if(isCeo()) return { main:[['panel','Panel'],['cobros','Cobros'],['prestamos','Préstamos'],['clientes','Clientes'],['caja','Caja']],
-                       mas:[['analisis','Análisis de rutas'],['mapa','Mapa'],['renovaciones','Aprobaciones'],['usuarios','Usuarios'],['nomina','Liquidación'],['auditoria','Auditoría'],['suscripcion','Mi suscripción'],['calculadora','Calculadora'],['ajustes','Ajustes']] };
+                       mas:[['analisis','Análisis de rutas'],['mapa','Mapa'],['renovaciones','Aprobaciones'],['avisos','Avisos a clientes'],['usuarios','Usuarios'],['nomina','Liquidación'],['auditoria','Auditoría'],['suscripcion','Mi suscripción'],['calculadora','Calculadora'],['ajustes','Ajustes']] };
   if(isAdmin()) return { main:[['cobros','Cobros'],['prestamos','Préstamos'],['clientes','Clientes'],['cuadre','Cuadre']],
-                         mas:[['mapa','Mapa'],['renovaciones','Aprobaciones'],['calculadora','Calculadora']] };
+                         mas:[['mapa','Mapa'],['renovaciones','Aprobaciones'],['avisos','Avisos a clientes'],['calculadora','Calculadora']] };
   return { main:[['cobros','Mi ruta'],['clientes','Clientes'],['prestamos','Préstamos'],['cuadre','Cuadre'],['calculadora','Calcular']], mas:[] };
 }
 function renderNav(){
@@ -276,8 +279,8 @@ function renderNav(){
   document.getElementById('nav').innerHTML = M.main.map(item).join('') + (M.mas.length ? item(['mas','Más']).replace('class=""', enMas?'class="on"':'class=""') : '');
   document.getElementById('logoName').innerHTML = `<img src="logo_dark.png" class="brand-img" alt="Kuota"><small>${esc((EMPRESA&&EMPRESA.nombre)||DB.config.negocio||'')}</small>`;
   const who = `<div class="who" style="margin-bottom:8px">${ava(ME.nombre)}<div style="min-width:0"><b style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(ME.nombre||ME.email)}</b><span>${rolDe(ME)}</span></div></div>`;
-  document.getElementById('userBox').innerHTML = who + (chipGPS()?`<div style="margin-bottom:8px">${chipGPS()}</div>`:'') + `<button onclick="cerrarSesion()">Cerrar sesión</button>`;
-  document.getElementById('topUser').innerHTML = `<img src="logo_dark.png" class="brand-img sm" alt="Kuota"><span class="spacer"></span>${chipGPS()}${ava(ME.nombre)}<button class="btn sm" onclick="cerrarSesion()">Salir</button>`;
+  document.getElementById('userBox').innerHTML = who + `<button class="campana-lat" onclick="abrirNotificaciones()">${ICON_CAMPANA}<span>Notificaciones</span>${sinLeer()?`<span class="badge">${sinLeer()}</span>`:''}</button>` + (chipGPS()?`<div style="margin-bottom:8px">${chipGPS()}</div>`:'') + `<button onclick="cerrarSesion()">Cerrar sesión</button>`;
+  document.getElementById('topUser').innerHTML = `<img src="logo_dark.png" class="brand-img sm" alt="Kuota"><span class="spacer"></span>${chipGPS()}${btnCampana()}${ava(ME.nombre)}<button class="btn sm" onclick="cerrarSesion()">Salir</button>`;
   void pend;
 }
 function abrirMas(){
@@ -443,7 +446,7 @@ VIEWS.cobros = () => {
   const totalPagado = list.reduce((s,c)=>s+c.pagadoHoy,0);
   return `
   <div class="head"><div><h1>${isAdmin()?'Cobros del día':'Mi ruta'}</h1><p class="sub">Cuotas que vencen y préstamos atrasados. Marca el pago apenas cobres.</p></div>
-  <div class="row">${isAdmin()?'':`${puedePrestarRuta()?`<button class="btn pri" onclick="modalPrestamo()">+ Crédito nuevo</button>`:''}<button class="btn ${puedePrestarRuta()?'':'pri'}" onclick="elegirRenovacion()">Solicitar renovación</button>`}${isAdmin()?'':'<button class="btn" onclick="modalEnrutar()">Orden de visita</button>'}${filtroCobrador('cobros')}<input type="date" class="input" style="width:auto" value="${fecha}" onchange="go('cobros',Object.assign({},viewState,{fecha:this.value}))">${isNative()?'':'<button class="btn no-print" onclick="window.print()">Imprimir ruta</button>'}</div></div>
+  <div class="row">${isAdmin()?'':`${puedePrestarRuta()?`<button class="btn pri" onclick="modalPrestamo()">+ Crédito nuevo</button>`:''}<button class="btn ${puedePrestarRuta()?'':'pri'}" onclick="elegirRenovacion()">Solicitar renovación</button>`}${isAdmin()?'':'<button class="btn" onclick="modalEnrutar()">Orden de visita</button><button class="btn" data-go="avisos">Avisar a clientes</button>'}${filtroCobrador('cobros')}<input type="date" class="input" style="width:auto" value="${fecha}" onchange="go('cobros',Object.assign({},viewState,{fecha:this.value}))">${isNative()?'':'<button class="btn no-print" onclick="window.print()">Imprimir ruta</button>'}</div></div>
   <div class="kpis">
     <div class="kpi sky"><div class="l">Visitados</div><div class="v">${visitados} de ${list.length}</div><div class="progress" style="margin-top:8px"><i style="width:${list.length?visitados/list.length*100:0}%"></i></div></div>
     <div class="kpi cream"><div class="l">Pendiente por cobrar</div><div class="v">${fmt(totalCobrar)}</div></div>
@@ -603,6 +606,7 @@ VIEWS.ajustes = () => {
   </div>
   ${bloqueAjustesRuta()}
   ${bloqueAjustesFase2()}
+  ${bloqueAjustesAvisos()}
   <div class="card pad">
     <h2>Respaldo de la información</h2>
     <p class="muted" style="margin-top:-6px">Todo queda guardado en la nube y se sincroniza con los celulares de las rutas. Igual puedes descargar una copia cuando quieras.</p>
@@ -838,6 +842,7 @@ function modalCliente(id, onSaved){
     <label class="f">Ciudad<input class="input" id="mCiu" value="${esc(c.ciudad)}"></label>
     <label class="f">Teléfono 1<input class="input" id="mT1" value="${esc(c.tel1)}"></label>
     <label class="f">Teléfono 2<input class="input" id="mT2" value="${esc(c.tel2)}"></label>
+    <label class="f full">Correo (para recibos y avisos)<input class="input" id="mMail" type="email" value="${esc(c.email||'')}" placeholder="Opcional"></label>
     <label class="f full">Dirección<input class="input" id="mDir" value="${esc(c.direccion)}"></label>
     <label class="f full">Observaciones<textarea class="input" id="mObs" rows="2">${esc(c.obs)}</textarea></label>
     ${bloqueUbicacionCliente(c)}
@@ -847,7 +852,7 @@ function modalCliente(id, onSaved){
   document.getElementById('mSave').onclick = ()=>{
     const v = k=>document.getElementById(k).value.trim();
     if(!v('mNom')) return toast('Escribe el nombre del cliente');
-    const data = Object.assign({nombre:v('mNom'),cedula:v('mCed'),tel1:v('mT1'),tel2:v('mT2'),direccion:v('mDir'),ciudad:v('mCiu'),obs:v('mObs')}, cambiosUbicCliente());
+    const data = Object.assign({nombre:v('mNom'),cedula:v('mCed'),tel1:v('mT1'),tel2:v('mT2'),email:v('mMail').toLowerCase().slice(0,120),direccion:v('mDir'),ciudad:v('mCiu'),obs:v('mObs')}, cambiosUbicCliente());
     let cid=id;
     const cob = isAdmin() ? document.getElementById('mCob').value : ME.uid;
     if(id){
@@ -1449,7 +1454,7 @@ VIEWS.cuadre = () => {
   const tot = k=>filas.reduce((s,f)=>s+(f.c[k]||0),0);
   const todosPagos = DB.pagos.filter(x=>x.fecha===fecha && efectivo(x));
   return `
-  <div class="head"><div><h1>Cuadre de rutas</h1><p class="sub">Cada ruta abre con una base, cobra, presta y te entrega. Aquí ves cuánto debe tener cada una.</p></div>${fechaInput}</div>
+  <div class="head"><div><h1>Cuadre de rutas</h1><p class="sub">Cada ruta abre con una base, cobra, presta y te entrega. Aquí ves cuánto debe tener cada una.</p></div><div class="row">${fechaInput}<button class="btn" onclick="modalResumenDia('${fecha}')">Enviar resumen</button></div></div>
   <div class="kpis">
     <div class="kpi sky"><div class="l">Bases entregadas ${hoy?'hoy':'ese día'}</div><div class="v">${fmt(tot('baseDia'))}</div></div>
     <div class="kpi hl"><div class="l">Cobrado ${hoy?'hoy':'ese día'}</div><div class="v">${fmt(todosPagos.reduce((s,x)=>s+x.monto,0))}</div><div class="n">Efectivo ${fmt(todosPagos.filter(enEfectivo).reduce((s,x)=>s+x.monto,0))} · Transferencia ${fmt(todosPagos.filter(porTransferencia).reduce((s,x)=>s+x.monto,0))}</div></div>
@@ -1593,6 +1598,7 @@ function arrancarDatos(){
   document.getElementById('login').style.display='none';
   document.getElementById('appShell').style.display='';
   view = isCeo() ? 'panel' : 'cobros'; viewState={};
+  if(typeof reiniciarNotif==='function') reiniciarNotif();
   unsub = S.subscribe(ME, (col, data)=>{
     if(col==='config'){
       const fin={}; for(const k of CAMPOS_FINANZAS) if(k in DB.config && DB.config[k]!==undefined) fin[k]=DB.config[k];
@@ -1602,7 +1608,7 @@ function arrancarDatos(){
     }
     else if(col==='finanzas') Object.assign(DB.config, sanearDoc(data||{}));
     else if(col==='error'){ console.error(data); if(String(data&&data.code)==='permission-denied') return; toast('Error de conexión con la nube'); return; }
-    else DB[col] = sanearLista(col, data);
+    else { DB[col] = sanearLista(col, data); if(typeof novedades==='function') novedades(col); }
     if(col==='users'){ const me=data.find(u=>u.id===ME.uid); if(me && me.activo===false){ detenerTodo(); S.logout(); return; }
       if(me && me.suspendido===true && !ME.soporte){ detenerTodo(); ME=Object.assign(ME,me); iniciarSesion(ME); return; } if(me) ME=Object.assign(ME,me); }
     scheduleRender();
@@ -1642,9 +1648,11 @@ if(isNative()) document.documentElement.classList.add('native');
 if(!S.configured){
   pantalla(`<div class="login-logo">$</div><h1>Falta conectar Firebase</h1><p class="sub">Pega la configuración de tu proyecto en <b>src/firebase-config.js</b> y vuelve a compilar.</p>`);
 } else {
-  S.watchAuth((user, prof)=>{
+  // se arranca cuando ya cargaron todos los módulos (campo, equipo, ruta, fase2, avisos)
+  const arrancar = () => S.watchAuth((user, prof)=>{
     if(!user){ detenerTodo(); ME=null; verLogin(); return; }
     if(!prof){ verLogin('Este usuario no tiene acceso a ningún negocio en Kuota.'); S.logout(); return; }
     iniciarSesion(prof);
   });
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', arrancar); else setTimeout(arrancar, 0);
 }

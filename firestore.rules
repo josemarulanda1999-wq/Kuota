@@ -49,7 +49,8 @@ service cloud.firestore {
     function prest(eid, pid) { return get(/databases/$(database)/documents/empresas/$(eid)/prestamos/$(pid)).data; }
 
     function okCliente(d) {
-      return d.keys().hasOnly(['nombre', 'cedula', 'tel1', 'tel2', 'direccion', 'ciudad', 'obs', 'cobradorId', 'lat', 'lng', 'ubicadoEn', 'orden', 'creado', 'creadoPor'])
+      return d.keys().hasOnly(['nombre', 'cedula', 'tel1', 'tel2', 'direccion', 'ciudad', 'obs', 'cobradorId', 'lat', 'lng', 'ubicadoEn', 'orden', 'email', 'creado', 'creadoPor'])
+        && optTxt(d, 'email', 120)
         && optNum(d, 'orden', 0, 100000)
         && coordsOk(d) && optNum(d, 'ubicadoEn', 0, 99999999999999)
         && txt(d.nombre, 120) && d.nombre.size() > 0
@@ -288,6 +289,15 @@ service cloud.firestore {
           && request.resource.data.keys().hasOnly(['cobradorId', 'fecha', 'valor', 'nota', 'creado', 'creadoPor'])
           && idOk(request.resource.data.cobradorId) && fechaOk(request.resource.data.fecha)
           && numOk(request.resource.data.valor, -100000000000, 100000000000) && optTxt(request.resource.data, 'nota', 200));
+        allow update, delete: if isSuper() || isCeo(eid);
+      }
+      // registro de avisos enviados a clientes (WhatsApp / correo)
+      match /avisos/{id} {
+        allow read: if isSuper() || isAdm(eid) || (isCob(eid) && own());
+        allow create: if isSuper() || (enEmpresa(eid) && vigente(eid) && idOk(id) && firma()
+          && request.resource.data.keys().hasOnly(['prestamoId', 'clienteId', 'cobradorId', 'tipo', 'canal', 'fecha', 'creado', 'creadoPor'])
+          && request.resource.data.tipo in ['recordatorio', 'mora', 'pazysalvo'] && request.resource.data.canal in ['whatsapp', 'correo']
+          && fechaOk(request.resource.data.fecha) && (isAdm(eid) || ownNew()));
         allow update, delete: if isSuper() || isCeo(eid);
       }
       // notas de la oficina para cada ruta

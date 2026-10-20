@@ -247,10 +247,10 @@ function resumen(){
 }
 /* contador aparte: multas generadas que no se han cobrado. No suman a caja, cartera ni utilidad */
 function contadorMultas(r){
-  if(!r.multasPend && !r.multasCobradas && !(DB.config.multa||{}).activa) return '';
+  const act = (DB.config.multa||{}).activa;
   return `<div class="card pad multas-box" style="margin-top:16px;display:flex;flex-wrap:wrap;gap:18px;align-items:center">
     <div style="flex:1;min-width:200px"><div class="l muted" style="font-size:12.5px">Multas por cobrar (aparte)</div><div style="font-size:24px;font-weight:700;color:var(--amber)">${fmt(r.multasPend)}</div>
-      <div class="muted" style="font-size:12px">${r.conMulta} crédito(s) con multa pendiente. No se suma a la caja, la cartera ni la utilidad hasta que el cliente la pague.</div></div>
+      <div class="muted" style="font-size:12px">${act?`${r.conMulta} crédito(s) con multa pendiente. No se suma a la caja, la cartera ni la utilidad hasta que el cliente la pague.`:`Las multas están apagadas. ${isCeo()?'<a href="#" onclick="go(\'ajustes\');return false" style="color:var(--amber)">Actívalas en Ajustes</a>':'El dueño las activa en Ajustes'} → “Cobros: festivos, multas y seguro”.`}</div></div>
     <div style="min-width:160px"><div class="l muted" style="font-size:12.5px">Multas ya cobradas</div><div style="font-size:20px;font-weight:700;color:var(--green)">${fmt(r.multasCobradas)}</div><div class="muted" style="font-size:12px">Esta sí es plata real y ya está en la caja</div></div>
   </div>`;
 }

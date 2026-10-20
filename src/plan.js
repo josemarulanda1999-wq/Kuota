@@ -65,7 +65,7 @@ const CAMPOS_NUM = ['monto','tasa','meses','cuotas','valorCuota','interesMes','t
   'capitalInicial','creado','revisadoEn','entregadoEn','cupoAdmins','cupoCobradores','diasGracia','venceMs','meses','lat','lng','prec','t','ubicadoEn','registrado','ultimoUso','orden','maxPrestamo','maxGasto','cerradoEn','actualizado','salario','pctRecaudo','pctVentas','maxCuotas','maxRenov'];
 const CAMPOS_ID = ['prestamoId','clienteId','cobradorId','registradoPor','creadoPor','entregadoPor','revisadoPor','nuevoPrestamoId','renovacionDe','empresaId','ceoUid','uid'];
 const CAMPOS_TXT = ['nombre','cedula','tel1','tel2','direccion','ciudad','obs','nota','concepto','email','estado','rol','tipo','negocio','nit','contacto',
-  'telefono','notas','metodo','ruta','fuente','modelo','plataforma','resultado','motivo','volver','modoInteres','texto','accion','col','docId','detalle','periodoPago','canal','empresaNombre','fecha','pagadoHasta','anterior','nuevo','fechaRenovacion','fechaCapital'];
+  'telefono','notas','metodo','ruta','fuente','modelo','plataforma','resultado','motivo','volver','modoInteres','texto','accion','col','docId','detalle','periodoPago','canal','empresaNombre','fecha','pagadoHasta','anterior','nuevo','fechaRenovacion','fechaCapital','primeraCuota'];
 const PERIODOS_OK = ['DIARIO','SEMANAL','QUINCENAL','MENSUAL'];
 const FECHA_OK = /^\d{4}-\d{2}-\d{2}$/;
 function sanearDoc(x){
@@ -74,7 +74,7 @@ function sanearDoc(x){
   if ('cuotas' in o) o.cuotas = Math.min(1000, Math.max(1, Math.round(o.cuotas)));
   if ('periodo' in o && !PERIODOS_OK.includes(o.periodo)) o.periodo = 'MENSUAL';
   for (const k of CAMPOS_TXT) if (k in o && typeof o[k] !== 'string') o[k] = o[k] == null ? '' : String(o[k]);
-  for (const k of ['fecha','pagadoHasta','anterior','nuevo','fechaRenovacion','fechaCapital','volver']) if (o[k] && !FECHA_OK.test(o[k])) o[k] = '';
+  for (const k of ['fecha','pagadoHasta','anterior','nuevo','fechaRenovacion','fechaCapital','volver','primeraCuota']) if (o[k] && !FECHA_OK.test(o[k])) o[k] = '';
   if (('lat' in o || 'lng' in o) && !(Math.abs(o.lat) <= 90 && Math.abs(o.lng) <= 180 && (o.lat || o.lng))) { delete o.lat; delete o.lng; }
   for (const k of CAMPOS_ID) if (k in o && (typeof o[k] !== 'string' || (o[k] && !ID_SEGURO.test(o[k])))) o[k] = '';
   return o;

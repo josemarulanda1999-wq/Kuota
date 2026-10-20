@@ -60,7 +60,8 @@ service cloud.firestore {
     }
     function okPrestamo(d) {
       return d.keys().hasOnly(['clienteId', 'fecha', 'monto', 'tasa', 'meses', 'periodo', 'excluirDomingos', 'nota', 'cuotas',
-                               'valorCuota', 'interesMes', 'total', 'cobradorId', 'renovacionDe', 'saldoCancelado', 'fuente', 'importado', 'castigado', 'modoInteres', 'creado', 'creadoPor'])
+                               'valorCuota', 'interesMes', 'total', 'cobradorId', 'renovacionDe', 'saldoCancelado', 'fuente', 'importado', 'castigado', 'modoInteres', 'primeraCuota', 'creado', 'creadoPor'])
+        && (!('primeraCuota' in d) || fechaOk(d.primeraCuota))
         && (!('modoInteres' in d) || d.modoInteres in ['total', 'mensual'])
         && (!('fuente' in d) || d.fuente in ['ruta', 'oficina'])
         && idOk(d.clienteId) && fechaOk(d.fecha) && numOk(d.monto, 1, 10000000000) && numOk(d.tasa, 0, 100)
@@ -83,7 +84,8 @@ service cloud.firestore {
     function okRenov(d) {
       return d.keys().hasOnly(['prestamoId', 'clienteId', 'cobradorId', 'estado', 'saldoAlSolicitar', 'monto', 'tasa', 'meses', 'periodo',
                                'excluirDomingos', 'nota', 'nuevoPrestamoId', 'saldoCancelado', 'excedente', 'revisadoPor', 'revisadoEn',
-                               'fechaRenovacion', 'entregadoPor', 'entregadoEn', 'cuotas', 'modoInteres', 'creado', 'creadoPor'])
+                               'fechaRenovacion', 'entregadoPor', 'entregadoEn', 'cuotas', 'modoInteres', 'primeraCuota', 'creado', 'creadoPor'])
+        && (!('primeraCuota' in d) || d.primeraCuota == '' || fechaOk(d.primeraCuota))
         && idOk(d.prestamoId) && idOk(d.clienteId) && idOVacio(d.cobradorId)
         && numOk(d.monto, 1, 10000000000) && numOk(d.tasa, 0, 100) && numOk(d.meses, 0.001, 1000) && periodoOk(d.periodo)
         && optTxt(d, 'nota', 300);
@@ -196,7 +198,7 @@ service cloud.firestore {
           // Admin: aprobar / rechazar una solicitud pendiente, sin cambiar a quién pertenece
           || (soloAdmin(eid) && resource.data.estado == 'pendiente'
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estado', 'nuevoPrestamoId', 'saldoCancelado', 'excedente',
-                   'revisadoPor', 'revisadoEn', 'fechaRenovacion', 'monto', 'tasa', 'meses', 'periodo', 'excluirDomingos', 'nota', 'cuotas', 'modoInteres'])
+                   'revisadoPor', 'revisadoEn', 'fechaRenovacion', 'monto', 'tasa', 'meses', 'periodo', 'excluirDomingos', 'nota', 'cuotas', 'modoInteres', 'primeraCuota'])
               && request.resource.data.revisadoPor == uid() && okRenov(request.resource.data)
               && (request.resource.data.estado == 'rechazada' || (request.resource.data.estado == 'aprobada' && excedenteOk(request.resource.data))))
           // Admin o cobrador dueño: marcar que ya entregó el efectivo de una renovación aprobada

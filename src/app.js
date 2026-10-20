@@ -179,9 +179,26 @@ function addPeriodo(d, periodo, excluirDomingos){
 }
 function cronograma(p){
   const out=[]; let d=parseD(p.fecha);
-  for(let i=1;i<=p.cuotas;i++){ d=addPeriodo(d,p.periodo,p.excluirDomingos); out.push({n:i,fecha:ymd(d)}); }
+  for(let i=1;i<=p.cuotas;i++){
+    // primeraCuota: en renovaciones se puede dejar que siga cobrando el mismo día de siempre (ej. los jueves)
+    if(i===1 && p.primeraCuota && p.primeraCuota>p.fecha) d=parseD(p.primeraCuota); else d=addPeriodo(d,p.periodo,p.excluirDomingos);
+    out.push({n:i,fecha:ymd(d)});
+  }
   return out;
 }
+/* siguiente fecha de cobro del crédito viejo, siguiendo su mismo día (después de hoy) */
+function siguienteMismoDia(pViejo, periodo, hoy=todayStr()){
+  const cron = cronograma(pViejo);
+  let d = cron.length ? parseD(cron[cron.length-1].fecha) : parseD(pViejo.fecha);
+  const fut = cron.find(c=>c.fecha>hoy);
+  if(fut && periodo===pViejo.periodo) return fut.fecha;
+  // si ya se le acabaron las cuotas (o cambió la forma de pago) se sigue contando desde su último día de cobro
+  if(!fut) for(let i=0;i<400 && ymd(d)<=hoy;i++) d=addPeriodo(d,periodo,pViejo.excluirDomingos);
+  else { d=parseD(fut.fecha); }
+  return ymd(d);
+}
+const DIAS_SEM=['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
+const diaSem = f => DIAS_SEM[parseD(f).getDay()];
 /* multa por no pago: cada N visitas "no pagó" se suma una cuota (o un valor fijo) al saldo */
 function multaDe(p){
   const m = (DB.config && DB.config.multa) || {};
@@ -1373,12 +1390,27 @@ function modalRenovacion(prestamoId, renovacionId){
     <label class="f">Número de cuotas<input class="input" id="rCuo" inputmode="numeric" value="${esc(base.cuotas)}"></label>
     <label class="f">% de interés<input class="input" id="rTas" inputmode="decimal" value="${esc(num(base.tasa))}"></label>
     <label class="f">¿Cómo se cobra el interés?<select class="input" id="rMod"><option value="total" ${base.modoInteres==='total'?'selected':''}>Una vez sobre el préstamo</option><option value="mensual" ${base.modoInteres!=='total'?'selected':''}>Mensual (según la duración)</option></select></label>
+    <div class="f full" id="rDiaW" style="display:block"><span style="display:block">¿Cuándo paga la primera cuota del nuevo crédito?</span>
+      <div class="seg" id="rDia"><button type="button" data-d="mismo" class="${base.primeraCuota!==''?'on':''}">Mismo día de siempre</button><button type="button" data-d="hoy" class="${base.primeraCuota===''?'on':''}">Contar desde hoy</button></div>
+      <div class="muted" id="rDiaTxt" style="font-size:12.5px;margin-top:6px"></div></div>
     <label class="f full">Nota<input class="input" id="rNot" value="${esc(base.nota||'')}" placeholder="Opcional"></label>
   </div>
   <div class="calcbox" id="rCalc" style="margin-top:14px"></div>
   ${aprobar?'':`<p class="muted" style="font-size:12.5px">${directo?'El préstamo actual queda pagado con el nuevo y se registra la entrega del efectivo.':'El Admin o el CEO revisa la solicitud. Cuando la apruebe te aparece en tu ruta para que entregues el efectivo.'}</p>`}
   <div class="actions">${aprobar?`<button class="btn danger" style="margin-right:auto" id="rNo">Rechazar</button>`:''}<button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="rOk">${aprobar?'Aprobar renovación':directo?'Renovar':'Enviar solicitud'}</button></div>`);
   const $=k=>document.getElementById(k);
+  let modoDia = base.primeraCuota==='' ? 'hoy' : 'mismo';
+  const primera = ()=>{
+    const per=$('rPer').value, hoy=todayStr();
+    const normal = ymd(addPeriodo(parseD(hoy), per, base.excluirDomingos));
+    if(per==='DIARIO') return {fecha:'', normal, txt:`Diario: empieza a pagar el ${fdate(normal)}.`, diario:true};
+    const mismo = (aprobar && base.primeraCuota && base.primeraCuota>hoy) ? base.primeraCuota : siguienteMismoDia(p, per, hoy);
+    if(modoDia==='mismo') return {fecha: mismo===normal?'':mismo, normal, txt:`Sigue pagando los <b>${diaSem(mismo)}</b>: primera cuota el <b>${fdate(mismo)}</b>${mismo<normal?' (más pronto que contando desde hoy)':''}.`};
+    return {fecha:'', normal, txt:`Primera cuota el <b>${fdate(normal)}</b> (${diaSem(normal)}), contando desde hoy.`};
+  };
+  const pintaDia = ()=>{ const f=primera(); $('rDia').style.display=f.diario?'none':''; $('rDiaTxt').innerHTML=f.txt; };
+  document.querySelectorAll('#rDia button').forEach(b=>b.onclick=()=>{ modoDia=b.dataset.d; document.querySelectorAll('#rDia button').forEach(x=>x.classList.toggle('on',x===b)); pintaDia(); });
+  $('rPer').addEventListener('change',pintaDia); pintaDia();
   const calc=()=>{
     const monto=num($('rMon').value), c=calcularCuotas(monto,num($('rTas').value),num($('rCuo').value),$('rPer').value,$('rMod').value);
     const exc=monto-e.saldo;
@@ -1398,6 +1430,7 @@ function modalRenovacion(prestamoId, renovacionId){
     const nC=Math.round(num($('rCuo').value)); if(!(nC>=1 && nC<=1000)) return toast('Escribe cuántas cuotas (entre 1 y 1000)');
     const datos={monto,tasa:num($('rTas').value),cuotas:nC,modoInteres:$('rMod').value,periodo:$('rPer').value,excluirDomingos:!!base.excluirDomingos,nota:$('rNot').value.trim()};
     datos.meses = calcularCuotas(monto,datos.tasa,nC,datos.periodo,datos.modoInteres).meses;
+    datos.primeraCuota = primera().fecha || '';   // '' = contar desde hoy
     if(!isAdmin()){
       dbAdd('renovaciones',{prestamoId:p.id,clienteId:p.clienteId,cobradorId:p.cobradorId||ME.uid,estado:'pendiente',saldoAlSolicitar:e.saldo,...datos});
       closeModal(); render(); toast('Solicitud de renovación enviada'); return;
@@ -1411,6 +1444,7 @@ function ejecutarRenovacion(p, saldo, d, ren){
   const hoy=todayStr(), c=d.cuotas ? calcularCuotas(d.monto,d.tasa,d.cuotas,d.periodo,d.modoInteres||'mensual') : calcular(d.monto,d.tasa,d.meses,d.periodo);
   if(saldo>=1) dbAdd('pagos',{prestamoId:p.id,fecha:hoy,monto:saldo,tipo:'renovacion',nota:'Cancelado con renovación',cobradorId:p.cobradorId||'',registradoPor:ME.uid});
   const nuevoId=dbAdd('prestamos',{clienteId:p.clienteId,fecha:hoy,monto:d.monto,tasa:d.tasa,meses:c.meses||d.meses,periodo:d.periodo,modoInteres:d.modoInteres||'mensual',excluirDomingos:d.excluirDomingos,
+    ...(d.primeraCuota && d.primeraCuota>hoy ? {primeraCuota:d.primeraCuota} : {}),
     nota:('Renovación'+(d.nota?' · '+d.nota:'')),cuotas:c.cuotas,valorCuota:c.valorCuota,interesMes:c.interesMes,total:c.total,cobradorId:p.cobradorId||'',renovacionDe:p.id,saldoCancelado:saldo});
   const exc=d.monto-saldo;
   // si la pidió un cobrador, él entrega el efectivo; si la hace la oficina, queda entregada de una vez

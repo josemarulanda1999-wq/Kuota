@@ -451,38 +451,64 @@ function cobroCard(c, fecha){
       <span class="spacer"></span>
       ${c.pagadoHoy?`<span class="pill p-ok">Pagó ${fmt(c.pagadoHoy)}</span>`:chipVisita(c.p, fecha)}
       ${c.cobrar>0.5&&!c.pagadoHoy&&!visitaDe(c.p.id, fecha)?`<button class="btn sm" onclick="modalNoPago('${c.p.id}','${fecha}')">No pagó</button>`:''}
-      ${c.cobrar>0.5?`<button class="btn pri" onclick="modalPago('${c.p.id}',null,'${fecha}')">Cobrar</button>`:''}
+      ${c.cobrar>0.5?`<button class="btn pri" onclick="modalPago('${c.p.id}',null,'${fecha}')">Cobrar</button>`:(c.e.saldo>0.5?`<button class="btn pri" onclick="modalPago('${c.p.id}',null,'${fecha}')">Abonar</button>`:'')}
     </div></div>`;
 }
 VIEWS.cobros = () => {
   const fecha = viewState.fecha || todayStr();
   const ordenC = c => Number((clienteById(c.p.clienteId)||{}).orden)||1e9;
-  const list = cobrosDelDia(fecha).filter(c=>pasaFiltroCob(c.p.cobradorId)).sort((a,b)=>ordenC(a)-ordenC(b) || b.e.atraso-a.e.atraso);
-  const visitados = list.filter(c=>c.pagadoHoy>0 || visitaDe(c.p.id, fecha)).length;
+  const dia = cobrosDelDia(fecha).filter(c=>pasaFiltroCob(c.p.cobradorId)).sort((a,b)=>ordenC(a)-ordenC(b) || b.e.atraso-a.e.atraso);
+  const q = sinTildes(viewState.q||'').trim();
+  const list = q ? buscarCobro(q, fecha) : dia;
+  const visitados = dia.filter(c=>c.pagadoHoy>0 || visitaDe(c.p.id, fecha)).length;
   const tarjetas = !isAdmin() || movil();
-  const totalCobrar = list.reduce((s,c)=>s+c.cobrar,0);
-  const totalPagado = list.reduce((s,c)=>s+c.pagadoHoy,0);
+  const totalCobrar = dia.reduce((s,c)=>s+c.cobrar,0);
+  const totalPagado = dia.reduce((s,c)=>s+c.pagadoHoy,0);
+  const vacio = q ? 'Ningún crédito activo coincide con esa búsqueda.' : 'Nada que cobrar en esta fecha.';
   return `
   <div class="head"><div><h1>${isAdmin()?'Cobros del día':'Mi ruta'}</h1><p class="sub">Cuotas que vencen y préstamos atrasados. Marca el pago apenas cobres.</p></div>
   <div class="row">${isAdmin()?'':`${puedePrestarRuta()?`<button class="btn pri" onclick="modalPrestamo()">+ Crédito nuevo</button>`:''}<button class="btn ${puedePrestarRuta()?'':'pri'}" onclick="elegirRenovacion()">Solicitar renovación</button>`}${isAdmin()?'':'<button class="btn" onclick="modalEnrutar()">Orden de visita</button><button class="btn" data-go="avisos">Avisar a clientes</button>'}${filtroCobrador('cobros')}<input type="date" class="input" style="width:auto" value="${fecha}" onchange="go('cobros',Object.assign({},viewState,{fecha:this.value}))">${isNative()?'':'<button class="btn no-print" onclick="window.print()">Imprimir ruta</button>'}</div></div>
   <div class="kpis">
-    <div class="kpi sky"><div class="l">Visitados</div><div class="v">${visitados} de ${list.length}</div><div class="progress" style="margin-top:8px"><i style="width:${list.length?visitados/list.length*100:0}%"></i></div></div>
+    <div class="kpi sky"><div class="l">Visitados</div><div class="v">${visitados} de ${dia.length}</div><div class="progress" style="margin-top:8px"><i style="width:${dia.length?visitados/dia.length*100:0}%"></i></div></div>
     <div class="kpi cream"><div class="l">Pendiente por cobrar</div><div class="v">${fmt(totalCobrar)}</div></div>
     <div class="kpi hl"><div class="l">Cobrado ese día</div><div class="v">${fmt(totalPagado)}</div></div>
   </div>
+  <div class="toolbar"><input class="input search" id="qCob" placeholder="Buscar cliente por nombre o cédula para cobrar o abonar" value="${esc(viewState.q||'')}">${q?`<span class="muted" style="font-size:13px">${list.length} crédito(s) activo(s) · puedes abonar aunque hoy no le toque cuota</span><button class="btn sm" onclick="go('cobros',Object.assign({},viewState,{q:''}))">Limpiar</button>`:''}</div>
   ${bloqueNotasRuta()}
   ${miRutaCerrada(fecha)?'<div class="banner">Tu ruta de este día ya está cerrada. Para registrar algo más, pídele a la oficina que la reabra.</div>':''}
   ${!isAdmin()?bloqueRenovacionesCobrador():(DB.renovaciones.some(r=>r.estado==='pendiente')?`<div class="banner">Hay ${DB.renovaciones.filter(r=>r.estado==='pendiente').length} solicitud(es) de renovación esperando aprobación. <button class="btn sm" data-go="renovaciones">Revisar</button></div>`:'')}
-  ${tarjetas ? (list.length? `<div class="cobros-grid">${list.map(c=>cobroCard(c,fecha)).join('')}</div>` : `<div class="card"><div class="empty">Nada que cobrar en esta fecha.</div></div>`) : `<div class="card">
+  ${tarjetas ? (list.length? `<div class="cobros-grid">${list.map(c=>cobroCard(c,fecha)).join('')}</div>` : `<div class="card"><div class="empty">${vacio}</div></div>`) : `<div class="card">
   ${list.length? `<div class="tablewrap"><table><thead><tr><th>Cliente</th><th>Teléfono / Dirección</th><th>Estado</th><th class="num">Cuota</th><th class="num">Pendiente</th><th class="num">Saldo</th><th class="num">Pagó</th><th></th></tr></thead><tbody>
   ${list.map(c=>{const cl=clienteById(c.p.clienteId)||{};return `<tr>
     <td><div class="who">${ava(cl.nombre)}<div><b>${esc(cl.nombre||'(sin cliente)')}</b><div class="muted" style="font-size:12px">${c.p.periodo.toLowerCase()}${cobradores().length?' · '+esc(nombreRuta(c.p.cobradorId)):''}</div></div></div></td>
     <td>${esc(cl.tel1||'')}<div class="muted" style="font-size:12px">${esc(cl.direccion||'')}</div></td>
     <td>${pill(c.e)}</td><td class="num">${fmt(c.p.valorCuota)}</td><td class="num" style="color:${c.e.atraso>0?'var(--red)':'inherit'}">${fmt(c.e.atraso)}</td>
     <td class="num">${fmt(c.e.saldo)}</td><td class="num">${c.pagadoHoy?fmt(c.pagadoHoy):'—'}</td>
-    <td class="right no-print" style="white-space:nowrap">${c.cobrar>0.5?`<button class="btn sm pri" onclick="modalPago('${c.p.id}',null,'${fecha}')">Cobrar</button>`:'<span class="pill p-ok">Cobrado</span>'} <button class="btn sm" onclick="modalDetalle('${c.p.id}')">Ver</button></td></tr>`}).join('')}
-  </tbody></table></div>` : `<div class="empty">Nada que cobrar en esta fecha.</div>`}
+    <td class="right no-print" style="white-space:nowrap">${c.cobrar>0.5?`<button class="btn sm pri" onclick="modalPago('${c.p.id}',null,'${fecha}')">Cobrar</button>`:`${c.pagadoHoy?'<span class="pill p-ok">Cobrado</span> ':''}<button class="btn sm${c.pagadoHoy?'':' pri'}" onclick="modalPago('${c.p.id}',null,'${fecha}')">Abonar</button>`} <button class="btn sm" onclick="modalDetalle('${c.p.id}')">Ver</button></td></tr>`}).join('')}
+  </tbody></table></div>` : `<div class="empty">${vacio}</div>`}
   </div>`}`;
+};
+
+function sinTildes(t){ return String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase(); }
+/* créditos activos que coinciden por nombre o cédula, toque o no cuota ese día */
+function buscarCobro(q, fecha){
+  const qd = q.replace(/\D/g,'');
+  const out=[];
+  for(const p of DB.prestamos){
+    if(!pasaFiltroCob(p.cobradorId)) continue;
+    const cl = clienteById(p.clienteId)||{};
+    const ok = sinTildes(cl.nombre).includes(q) || (qd && String(cl.cedula||'').replace(/\D/g,'').includes(qd));
+    if(!ok) continue;
+    const e = estadoPrestamo(p, fecha);
+    if(e.estado==='Pagado' || e.estado==='Castigado') continue;
+    const pagadoHoy = e.pagos.filter(x=>x.fecha===fecha).reduce((s,x)=>s+x.monto,0);
+    out.push({p,e,pagadoHoy,cobrar:e.atraso});
+  }
+  return out.sort((a,b)=>sinTildes(nombreCliente(a.p.clienteId)).localeCompare(sinTildes(nombreCliente(b.p.clienteId))));
+}
+AFTER.cobros = () => {
+  const i = document.getElementById('qCob'); if(!i) return;
+  i.addEventListener('input', ()=>{ viewState.q=i.value; const pos=i.selectionStart; render(); const j=document.getElementById('qCob'); if(j){ j.focus(); j.setSelectionRange(pos,pos); } });
 };
 
 VIEWS.prestamos = () => {

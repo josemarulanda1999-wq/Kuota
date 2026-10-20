@@ -65,7 +65,7 @@ const CAMPOS_NUM = ['monto','tasa','meses','cuotas','valorCuota','interesMes','t
   'capitalInicial','creado','revisadoEn','entregadoEn','cupoAdmins','cupoCobradores','diasGracia','venceMs','meses','lat','lng','prec','t','ubicadoEn','registrado','ultimoUso','orden','maxPrestamo','maxGasto','cerradoEn','actualizado','salario','pctRecaudo','pctVentas','maxCuotas','maxRenov'];
 const CAMPOS_ID = ['prestamoId','clienteId','cobradorId','registradoPor','creadoPor','entregadoPor','revisadoPor','nuevoPrestamoId','renovacionDe','empresaId','ceoUid','uid'];
 const CAMPOS_TXT = ['nombre','cedula','tel1','tel2','direccion','ciudad','obs','nota','concepto','email','estado','rol','tipo','negocio','nit','contacto',
-  'telefono','notas','metodo','ruta','fuente','modelo','plataforma','resultado','motivo','volver','texto','accion','col','docId','detalle','periodoPago','canal','empresaNombre','fecha','pagadoHasta','anterior','nuevo','fechaRenovacion','fechaCapital'];
+  'telefono','notas','metodo','ruta','fuente','modelo','plataforma','resultado','motivo','volver','modoInteres','texto','accion','col','docId','detalle','periodoPago','canal','empresaNombre','fecha','pagadoHasta','anterior','nuevo','fechaRenovacion','fechaCapital'];
 const PERIODOS_OK = ['DIARIO','SEMANAL','QUINCENAL','MENSUAL'];
 const FECHA_OK = /^\d{4}-\d{2}-\d{2}$/;
 function sanearDoc(x){

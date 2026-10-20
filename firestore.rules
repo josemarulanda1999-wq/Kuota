@@ -60,10 +60,11 @@ service cloud.firestore {
     }
     function okPrestamo(d) {
       return d.keys().hasOnly(['clienteId', 'fecha', 'monto', 'tasa', 'meses', 'periodo', 'excluirDomingos', 'nota', 'cuotas',
-                               'valorCuota', 'interesMes', 'total', 'cobradorId', 'renovacionDe', 'saldoCancelado', 'fuente', 'importado', 'castigado', 'creado', 'creadoPor'])
+                               'valorCuota', 'interesMes', 'total', 'cobradorId', 'renovacionDe', 'saldoCancelado', 'fuente', 'importado', 'castigado', 'modoInteres', 'creado', 'creadoPor'])
+        && (!('modoInteres' in d) || d.modoInteres in ['total', 'mensual'])
         && (!('fuente' in d) || d.fuente in ['ruta', 'oficina'])
         && idOk(d.clienteId) && fechaOk(d.fecha) && numOk(d.monto, 1, 10000000000) && numOk(d.tasa, 0, 100)
-        && numOk(d.meses, 0.01, 120) && periodoOk(d.periodo) && d.cuotas is int && d.cuotas >= 1 && d.cuotas <= 1000
+        && numOk(d.meses, 0.001, 1000) && periodoOk(d.periodo) && d.cuotas is int && d.cuotas >= 1 && d.cuotas <= 1000
         && numOk(d.valorCuota, 0.01, 10000000000) && optTxt(d, 'nota', 300) && idOVacio(d.cobradorId)
         && (!('renovacionDe' in d) || idOk(d.renovacionDe)) && (!('saldoCancelado' in d) || numOk(d.saldoCancelado, 0, 10000000000));
     }
@@ -82,9 +83,9 @@ service cloud.firestore {
     function okRenov(d) {
       return d.keys().hasOnly(['prestamoId', 'clienteId', 'cobradorId', 'estado', 'saldoAlSolicitar', 'monto', 'tasa', 'meses', 'periodo',
                                'excluirDomingos', 'nota', 'nuevoPrestamoId', 'saldoCancelado', 'excedente', 'revisadoPor', 'revisadoEn',
-                               'fechaRenovacion', 'entregadoPor', 'entregadoEn', 'creado', 'creadoPor'])
+                               'fechaRenovacion', 'entregadoPor', 'entregadoEn', 'cuotas', 'modoInteres', 'creado', 'creadoPor'])
         && idOk(d.prestamoId) && idOk(d.clienteId) && idOVacio(d.cobradorId)
-        && numOk(d.monto, 1, 10000000000) && numOk(d.tasa, 0, 100) && numOk(d.meses, 0.01, 120) && periodoOk(d.periodo)
+        && numOk(d.monto, 1, 10000000000) && numOk(d.tasa, 0, 100) && numOk(d.meses, 0.001, 1000) && periodoOk(d.periodo)
         && optTxt(d, 'nota', 300);
     }
     // el efectivo a entregar debe ser exactamente nuevo préstamo − lo que se cancela
@@ -195,7 +196,7 @@ service cloud.firestore {
           // Admin: aprobar / rechazar una solicitud pendiente, sin cambiar a quién pertenece
           || (soloAdmin(eid) && resource.data.estado == 'pendiente'
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estado', 'nuevoPrestamoId', 'saldoCancelado', 'excedente',
-                   'revisadoPor', 'revisadoEn', 'fechaRenovacion', 'monto', 'tasa', 'meses', 'periodo', 'excluirDomingos', 'nota'])
+                   'revisadoPor', 'revisadoEn', 'fechaRenovacion', 'monto', 'tasa', 'meses', 'periodo', 'excluirDomingos', 'nota', 'cuotas', 'modoInteres'])
               && request.resource.data.revisadoPor == uid() && okRenov(request.resource.data)
               && (request.resource.data.estado == 'rechazada' || (request.resource.data.estado == 'aprobada' && excedenteOk(request.resource.data))))
           // Admin o cobrador dueño: marcar que ya entregó el efectivo de una renovación aprobada
@@ -272,9 +273,9 @@ service cloud.firestore {
       match /aprobaciones/{id} {
         allow read: if isSuper() || isAdm(eid) || (isCob(eid) && own());
         allow create: if isSuper() || isCeo(eid) || (isCob(eid) && idOk(id) && firma() && ownNew()
-          && request.resource.data.keys().hasOnly(['tipo', 'cobradorId', 'clienteId', 'monto', 'tasa', 'meses', 'periodo', 'excluirDomingos', 'nota', 'fecha', 'estado', 'prestamoId', 'creado', 'creadoPor'])
+          && request.resource.data.keys().hasOnly(['tipo', 'cobradorId', 'clienteId', 'monto', 'tasa', 'meses', 'cuotas', 'modoInteres', 'periodo', 'excluirDomingos', 'nota', 'fecha', 'estado', 'prestamoId', 'creado', 'creadoPor'])
           && request.resource.data.tipo == 'prestamo' && request.resource.data.estado == 'pendiente' && idOk(request.resource.data.clienteId)
-          && numOk(request.resource.data.monto, 1, 10000000000) && numOk(request.resource.data.tasa, 0, 100) && numOk(request.resource.data.meses, 0.01, 120)
+          && numOk(request.resource.data.monto, 1, 10000000000) && numOk(request.resource.data.tasa, 0, 100) && numOk(request.resource.data.meses, 0.001, 1000)
           && periodoOk(request.resource.data.periodo) && optTxt(request.resource.data, 'nota', 300) && (!('prestamoId' in request.resource.data) || idOk(request.resource.data.prestamoId))
           && get(/databases/$(database)/documents/empresas/$(eid)/clientes/$(request.resource.data.clienteId)).data.cobradorId == uid());
         allow update: if isSuper() || isCeo(eid) || (soloAdmin(eid) && resource.data.estado == 'pendiente'

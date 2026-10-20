@@ -32,6 +32,7 @@ function migrateConfig(c){
   out.factores = Object.assign(defaultConfig().factores, (c||{}).factores||{});
   for(const k of Object.keys(out.factores)) out.factores[k]=Math.min(31,Math.max(1,Number(out.factores[k])||1));
   if(!MONEDAS[out.pais]) out.pais='CO';
+  out.modoInteres = out.modoInteres==='mensual' ? 'mensual' : 'total';
   const lista = (v, def) => Array.isArray(v) ? v.filter(x=>typeof x==='string' && x.trim()).map(x=>x.trim().slice(0,40)).slice(0,40) : def;
   out.conceptosGasto = lista(out.conceptosGasto, defaultConfig().conceptosGasto);
   out.conceptosIngreso = lista(out.conceptosIngreso, defaultConfig().conceptosIngreso);
@@ -147,6 +148,23 @@ function calcular(monto, tasa, meses, periodo){
   return { cuotas, interesMes, interesTotal, total, valorCuota,
            capitalCuota: monto/cuotas, interesCuota: interesTotal/cuotas };
 }
+/* crédito por número de cuotas: el dueño escoge cuántas (25 días, 10 semanas…) y cómo se cobra el interés
+   modo 'total'   → el % se cobra una sola vez sobre el préstamo (ej. 20% sin importar las cuotas)
+   modo 'mensual' → el % es mensual y crece con la duración (cuotas ÷ cuotas por mes) */
+const UNIDAD_CUOTA = {DIARIO:['día','días'], SEMANAL:['semana','semanas'], QUINCENAL:['quincena','quincenas'], MENSUAL:['mes','meses']};
+function calcularCuotas(monto, tasa, cuotas, periodo, modo){
+  const f = DB.config.factores[periodo] || 1;
+  cuotas = Math.max(1, Math.round(Number(cuotas)||1));
+  const meses = cuotas / f;
+  const interesTotal = modo==='mensual' ? monto*tasa/100*meses : monto*tasa/100;
+  const total = monto + interesTotal;
+  let valorCuota = total / cuotas;
+  const r = Number(DB.config.redondeo)||0;
+  if(r>0) valorCuota = Math.ceil(valorCuota / r) * r;
+  return { cuotas, meses: Math.round(meses*10000)/10000, interesMes: meses>0 ? interesTotal/meses : interesTotal, interesTotal, total, valorCuota,
+           capitalCuota: monto/cuotas, interesCuota: interesTotal/cuotas };
+}
+const modoDe = p => p.modoInteres || (p.id ? 'mensual' : (DB.config.modoInteres||'total'));
 function addPeriodo(d, periodo, excluirDomingos){
   const n = new Date(d);
   if(periodo==='DIARIO'){
@@ -589,6 +607,7 @@ VIEWS.ajustes = () => {
       <label class="f">Capital inicial<input class="input" id="sCap" value="${esc(c.capitalInicial)}" inputmode="numeric"></label>
       <label class="f">Fecha del capital inicial<input type="date" class="input" id="sFecCap" value="${esc(c.fechaCapital||'')}"></label>
       <label class="f">% interés por defecto<input class="input" id="sTasa" value="${esc(c.tasaDefecto)}"></label>
+      <label class="f">El interés se cobra por defecto<select class="input" id="sModo"><option value="total" ${c.modoInteres!=='mensual'?'selected':''}>Una vez sobre el préstamo</option><option value="mensual" ${c.modoInteres==='mensual'?'selected':''}>Mensual (según la duración)</option></select></label>
       <label class="f">Cuotas por mes (diario)<input class="input" id="fD" value="${c.factores.DIARIO}"></label>
       <label class="f">Cuotas por mes (semanal)<input class="input" id="fS" value="${c.factores.SEMANAL}"></label>
       <label class="f">Cuotas por mes (quincenal)<input class="input" id="fQ" value="${c.factores.QUINCENAL}"></label>
@@ -887,9 +906,10 @@ function modalPrestamo(id, clienteId, preset){
     <label class="f full" id="pFueW" style="display:none">¿De dónde sale la plata?<select class="input" id="pFue"><option value="ruta" ${p.fuente!=='oficina'?'selected':''}>De la caja de la ruta (la entrega el cobrador)</option><option value="oficina" ${p.fuente==='oficina'?'selected':''}>De la oficina</option></select></label>
     <label class="f">Fecha del préstamo<input type="date" class="input" id="pFec" value="${esc(isAdmin()?p.fecha:todayStr())}" ${isAdmin()?'':'disabled'}></label>
     <label class="f">Valor del préstamo *<input class="input" id="pMon" value="${p.monto?fmtIn(p.monto):''}" inputmode="numeric" placeholder="Ej: 500.000"></label>
-    <label class="f">% interés mensual<input class="input" id="pTas" value="${esc(p.tasa)}" inputmode="decimal"></label>
-    <label class="f">No. de meses<input class="input" id="pMes" value="${esc(p.meses)}" inputmode="decimal"></label>
-    <label class="f">Periodo de pago<select class="input" id="pPer">${PERIODOS.map(x=>`<option ${x===p.periodo?'selected':''}>${x}</option>`).join('')}</select></label>
+    <label class="f">Forma de pago<select class="input" id="pPer">${PERIODOS.map(x=>`<option ${x===p.periodo?'selected':''}>${x}</option>`).join('')}</select></label>
+    <label class="f"><span id="pCuoL">Número de cuotas</span><input class="input" id="pCuo" value="${esc(p.cuotas || Math.max(1,Math.round((Number(p.meses)||1)*(DB.config.factores[p.periodo]||1))))}" inputmode="numeric"></label>
+    <label class="f">% de interés<input class="input" id="pTas" value="${esc(p.tasa)}" inputmode="decimal"></label>
+    <label class="f">¿Cómo se cobra el interés?<select class="input" id="pMod"><option value="total" ${modoDe(p)==='total'?'selected':''}>Una vez sobre el préstamo</option><option value="mensual" ${modoDe(p)==='mensual'?'selected':''}>Mensual (según la duración)</option></select></label>
     <label class="chk" style="align-self:end;padding-bottom:8px"><input type="checkbox" id="pDom" ${p.excluirDomingos?'checked':''}> No cobrar domingos (diario)</label>
     <label class="f full">Nota<input class="input" id="pNot" value="${esc(p.nota||'')}" placeholder="Opcional: fiador, garantía, etc."></label>
     ${id?'':`<label class="f">Seguro del crédito (opcional)<input class="input" id="pSeg" inputmode="decimal" placeholder="${Number(DB.config.seguroPct)?fmtN(DB.config.seguroPct)+'% del valor':'0'}"></label>`}
@@ -899,17 +919,19 @@ function modalPrestamo(id, clienteId, preset){
   ${tienePagos?'<p class="muted" style="font-size:12px">Este préstamo ya tiene pagos; si cambias valores, el saldo se recalcula con los pagos existentes.</p>':''}
   <div class="actions">${id?`<button class="btn danger" style="margin-right:auto" onclick="borrarPrestamo('${id}')">Borrar préstamo</button>`:''}<button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="pSave">${id?'Guardar cambios':'Crear préstamo'}</button></div>`);
   const upd = ()=>{
-    const c = calcular(num(g('pMon')),num(g('pTas')),num(g('pMes')),g('pPer'));
+    const c = calcularCuotas(num(g('pMon')),num(g('pTas')),num(g('pCuo')),g('pPer'),g('pMod'));
+    const u = UNIDAD_CUOTA[g('pPer')]||['cuota','cuotas'];
+    document.getElementById('pCuoL').textContent = `Número de cuotas (${u[1]})`;
     document.getElementById('pCalc').innerHTML = `
-      <div><div class="l">No. de cuotas</div><div class="v">${c.cuotas}</div></div>
+      <div><div class="l">Cuotas</div><div class="v">${c.cuotas} ${c.cuotas===1?u[0]:u[1]}</div></div>
       <div><div class="l">Valor cuota</div><div class="v">${fmt(c.valorCuota)}</div></div>
-      <div><div class="l">Interés mensual</div><div class="v">${fmt(c.interesMes)}</div></div>
+      <div><div class="l">Interés total</div><div class="v">${fmt(c.interesTotal)}</div></div>
       <div><div class="l">Capital x cuota</div><div class="v">${fmt(c.capitalCuota)}</div></div>
       <div><div class="l">Interés x cuota</div><div class="v">${fmt(c.interesCuota)}</div></div>
       <div><div class="l">Total a pagar</div><div class="v">${fmt(c.valorCuota*c.cuotas)}</div></div>`;
   };
   const g = k=>document.getElementById(k).value;
-  ['pMon','pTas','pMes','pPer'].forEach(k=>document.getElementById(k).addEventListener('input',upd));
+  ['pMon','pTas','pCuo','pPer','pMod'].forEach(k=>{ const el=document.getElementById(k); el.addEventListener('input',upd); el.addEventListener('change',upd); });
   const seg=document.getElementById('pSeg'); let segTocado=false;
   if(seg){ seg.addEventListener('input',()=>segTocado=true);
     document.getElementById('pMon').addEventListener('input',()=>{ if(!segTocado && Number(DB.config.seguroPct)) seg.value=fmtIn(num(g('pMon'))*DB.config.seguroPct/100); }); }
@@ -922,18 +944,19 @@ function modalPrestamo(id, clienteId, preset){
   document.getElementById('pCli').addEventListener('change',verFuente);
   document.getElementById('pCli').addEventListener('change',e=>{
     if(e.target.value==='__new'){
-      const keep = {fecha:g('pFec'),monto:num(g('pMon')),tasa:num(g('pTas')),meses:num(g('pMes')),periodo:g('pPer'),excluirDomingos:document.getElementById('pDom').checked,nota:g('pNot'),fuente:g('pFue'),_fotos:1};
+      const keep = {fecha:g('pFec'),monto:num(g('pMon')),tasa:num(g('pTas')),cuotas:Math.round(num(g('pCuo'))),modoInteres:g('pMod'),periodo:g('pPer'),excluirDomingos:document.getElementById('pDom').checked,nota:g('pNot'),fuente:g('pFue'),_fotos:1};
       modalCliente(null, cid=>modalPrestamo(id,cid,keep));
     }
   });
   upd();
   document.getElementById('pSave').onclick = async ()=>{
-    const cli=g('pCli'), monto=num(g('pMon')), tasa=num(g('pTas')), meses=num(g('pMes')), periodo=g('pPer');
+    const cli=g('pCli'), monto=num(g('pMon')), tasa=num(g('pTas')), nCuotas=Math.round(num(g('pCuo'))), periodo=g('pPer'), modo=g('pMod');
     if(!cli||cli==='__new') return toast('Selecciona el deudor');
     if(monto<=0) return toast('Escribe el valor del préstamo');
-    if(meses<=0) return toast('El número de meses debe ser mayor a 0');
-    const c = calcular(monto,tasa,meses,periodo);
-    const data = {clienteId:cli,fecha:g('pFec')||todayStr(),monto,tasa,meses,periodo,excluirDomingos:document.getElementById('pDom').checked,nota:g('pNot').trim(),
+    if(nCuotas<1 || nCuotas>1000) return toast('Escribe cuántas cuotas (entre 1 y 1000)');
+    const c = calcularCuotas(monto,tasa,nCuotas,periodo,modo);
+    const meses = c.meses;
+    const data = {clienteId:cli,fecha:g('pFec')||todayStr(),monto,tasa,meses,periodo,modoInteres:modo,excluirDomingos:document.getElementById('pDom').checked,nota:g('pNot').trim(),
       cuotas:c.cuotas,valorCuota:c.valorCuota,interesMes:c.interesMes,total:c.total};
     let cobP = (clienteById(cli)||{}).cobradorId || '';
     data.fuente = document.getElementById('pFueW').style.display==='none' ? 'oficina' : document.getElementById('pFue').value;
@@ -949,7 +972,7 @@ function modalPrestamo(id, clienteId, preset){
         const pid = S.newId('prestamos');
         if(hayFotos(FOTOS_TMP)) guardarFotos(pid, cli, FOTOS_TMP).catch(falloNube);
         FOTOS_TMP = {};
-        dbAdd('aprobaciones', {tipo:'prestamo', cobradorId:ME.uid, clienteId:cli, monto, tasa, meses, periodo, excluirDomingos:data.excluirDomingos, nota:data.nota, fecha:todayStr(), estado:'pendiente', prestamoId:pid});
+        dbAdd('aprobaciones', {tipo:'prestamo', cobradorId:ME.uid, clienteId:cli, monto, tasa, meses, cuotas:c.cuotas, modoInteres:modo, periodo, excluirDomingos:data.excluirDomingos, nota:data.nota, fecha:todayStr(), estado:'pendiente', prestamoId:pid});
         closeModal(); render();
         return avisar(capOk==='solicitud' ? `Tu ruta no tiene capital disponible para este crédito (quedan ${fmt(Math.max(0,capitalRuta(ME.uid).disponible))}). Quedó como solicitud para que la oficina lo apruebe o le añada capital.`
           : max ? `El crédito pasa el tope de tu ruta (${fmt(max)}). Quedó como solicitud y la oficina lo debe aprobar antes de entregar la plata.` : 'Quedó como solicitud. La oficina la debe aprobar antes de entregar la plata.');
@@ -1064,7 +1087,7 @@ function modalDetalle(id, tab='cuotas'){
   <div class="detail-grid">
     <div><div class="l">Fecha</div><div class="v">${fdate(p.fecha)}</div></div>
     <div><div class="l">Valor prestado</div><div class="v">${fmt(p.monto)}</div></div>
-    <div><div class="l">Interés</div><div class="v">${fmtN(p.tasa)}% · ${fmtN(p.meses)} mes(es)</div></div>
+    <div><div class="l">Interés</div><div class="v">${fmtN(p.tasa)}% ${p.modoInteres==='total'?'sobre el préstamo':'mensual · '+fmtN(p.meses)+' mes(es)'}</div></div>
     <div><div class="l">Forma de pago</div><div class="v">${p.periodo.charAt(0)+p.periodo.slice(1).toLowerCase()} · ${p.cuotas} cuotas</div></div>
     <div><div class="l">Valor cuota</div><div class="v">${fmt(p.valorCuota)}</div></div>
     <div><div class="l">Total a pagar</div><div class="v">${fmt(e.totalReal)}</div></div>
@@ -1127,6 +1150,7 @@ function guardarAjustes(){
   DB.config.capitalInicial = num(g('sCap'));
   DB.config.fechaCapital = g('sFecCap');
   DB.config.tasaDefecto = num(g('sTasa'));
+  DB.config.modoInteres = g('sModo')==='mensual' ? 'mensual' : 'total';
   DB.config.factores = {DIARIO:num(g('fD'))||30,SEMANAL:num(g('fS'))||4,QUINCENAL:num(g('fQ'))||2,MENSUAL:num(g('fM'))||1};
   DB.config.redondeo = Number(g('sRed'));
   DB.config.excluirDomingos = document.getElementById('sDom').checked;
@@ -1291,7 +1315,9 @@ function modalRenovacion(prestamoId, renovacionId){
   const p = DB.prestamos.find(x=>x.id===(ren?ren.prestamoId:prestamoId)); if(!p) return;
   const e = estadoPrestamo(p), cl = clienteById(p.clienteId)||{};
   const aprobar = !!ren, directo = !ren && isAdmin();
-  const base = ren || { monto:p.monto, tasa:p.tasa, meses:p.meses, periodo:p.periodo, excluirDomingos:p.excluirDomingos, nota:'' };
+  const base = ren || { monto:p.monto, tasa:p.tasa, meses:p.meses, cuotas:p.cuotas, modoInteres:modoDe(p), periodo:p.periodo, excluirDomingos:p.excluirDomingos, nota:'' };
+  if(!base.cuotas) base.cuotas = Math.max(1, Math.round((Number(base.meses)||1)*(DB.config.factores[base.periodo]||1)));
+  if(!base.modoInteres) base.modoInteres = 'mensual';
   openModal(`<div class="row" style="margin-bottom:12px">${ava(cl.nombre)}<h3 style="margin:0">${aprobar?'Aprobar renovación':directo?'Renovar crédito':'Solicitar renovación'}</h3></div>
   <p class="muted" style="margin-top:-4px">${esc(cl.nombre||'')}${ren?' · solicitó '+esc(nombreUsuario(ren.creadoPor)):''}</p>
   <div class="calcbox" style="margin-bottom:14px">
@@ -1301,9 +1327,10 @@ function modalRenovacion(prestamoId, renovacionId){
   </div>
   <div class="form">
     <label class="f">Valor del nuevo préstamo<input class="input" id="rMon" inputmode="numeric" value="${fmtIn(base.monto)}"></label>
-    <label class="f">% interés mensual<input class="input" id="rTas" inputmode="decimal" value="${esc(num(base.tasa))}"></label>
-    <label class="f">No. de meses<input class="input" id="rMes" inputmode="decimal" value="${esc(num(base.meses))}"></label>
-    <label class="f">Periodo de pago<select class="input" id="rPer">${PERIODOS.map(x=>`<option ${x===base.periodo?'selected':''}>${x}</option>`).join('')}</select></label>
+    <label class="f">Forma de pago<select class="input" id="rPer">${PERIODOS.map(x=>`<option ${x===base.periodo?'selected':''}>${x}</option>`).join('')}</select></label>
+    <label class="f">Número de cuotas<input class="input" id="rCuo" inputmode="numeric" value="${esc(base.cuotas)}"></label>
+    <label class="f">% de interés<input class="input" id="rTas" inputmode="decimal" value="${esc(num(base.tasa))}"></label>
+    <label class="f">¿Cómo se cobra el interés?<select class="input" id="rMod"><option value="total" ${base.modoInteres==='total'?'selected':''}>Una vez sobre el préstamo</option><option value="mensual" ${base.modoInteres!=='total'?'selected':''}>Mensual (según la duración)</option></select></label>
     <label class="f full">Nota<input class="input" id="rNot" value="${esc(base.nota||'')}" placeholder="Opcional"></label>
   </div>
   <div class="calcbox" id="rCalc" style="margin-top:14px"></div>
@@ -1311,23 +1338,24 @@ function modalRenovacion(prestamoId, renovacionId){
   <div class="actions">${aprobar?`<button class="btn danger" style="margin-right:auto" id="rNo">Rechazar</button>`:''}<button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="rOk">${aprobar?'Aprobar renovación':directo?'Renovar':'Enviar solicitud'}</button></div>`);
   const $=k=>document.getElementById(k);
   const calc=()=>{
-    const monto=num($('rMon').value), c=calcular(monto,num($('rTas').value),num($('rMes').value),$('rPer').value);
+    const monto=num($('rMon').value), c=calcularCuotas(monto,num($('rTas').value),num($('rCuo').value),$('rPer').value,$('rMod').value);
     const exc=monto-e.saldo;
     $('rCalc').innerHTML=`<div><div class="l">Se descuenta lo que debe</div><div class="v">${fmt(e.saldo)}</div></div>
       <div><div class="l">Entregar en efectivo</div><div class="v" style="color:${exc<0?'var(--red)':'var(--green)'}">${fmt(exc)}</div></div>
-      <div><div class="l">Nueva cuota</div><div class="v">${fmt(c.valorCuota)}</div><div class="muted" style="font-size:11.5px">${c.cuotas} cuotas ${$('rPer').value.toLowerCase()}</div></div>
+      <div><div class="l">Nueva cuota</div><div class="v">${fmt(c.valorCuota)}</div><div class="muted" style="font-size:11.5px">${c.cuotas} ${(UNIDAD_CUOTA[$('rPer').value]||['',''])[1]}</div></div>
       <div><div class="l">Nuevo total a pagar</div><div class="v">${fmt(c.valorCuota*c.cuotas)}</div></div>`;
     return {monto,exc,c};
   };
-  ['rMon','rTas','rMes','rPer'].forEach(k=>$(k).addEventListener('input',calc)); calc();
+  ['rMon','rTas','rCuo','rPer','rMod'].forEach(k=>{ $(k).addEventListener('input',calc); $(k).addEventListener('change',calc); }); calc();
   $('rMon').addEventListener('blur',()=>{ const n=num($('rMon').value); if(n) $('rMon').value=fmtIn(n); });
   if(aprobar) $('rNo').onclick=async ()=>{ if(!await confirmar('¿Rechazar esta solicitud de renovación?')) return; dbUpd('renovaciones',ren.id,{estado:'rechazada',revisadoPor:ME.uid,revisadoEn:Date.now()}); closeModal(); render(); toast('Renovación rechazada'); };
   $('rOk').onclick=async ()=>{
     const {monto,exc}=calc();
     if(monto<=0) return toast('Escribe el valor del nuevo préstamo');
     if(exc<0) return toast('El nuevo préstamo debe ser mayor o igual a lo que debe ('+fmt(e.saldo)+')');
-    const datos={monto,tasa:num($('rTas').value),meses:num($('rMes').value),periodo:$('rPer').value,excluirDomingos:!!base.excluirDomingos,nota:$('rNot').value.trim()};
-    if(!(datos.meses>0)) return toast('El número de meses debe ser mayor a 0');
+    const nC=Math.round(num($('rCuo').value)); if(!(nC>=1 && nC<=1000)) return toast('Escribe cuántas cuotas (entre 1 y 1000)');
+    const datos={monto,tasa:num($('rTas').value),cuotas:nC,modoInteres:$('rMod').value,periodo:$('rPer').value,excluirDomingos:!!base.excluirDomingos,nota:$('rNot').value.trim()};
+    datos.meses = calcularCuotas(monto,datos.tasa,nC,datos.periodo,datos.modoInteres).meses;
     if(!isAdmin()){
       dbAdd('renovaciones',{prestamoId:p.id,clienteId:p.clienteId,cobradorId:p.cobradorId||ME.uid,estado:'pendiente',saldoAlSolicitar:e.saldo,...datos});
       closeModal(); render(); toast('Solicitud de renovación enviada'); return;
@@ -1338,9 +1366,9 @@ function modalRenovacion(prestamoId, renovacionId){
   };
 }
 function ejecutarRenovacion(p, saldo, d, ren){
-  const hoy=todayStr(), c=calcular(d.monto,d.tasa,d.meses,d.periodo);
+  const hoy=todayStr(), c=d.cuotas ? calcularCuotas(d.monto,d.tasa,d.cuotas,d.periodo,d.modoInteres||'mensual') : calcular(d.monto,d.tasa,d.meses,d.periodo);
   if(saldo>=1) dbAdd('pagos',{prestamoId:p.id,fecha:hoy,monto:saldo,tipo:'renovacion',nota:'Cancelado con renovación',cobradorId:p.cobradorId||'',registradoPor:ME.uid});
-  const nuevoId=dbAdd('prestamos',{clienteId:p.clienteId,fecha:hoy,monto:d.monto,tasa:d.tasa,meses:d.meses,periodo:d.periodo,excluirDomingos:d.excluirDomingos,
+  const nuevoId=dbAdd('prestamos',{clienteId:p.clienteId,fecha:hoy,monto:d.monto,tasa:d.tasa,meses:c.meses||d.meses,periodo:d.periodo,modoInteres:d.modoInteres||'mensual',excluirDomingos:d.excluirDomingos,
     nota:('Renovación'+(d.nota?' · '+d.nota:'')),cuotas:c.cuotas,valorCuota:c.valorCuota,interesMes:c.interesMes,total:c.total,cobradorId:p.cobradorId||'',renovacionDe:p.id,saldoCancelado:saldo});
   const exc=d.monto-saldo;
   // si la pidió un cobrador, él entrega el efectivo; si la hace la oficina, queda entregada de una vez

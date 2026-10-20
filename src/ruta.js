@@ -296,12 +296,12 @@ function metricasRuta(uid, desde, hasta){
   return { cobrado, transf, intereses, gastos, ingresos, utilidad: intereses + ingresos - gastos, prestado: nuevos.reduce((s,p)=>s+p.monto,0), nNuevos: nuevos.length };
 }
 function estadoCarteraRuta(uid){
-  let cartera=0, activos=0, mora=0, enMora=0;
+  let cartera=0, activos=0, mora=0, enMora=0, multas=0;
   for(const p of DB.prestamos.filter(p=>p.cobradorId===uid)){
-    const e = estadoPrestamo(p); if(e.estado==='Pagado') continue;
-    cartera+=e.saldo; activos++; if(e.estado==='En mora'){ mora+=e.atrasoMora; enMora++; }
+    const e = estadoPrestamo(p); if(e.estado==='Pagado' || e.estado==='Castigado') continue;
+    cartera+=e.saldoCuotas; multas+=e.multaPend; activos++; if(e.estado==='En mora'){ mora+=e.atrasoMora; enMora++; }
   }
-  return { cartera, activos, mora, enMora, enMano: cuadreCobrador(uid).enMano };
+  return { cartera, multas, activos, mora, enMora, enMano: cuadreCobrador(uid).enMano };
 }
 function rangoPeriodo(k){
   const h = new Date(), y=h.getFullYear(), m=h.getMonth();
@@ -333,7 +333,7 @@ VIEWS.analisis = () => {
   <div class="head"><div><h1>Análisis de rutas</h1><p class="sub">Cuánta plata tiene cada ruta, cuánto deja y cómo va creciendo. Comparado contra ${R.antTxt}.</p></div>
   <div class="row">${pb('semana','7 días')}${pb('mes','Este mes')}${pb('mespasado','Mes pasado')}${pb('trimestre','3 meses')}${pb('anio','Este año')}</div></div>
   <div class="kpis">
-    <div class="kpi cream"><div class="l">Plata en las rutas (efectivo)</div><div class="v">${fmt(T('c','enMano'))}</div><div class="n">Cartera por cobrar ${fmt(T('c','cartera'))}</div></div>
+    <div class="kpi cream"><div class="l">Plata en las rutas (efectivo)</div><div class="v">${fmt(T('c','enMano'))}</div><div class="n">Cartera por cobrar ${fmt(T('c','cartera'))}${T('c','multas')?` · multas aparte ${fmt(T('c','multas'))}`:''}</div></div>
     <div class="kpi hl"><div class="l">Utilidad ${R.txt}</div><div class="v">${fmt(T('a','utilidad'))}</div><div class="n">${crecimiento(T('a','utilidad'), T('b','utilidad'))} vs ${fmt(T('b','utilidad'))}</div></div>
     <div class="kpi sky"><div class="l">Cobrado ${R.txt}</div><div class="v">${fmt(T('a','cobrado'))}</div><div class="n">${crecimiento(T('a','cobrado'), T('b','cobrado'))} · transferencias ${fmt(T('a','transf'))}</div></div>
   </div>
@@ -343,7 +343,7 @@ VIEWS.analisis = () => {
     <td><div class="who">${ava(u.nombre)}<div><b>${esc(rutaDe(u))}</b><div class="muted" style="font-size:12px">${esc(u.nombre)}</div>
       <div class="row" style="gap:6px;margin-top:6px"><button class="btn sm" onclick="go('cobros',{cob:'${u.id}'})">Ver ruta</button><button class="btn sm" onclick="go('clientes',{cob:'${u.id}'})">Clientes</button></div></div></div></td>
     ${(()=>{ const k=capitalRuta(u.id); return `<td class="num">${k.tiene?fmt(k.asignado):'—'}</td><td class="num" style="color:${k.disponible<0?'var(--red)':'inherit'}">${k.tiene?fmt(k.disponible):'—'}</td>`; })()}
-    <td class="num"><b>${fmt(c.enMano)}</b></td><td class="num">${fmt(c.cartera)}</td><td class="num">${c.activos}</td>
+    <td class="num"><b>${fmt(c.enMano)}</b></td><td class="num">${fmt(c.cartera)}${c.multas>0.5?`<div class="muted" style="font-size:11.5px;color:var(--amber)">+ multas ${fmt(c.multas)}</div>`:''}</td><td class="num">${c.activos}</td>
     <td class="num" style="color:${c.enMora?'var(--red)':'inherit'}">${c.enMora} · ${fmt(c.mora)}</td>
     <td class="num">${fmt(a.cobrado)}</td><td class="num">${fmt(a.prestado)} <span class="muted">(${a.nNuevos})</span></td><td class="num">${fmt(a.gastos)}</td>
     <td class="num"><b style="color:var(--green)">${fmt(a.utilidad)}</b></td><td>${crecimiento(a.utilidad, b.utilidad)}</td></tr>`).join('')}

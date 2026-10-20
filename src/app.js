@@ -198,7 +198,11 @@ function estadoPrestamo(p, hoy=todayStr()){
   const base = p.valorCuota * p.cuotas;
   const multa = multaDe(p);
   const totalReal = base + multa.valor; // lo que realmente se cobra (cuotas + multas por no pago)
-  const saldo = Math.max(0, totalReal - pagado);
+  const saldo = Math.max(0, totalReal - pagado);              // lo que el cliente debe en total (cuotas + multas)
+  // los pagos abonan primero a las cuotas; lo que pase de las cuotas abona a las multas
+  const multaCobrada = Math.max(0, Math.min(pagado, totalReal) - base);
+  const multaPend = Math.max(0, multa.valor - multaCobrada);   // multas generadas que aún no se han cobrado (no son plata real)
+  const saldoCuotas = Math.max(0, base - pagado);              // deuda real del crédito, sin multas
   const cron = cronograma(p);
   const vencidas = cron.filter(c=>c.fecha<=hoy).length;
   const esperado = Math.min(totalReal, vencidas * p.valorCuota);
@@ -218,17 +222,18 @@ function estadoPrestamo(p, hoy=todayStr()){
   else if(atrasoMora>0) estado='En mora';
   const diasMora = (estado==='En mora' && proxima) ? Math.max(0, Math.round((parseD(hoy)-parseD(proxima.fecha))/864e5)) : 0;
   if(p.castigado){ atraso=0; atrasoMora=0; }
-  return { pagado, pagadoImp, multa, saldo, totalReal, atraso, atrasoMora, cuotasAtraso, cuotasPagadas, proxima, utilidad, estado, venceHoy, cron, pagos, diasMora,
+  return { pagado, pagadoImp, multa, multaPend, multaCobrada, saldoCuotas, saldo, totalReal, atraso, atrasoMora, cuotasAtraso, cuotasPagadas, proxima, utilidad, estado, venceHoy, cron, pagos, diasMora,
            ultimoPago: pagos.length? pagos[pagos.length-1].fecha : null };
 }
 function resumen(){
   const hoy = todayStr();
-  let prestado=0, recaudo=0, utilidad=0, cartera=0, mora=0, activos=0, enMora=0;
+  let prestado=0, recaudo=0, utilidad=0, cartera=0, mora=0, activos=0, enMora=0, multasPend=0, multasCobradas=0, conMulta=0;
   for(const p of DB.prestamos){
     const e = estadoPrestamo(p,hoy);
     if(!p.importado) prestado += p.monto;
     recaudo += e.pagado - e.pagadoImp; utilidad += e.utilidad * (e.pagado ? (e.pagado - e.pagadoImp)/e.pagado : 0);
-    if(e.estado!=='Pagado' && e.estado!=='Castigado'){ cartera += e.saldo; activos++; }
+    multasCobradas += e.multaCobrada;
+    if(e.estado!=='Pagado' && e.estado!=='Castigado'){ cartera += e.saldoCuotas; activos++; if(e.multaPend>0.5){ multasPend += e.multaPend; conMulta++; } }
     if(e.estado==='En mora'){ mora += e.atrasoMora; enMora++; }
   }
   const salidas = DB.salidas.reduce((s,x)=>s+x.valor,0) + DB.movruta.filter(x=>x.tipo==='gasto').reduce((s,x)=>s+x.valor,0);
@@ -237,8 +242,17 @@ function resumen(){
   const capital = DB.config.capitalInicial + aportes;
   const caja = capital - prestado + recaudo + ingresos - salidas;
   const recaudoHoy = DB.pagos.filter(x=>x.fecha===hoy && efectivo(x)).reduce((s,x)=>s+x.monto,0);
-  return { prestado, recaudo, utilidad, cartera, mora, activos, enMora, salidas, caja, capital,
+  return { prestado, recaudo, utilidad, cartera, mora, activos, enMora, salidas, caja, capital, multasPend, multasCobradas, conMulta,
            efectivoTotal: capital + utilidad + ingresos, utilidadNeta: utilidad + ingresos - salidas, recaudoHoy, ingresos };
+}
+/* contador aparte: multas generadas que no se han cobrado. No suman a caja, cartera ni utilidad */
+function contadorMultas(r){
+  if(!r.multasPend && !r.multasCobradas && !(DB.config.multa||{}).activa) return '';
+  return `<div class="card pad multas-box" style="margin-top:16px;display:flex;flex-wrap:wrap;gap:18px;align-items:center">
+    <div style="flex:1;min-width:200px"><div class="l muted" style="font-size:12.5px">Multas por cobrar (aparte)</div><div style="font-size:24px;font-weight:700;color:var(--amber)">${fmt(r.multasPend)}</div>
+      <div class="muted" style="font-size:12px">${r.conMulta} crédito(s) con multa pendiente. No se suma a la caja, la cartera ni la utilidad hasta que el cliente la pague.</div></div>
+    <div style="min-width:160px"><div class="l muted" style="font-size:12.5px">Multas ya cobradas</div><div style="font-size:20px;font-weight:700;color:var(--green)">${fmt(r.multasCobradas)}</div><div class="muted" style="font-size:12px">Esta sí es plata real y ya está en la caja</div></div>
+  </div>`;
 }
 function cobrosDelDia(hoy=todayStr()){
   const out=[];
@@ -375,6 +389,7 @@ VIEWS.panel = () => {
       <div class="kpi cream"><div class="l">Recaudo total</div><div class="v">${fmt(r.recaudo)}</div><div class="n">Hoy: ${fmt(r.recaudoHoy)}</div></div>
     </div>
   </div>
+  ${contadorMultas(r)}
   <div class="grid2">
     <div class="card pad">
       <div class="row" style="margin-bottom:6px"><h2 style="margin:0">Cobros pendientes de hoy</h2><span class="spacer"></span><button class="btn sm" data-go="cobros">Ver todos</button></div>
@@ -443,7 +458,7 @@ function cobroCard(c, fecha){
     <div class="cobro-nums">
       <div><span>Cuota</span><b>${fmt(c.p.valorCuota)}</b></div>
       <div><span>Pendiente</span><b style="color:${c.cobrar>0.5?'var(--red)':'inherit'}">${fmt(c.cobrar)}</b></div>
-      <div><span>Debe en total</span><b>${fmt(c.e.saldo)}</b></div>
+      <div><span>Debe en total</span><b>${fmt(c.e.saldoCuotas)}</b>${c.e.multaPend>0.5?`<em style="font-style:normal;font-size:11.5px;color:var(--amber)">+ multa ${fmt(c.e.multaPend)}</em>`:''}</div>
     </div>
     <div class="row">
       ${tel?`<a class="btn sm" href="tel:${esc(tel)}">Llamar</a>`:''}${btnUbicRuta(cl)}
@@ -556,12 +571,12 @@ VIEWS.clientes = () => {
   <div class="head"><div><h1>${isAdmin()?'Clientes':'Mis clientes'}</h1><p class="sub">${rows.length} clientes</p></div>
   <div class="row">${isAdmin()?`<button class="btn" onclick="exportCSV('clientes')">Exportar a Excel</button>`:''}<button class="btn pri" onclick="modalCliente()">+ Nuevo cliente</button></div></div>
   <div class="toolbar"><input class="input search" id="qCli" placeholder="Buscar nombre, cédula o teléfono" value="${esc(viewState.q||'')}">${filtroCobrador('clientes')}</div>
-  ${movil() ? (rows.length?`<div class="cobros-grid">${rows.map(c=>{const ps=DB.prestamos.filter(p=>p.clienteId===c.id);const saldo=ps.reduce((s,p)=>s+estadoPrestamo(p).saldo,0);const tel=(c.tel1||'').replace(/[^\d+]/g,'');return `<div class="card cobro">
+  ${movil() ? (rows.length?`<div class="cobros-grid">${rows.map(c=>{const ps=DB.prestamos.filter(p=>p.clienteId===c.id);const saldo=ps.reduce((s,p)=>{const e=estadoPrestamo(p);return s+(e.estado==='Castigado'?0:e.saldoCuotas);},0);const tel=(c.tel1||'').replace(/[^\d+]/g,'');return `<div class="card cobro">
       <div class="who">${ava(c.nombre)}<div style="min-width:0;flex:1"><b>${esc(c.nombre)}</b><div class="muted" style="font-size:12.5px">${esc(c.direccion||c.tel1||'')}</div></div></div>
       <div class="cobro-nums"><div><span>Préstamos</span><b>${ps.length}</b></div><div><span>Saldo</span><b>${fmt(saldo)}</b></div><div><span>${isAdmin()?'Ruta':'Cédula'}</span><b style="font-size:13px">${esc(isAdmin()?nombreRuta(c.cobradorId):(c.cedula||'—'))}</b></div></div>
       <div class="row">${tel?`<a class="btn sm" href="tel:${esc(tel)}">Llamar</a>`:''}${btnComoLlegar(c)}<span class="spacer"></span>${(()=>{const act=ps.find(p=>puedeRenovar(p)); return act?`<button class="btn sm" onclick="modalRenovacion('${act.id}')">Renovar</button>`:'';})()}${isAdmin()?`<button class="btn sm" onclick="modalPrestamo(null,'${c.id}')">Prestar</button>`:''}<button class="btn sm" onclick="modalCliente('${c.id}')">Editar</button></div></div>`}).join('')}</div>`:`<div class="card"><div class="empty">${DB.clientes.length?'Sin resultados.':'Aún no hay clientes registrados.'}</div></div>`) : `<div class="card">
   ${rows.length? `<div class="tablewrap"><table><thead><tr><th>Nombre</th><th># Identificación</th><th>Teléfono 1</th><th>Teléfono 2</th><th>Dirección</th><th>Ciudad</th>${isAdmin()?'<th>Ruta</th>':''}<th class="num">Préstamos</th><th class="num">Saldo</th><th></th></tr></thead><tbody>
-  ${rows.map(c=>{const ps=DB.prestamos.filter(p=>p.clienteId===c.id);const saldo=ps.reduce((s,p)=>s+estadoPrestamo(p).saldo,0);return `<tr>
+  ${rows.map(c=>{const ps=DB.prestamos.filter(p=>p.clienteId===c.id);const saldo=ps.reduce((s,p)=>{const e=estadoPrestamo(p);return s+(e.estado==='Castigado'?0:e.saldoCuotas);},0);return `<tr>
     <td><div class="who">${ava(c.nombre)}<div><b>${esc(c.nombre)}</b>${c.obs?`<div class="muted" style="font-size:12px">${esc(c.obs)}</div>`:''}</div></div></td><td>${esc(c.cedula)}</td><td>${esc(c.tel1)}</td><td>${esc(c.tel2)}</td>
     <td>${esc(c.direccion)}</td><td>${esc(c.ciudad)}</td>${isAdmin()?`<td>${esc(nombreRuta(c.cobradorId))}</td>`:''}<td class="num">${ps.length}</td><td class="num">${fmt(saldo)}</td>
     <td class="right" style="white-space:nowrap">${isAdmin()?`<button class="btn sm" onclick="modalPrestamo(null,'${c.id}')">Prestar</button>`:''} <button class="btn sm" onclick="modalCliente('${c.id}')">Editar</button></td></tr>`}).join('')}
@@ -1116,9 +1131,10 @@ function modalDetalle(id, tab='cuotas'){
     <div><div class="l">Interés</div><div class="v">${fmtN(p.tasa)}% ${p.modoInteres==='total'?'sobre el préstamo':'mensual · '+fmtN(p.meses)+' mes(es)'}</div></div>
     <div><div class="l">Forma de pago</div><div class="v">${p.periodo.charAt(0)+p.periodo.slice(1).toLowerCase()} · ${p.cuotas} cuotas</div></div>
     <div><div class="l">Valor cuota</div><div class="v">${fmt(p.valorCuota)}</div></div>
-    <div><div class="l">Total a pagar</div><div class="v">${fmt(e.totalReal)}</div></div>
+    <div><div class="l">Total a pagar</div><div class="v">${fmt(e.totalReal - e.multa.valor)}</div></div>
     <div><div class="l">Pagado</div><div class="v" style="color:var(--green)">${fmt(e.pagado)}</div></div>
-    <div><div class="l">Saldo (deuda actual)</div><div class="v">${fmt(e.saldo)}</div>${e.multa.valor?`<div class="muted" style="font-size:12px">Incluye multas ${fmt(e.multa.valor)} (${e.multa.n} no pagos)</div>`:''}</div>
+    <div><div class="l">Saldo del crédito</div><div class="v">${fmt(e.saldoCuotas)}</div>${e.multa.valor?`<div class="muted" style="font-size:12px">Sin contar multas</div>`:''}</div>
+    ${e.multa.valor?`<div><div class="l">Multas por cobrar</div><div class="v" style="color:var(--amber)">${fmt(e.multaPend)}</div><div class="muted" style="font-size:12px">${e.multa.veces} multa(s) por ${e.multa.n} no pagos${e.multaCobrada?' · ya cobradas '+fmt(e.multaCobrada):''}</div></div>`:''}
     <div><div class="l">En mora</div><div class="v" style="color:${e.atrasoMora?'var(--red)':'inherit'}">${fmt(e.atrasoMora)}${e.diasMora?` · ${e.diasMora} días`:''}</div></div>
     <div><div class="l">Próxima cuota</div><div class="v">${e.proxima?fdate(e.proxima.fecha):'—'}</div></div>
   </div>

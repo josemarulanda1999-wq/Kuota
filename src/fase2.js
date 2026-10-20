@@ -234,21 +234,25 @@ async function pagarNomina(uid, valor, desde, hasta){
    El CEO destina un fondo a cada ruta (ej. 40 millones). Disponible para prestar = capital asignado − capital en la calle − pérdidas. */
 function capitalRuta(uid){
   const asignado = DB.caprutas.filter(x=>x.cobradorId===uid).reduce((s,x)=>s+(Number(x.valor)||0),0);
-  let enCalle=0, perdido=0, ganado=0;
+  let enCalle=0, perdido=0, ganado=0, importado=0;
   for(const p of DB.prestamos.filter(p=>p.cobradorId===uid)){
     const e = estadoPrestamo(p), base = (Number(p.valorCuota)||0)*(Number(p.cuotas)||0);
     const recuperado = base>0 ? Math.min(p.monto, e.pagado*p.monto/base) : 0;
     const pend = Math.max(0, p.monto - recuperado);
+    // un crédito traído de otro sistema ya estaba en la calle: su capital pendiente al importarlo
+    // cuenta como capital que la ruta ya tenía, no como plata sacada del capital asignado
+    if(p.importado) importado += base>0 ? Math.max(0, p.monto - Math.min(p.monto, e.pagadoImp*p.monto/base)) : 0;
     ganado += e.utilidad;
     if(e.estado==='Castigado') perdido += pend; else if(e.estado!=='Pagado') enCalle += pend;
   }
-  return { asignado, enCalle, perdido, ganado, disponible: asignado - enCalle - perdido, tiene: DB.caprutas.some(x=>x.cobradorId===uid) };
+  return { asignado, importado, enCalle, perdido, ganado, disponible: asignado + importado - enCalle - perdido, tiene: DB.caprutas.some(x=>x.cobradorId===uid) };
 }
+function capImpNota(k){ return k.importado>0.5 ? `<small style="display:block;font-size:11px;opacity:.75;font-weight:500">+ ${fmt(k.importado)} importado</small>` : ''; }
 function bloqueCapitalRuta(uid){
   const k = capitalRuta(uid), movs = DB.caprutas.filter(x=>x.cobradorId===uid).sort((a,b)=>(b.creado||0)-(a.creado||0));
   return `<div class="f full"><span>Capital de la ruta</span>
     <div class="capruta">
-      <div><span>Asignado</span><b>${fmt(k.asignado)}</b></div><div><span>En la calle</span><b>${fmt(k.enCalle)}</b></div>
+      <div><span>Asignado</span><b>${fmt(k.asignado)}</b>${capImpNota(k)}</div><div><span>En la calle</span><b>${fmt(k.enCalle)}</b></div>
       <div><span>Disponible para prestar</span><b style="color:${k.disponible<0?'var(--red)':'var(--green)'}">${fmt(k.disponible)}</b></div>
     </div>
     ${isCeo()?`<div class="row" style="margin-top:8px"><button type="button" class="btn sm pri" onclick="modalCapitalRuta('${uid}',1)">+ Añadir capital</button><button type="button" class="btn sm" onclick="modalCapitalRuta('${uid}',-1)">Retirar capital</button></div>`:''}

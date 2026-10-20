@@ -342,7 +342,7 @@ VIEWS.analisis = () => {
   ${filas.sort((x,y)=>y.a.utilidad-x.a.utilidad).map(({u,a,b,c})=>`<tr>
     <td><div class="who">${ava(u.nombre)}<div><b>${esc(rutaDe(u))}</b><div class="muted" style="font-size:12px">${esc(u.nombre)}</div>
       <div class="row" style="gap:6px;margin-top:6px"><button class="btn sm" onclick="go('cobros',{cob:'${u.id}'})">Ver ruta</button><button class="btn sm" onclick="go('clientes',{cob:'${u.id}'})">Clientes</button></div></div></div></td>
-    ${(()=>{ const k=capitalRuta(u.id); return `<td class="num">${k.tiene?fmt(k.asignado):'—'}</td><td class="num" style="color:${k.disponible<0?'var(--red)':'inherit'}">${k.tiene?fmt(k.disponible):'—'}</td>`; })()}
+    ${(()=>{ const k=capitalRuta(u.id); return `<td class="num">${k.tiene?fmt(k.asignado)+capImpNota(k):'—'}</td><td class="num" style="color:${k.disponible<0?'var(--red)':'inherit'}">${k.tiene?fmt(k.disponible):'—'}</td>`; })()}
     <td class="num"><b>${fmt(c.enMano)}</b></td><td class="num">${fmt(c.cartera)}${c.multas>0.5?`<div class="muted" style="font-size:11.5px;color:var(--amber)">+ multas ${fmt(c.multas)}</div>`:''}</td><td class="num">${c.activos}</td>
     <td class="num" style="color:${c.enMora?'var(--red)':'inherit'}">${c.enMora} · ${fmt(c.mora)}</td>
     <td class="num">${fmt(a.cobrado)}</td><td class="num">${fmt(a.prestado)} <span class="muted">(${a.nNuevos})</span></td><td class="num">${fmt(a.gastos)}</td>
@@ -360,7 +360,7 @@ function resumenRutasPanel(){
   return `<div class="card pad" style="margin-top:16px"><div class="row" style="margin-bottom:6px"><h2 style="margin:0">Rutas este mes</h2><span class="spacer"></span><button class="btn sm" data-go="analisis">Ver análisis</button></div>
   <div class="cuadre-grid">${rutas.map(u=>{ const a=metricasRuta(u.id,...R.act), b=metricasRuta(u.id,...R.ant), c=estadoCarteraRuta(u.id); return `<div class="ruta-mini">
     <div class="row">${ava(u.nombre)}<div style="min-width:0;flex:1"><b>${esc(rutaDe(u))}</b><div class="muted" style="font-size:12px">${esc(u.nombre)}</div></div></div>
-    ${(()=>{ const k=capitalRuta(u.id); return k.tiene?`<div class="capruta"><div><span>Capital</span><b>${fmt(k.asignado)}</b></div><div><span>En la calle</span><b>${fmt(k.enCalle)}</b></div><div><span>Disponible</span><b style="color:${k.disponible<0?'var(--red)':'var(--green)'}">${fmt(k.disponible)}</b></div></div>`:''; })()}
+    ${(()=>{ const k=capitalRuta(u.id); return k.tiene?`<div class="capruta"><div><span>Capital</span><b>${fmt(k.asignado)}</b>${capImpNota(k)}</div><div><span>En la calle</span><b>${fmt(k.enCalle)}</b></div><div><span>Disponible</span><b style="color:${k.disponible<0?'var(--red)':'var(--green)'}">${fmt(k.disponible)}</b></div></div>`:''; })()}
     <div class="cobro-nums"><div><span>En la ruta</span><b>${fmt(c.enMano)}</b></div><div><span>Utilidad</span><b style="color:var(--green)">${fmt(a.utilidad)}</b></div><div><span>vs mes ant.</span><b>${crecimiento(a.utilidad,b.utilidad)}</b></div></div>
     <div class="row"><button class="btn sm" onclick="go('cobros',{cob:'${u.id}'})">Ver ruta</button><button class="btn sm" onclick="go('clientes',{cob:'${u.id}'})">Clientes (${DB.clientes.filter(x=>x.cobradorId===u.id).length})</button></div></div>`; }).join('')}</div></div>`;
 }

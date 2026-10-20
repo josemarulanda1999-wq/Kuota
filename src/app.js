@@ -1532,7 +1532,7 @@ VIEWS.cuadre = () => {
   </div>
   ${filas.length?`<div class="cuadre-grid">${filas.map(({u,c})=>`<div class="card pad cuadre-ruta">
     <div class="row" style="margin-bottom:10px">${ava(u.nombre)}<div style="min-width:0;flex:1"><b>${esc(rutaDe(u))}</b><div class="muted" style="font-size:12px">${esc(u.nombre)}</div></div></div>
-    ${(()=>{ const k=capitalRuta(u.id); return k.tiene?`<div class="capruta" style="margin-bottom:8px"><div><span>Capital</span><b>${fmt(k.asignado)}</b></div><div><span>En la calle</span><b>${fmt(k.enCalle)}</b></div><div><span>Disponible</span><b style="color:${k.disponible<0?'var(--red)':'var(--green)'}">${fmt(k.disponible)}</b></div></div>`:''; })()}
+    ${(()=>{ const k=capitalRuta(u.id); return k.tiene?`<div class="capruta" style="margin-bottom:8px"><div><span>Capital</span><b>${fmt(k.asignado)}</b>${capImpNota(k)}</div><div><span>En la calle</span><b>${fmt(k.enCalle)}</b></div><div><span>Disponible</span><b style="color:${k.disponible<0?'var(--red)':'var(--green)'}">${fmt(k.disponible)}</b></div></div>`:''; })()}
     <div class="cr-fila"><span>Abrió con</span><b>${fmt(c.saldoInicial)}</b></div>
     <div class="cr-fila mas"><span>+ Base</span><b>${fmt(c.baseDia)}</b></div>
     <div class="cr-fila mas"><span>+ Cobrado en efectivo (${c.nPagosDia})</span><b>${fmt(c.cobradoDia)}</b></div>

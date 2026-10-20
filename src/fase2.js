@@ -10,7 +10,7 @@ ICONS.nomina = '<path d="M3 6h18v12H3zm2 2v8h14V8zm4 1h6v2H9zm0 3h4v2H9z"/>';
 ICONS.auditoria = '<path d="M12 2L4 5v6c0 5 3.4 9.7 8 11 4.6-1.3 8-6 8-11V5zm-1 14l-4-4 1.4-1.4 2.6 2.6 5.6-5.6L18 9z"/>';
 
 /* ---------- importar desde Excel ---------- */
-const COLS_IMPORT = ['nombre','cedula','telefono','telefono2','direccion','ciudad','ruta','monto','interes','meses','periodo','fecha','pagado','valor_cuota','cuotas'];
+const COLS_IMPORT = ['nombre','cedula','telefono','telefono2','direccion','ciudad','ruta','monto','interes','meses','periodo','fecha','pagado','valor_cuota','cuotas','credito_no'];
 function descargarPlantilla(){
   const filas = [COLS_IMPORT, ['María Pérez','1012345678','3001234567','','Cra 10 # 20-30','Cali','Ruta Norte','500000','20','1','DIARIO','2026-10-01','120000','',''],
     ['Juan Ruiz','','3109876543','','Calle 5 # 8-12','Cali','Ruta Sur','1000000','20','2','SEMANAL','2026-09-15','400000','150000','8']];
@@ -61,36 +61,42 @@ function importarExcel(file){
       const n = i+2, nombre = val(f,'nombre');
       if(!nombre) return plan.errores.push(`Fila ${n}: falta el nombre`);
       const rutaTxt = val(f,'ruta'), cob = rutaPorNombre(rutaTxt);
-      if(cob===null) plan.errores.push(`Fila ${n}: la ruta "${rutaTxt}" no existe; el cliente queda sin ruta`);
+      if(cob===null){ plan.sinRuta = plan.sinRuta || {}; plan.sinRuta[rutaTxt] = (plan.sinRuta[rutaTxt]||0)+1; }
       const ced = val(f,'cedula');
       let cid = ced && porCedula[ced];
       if(!cid){ cid = S.newId('clientes'); if(ced) porCedula[ced]=cid;
-        plan.clientes.push({id:cid, nombre:nombre.slice(0,120), cedula:ced.slice(0,40), tel1:val(f,'telefono').slice(0,40), tel2:val(f,'telefono2').slice(0,40),
+        plan.clientes.push({id:cid, _pend:cob===null, nombre:nombre.slice(0,120), cedula:ced.slice(0,40), tel1:val(f,'telefono').slice(0,40), tel2:val(f,'telefono2').slice(0,40),
           direccion:val(f,'direccion').slice(0,200), ciudad:val(f,'ciudad').slice(0,80), obs:'Importado', cobradorId:cob||''}); }
       const monto = num(val(f,'monto'));
       if(!monto) return;
       const tasa = num(val(f,'interes')), meses = num(val(f,'meses'))||1;
       const per = (val(f,'periodo')||'DIARIO').toUpperCase(), periodo = PERIODOS.includes(per)?per:'DIARIO';
       const fecha = fechaImport(val(f,'fecha')) || todayStr();
-      const k = calcular(monto, tasa, meses, periodo);
       const vc = num(val(f,'valor_cuota')), nc = Math.round(num(val(f,'cuotas')));
-      const pid = S.newId('prestamos');
-      plan.prestamos.push({id:pid, clienteId:cid, fecha, monto, tasa, meses, periodo, excluirDomingos:!!DB.config.excluirDomingos, nota:'Importado de otro sistema',
+      const exacto = vc>0 && nc>0;                                   // viene con cuotas y valor de cuota del otro sistema
+      const k = exacto ? calcularCuotas(monto, tasa, nc, periodo, 'total') : calcular(monto, tasa, meses, periodo);
+      const pid = S.newId('prestamos'), nro = val(f,'credito_no');
+      plan.prestamos.push({id:pid, _pend:cob===null, clienteId:cid, fecha, monto, tasa, meses: exacto ? k.meses : meses, periodo, ...(exacto?{modoInteres:'total'}:{}),
+        excluirDomingos:!!DB.config.excluirDomingos, nota:'Importado de otro sistema'+(nro?' · Nº '+nro.slice(0,40):''),
         cuotas: nc>0?nc:k.cuotas, valorCuota: vc>0?vc:k.valorCuota, interesMes:k.interesMes, total: (vc>0&&nc>0)?vc*nc:k.total, cobradorId:cob||'', fuente:'oficina', importado:true});
       const pagado = num(val(f,'pagado'));
-      if(pagado>0) plan.pagos.push({id:S.newId('pagos'), prestamoId:pid, fecha:todayStr(), monto:pagado, nota:'Pagado antes de pasar a Kuota', tipo:'importado', cobradorId:cob||'', registradoPor:ME.uid});
+      if(pagado>0) plan.pagos.push({id:S.newId('pagos'), _pend:cob===null, prestamoId:pid, fecha:todayStr(), monto:pagado, nota:'Pagado antes de pasar a Kuota', tipo:'importado', cobradorId:cob||'', registradoPor:ME.uid});
     });
     const tot = plan.prestamos.reduce((s,p)=>s+p.monto,0);
     openModal(`<h3>Importar desde Excel</h3>
       <div class="kpis" style="margin-bottom:12px"><div class="kpi sky"><div class="l">Clientes nuevos</div><div class="v">${plan.clientes.length}</div></div>
       <div class="kpi hl"><div class="l">Créditos</div><div class="v">${plan.prestamos.length}</div><div class="n">${fmt(tot)} prestados</div></div>
       <div class="kpi cream"><div class="l">Saldos ya pagados</div><div class="v">${fmt(plan.pagos.reduce((s,x)=>s+x.monto,0))}</div></div></div>
+      ${plan.sinRuta?`<div class="banner" style="display:block">${Object.entries(plan.sinRuta).map(([r,c])=>`${c} crédito(s) vienen de la ruta "<b>${esc(r||'sin ruta')}</b>", que no existe en Kuota.`).join('<br>')}
+        <label class="f" style="margin-top:8px">Asignarlos a<select class="input" id="impRuta"><option value="">Sin ruta (los manejo yo)</option>${cobradores().map(u=>`<option value="${u.id}">${esc(rutaCompleta(u))}</option>`).join('')}</select></label></div>`:''}
       ${plan.errores.length?`<div class="banner bad" style="display:block;max-height:140px;overflow:auto">${plan.errores.slice(0,30).map(esc).join('<br>')}</div>`:''}
       <p class="muted" style="font-size:13px">Los créditos importados no mueven tu caja (ya se prestaron antes). Desde hoy, cada cobro sí entra a la caja y al cuadre de su ruta.</p>
       <div class="actions"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="impOk" ${plan.prestamos.length||plan.clientes.length?'':'disabled'}>Importar</button></div>`, true);
     document.getElementById('impOk').onclick = async ()=>{
       const b=document.getElementById('impOk'); b.disabled=true; b.textContent='Importando…';
       const now = Date.now(), ops=[];
+      const rSel = (document.getElementById('impRuta')||{}).value || '';
+      for(const x of [...plan.clientes, ...plan.prestamos, ...plan.pagos]){ if(x._pend) x.cobradorId = rSel; delete x._pend; }
       for(const c of plan.clientes){ const {id,...d}=c; ops.push({col:'clientes', id, data:{...d, creado:now, creadoPor:ME.uid}}); }
       for(const p of plan.prestamos){ const {id,...d}=p; ops.push({col:'prestamos', id, data:{...d, creado:now, creadoPor:ME.uid}}); }
       for(const x of plan.pagos){ const {id,...d}=x; ops.push({col:'pagos', id, data:{...d, creado:now, creadoPor:ME.uid}}); }

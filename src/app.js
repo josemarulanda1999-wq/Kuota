@@ -177,12 +177,29 @@ function addPeriodo(d, periodo, excluirDomingos){
   else { const day=n.getDate(); n.setMonth(n.getMonth()+1); if(n.getDate()!==day) n.setDate(0); }
   return n;
 }
+/* días dados (dominical / fuerza mayor): la cuota de ese día pasa al día siguiente y no cuenta como mora */
+let _libIdx=null, _libRef=null, _libLen=-1;
+function diasLibres(prestamoId){
+  const V = (typeof DB!=='undefined' && DB.visitas) || [];
+  if(_libRef!==V || _libLen!==V.length){ _libIdx={}; for(const v of V) if(v.resultado==='dominical') (_libIdx[v.prestamoId]=_libIdx[v.prestamoId]||new Set()).add(v.fecha); _libRef=V; _libLen=V.length; }
+  return (prestamoId && _libIdx[prestamoId]) || null;
+}
+function diaSiguienteHabil(d, excluirDomingos, libres){
+  const n=new Date(d);
+  for(let i=0;i<60;i++){ n.setDate(n.getDate()+1); if((excluirDomingos && n.getDay()===0) || (libres && libres.has(ymd(n)))) continue; break; }
+  return n;
+}
 function cronograma(p){
   const out=[]; let d=parseD(p.fecha);
+  const libres = diasLibres(p.id);
   for(let i=1;i<=p.cuotas;i++){
     // primeraCuota: en renovaciones se puede dejar que siga cobrando el mismo día de siempre (ej. los jueves)
     if(i===1 && p.primeraCuota && p.primeraCuota>p.fecha) d=parseD(p.primeraCuota); else d=addPeriodo(d,p.periodo,p.excluirDomingos);
-    out.push({n:i,fecha:ymd(d)});
+    if(libres && libres.has(ymd(d))){
+      // diario: se corre todo el calendario un día; semanal/quincenal/mensual: solo esa cuota pasa al día siguiente
+      if(p.periodo==='DIARIO'){ while(libres.has(ymd(d))) d=addPeriodo(d,p.periodo,p.excluirDomingos); out.push({n:i,fecha:ymd(d)}); }
+      else out.push({n:i,fecha:ymd(diaSiguienteHabil(d,p.excluirDomingos,libres)), corrida:ymd(d)});
+    } else out.push({n:i,fecha:ymd(d)});
   }
   return out;
 }
@@ -203,7 +220,7 @@ const diaSem = f => DIAS_SEM[parseD(f).getDay()];
 function multaDe(p){
   const m = (DB.config && DB.config.multa) || {};
   if(!m.activa || !(Number(m.cada)>0)) return {valor:0, n:0, veces:0};
-  const n = DB.visitas.filter(v=>v.prestamoId===p.id && (!m.desde || v.fecha>=m.desde)).length;
+  const n = DB.visitas.filter(v=>v.prestamoId===p.id && v.resultado!=='dominical' && (!m.desde || v.fecha>=m.desde)).length;
   const veces = Math.floor(n / Number(m.cada));
   const unidad = m.tipo==='fijo' ? (Number(m.valor)||0) : (Number(p.valorCuota)||0);
   return {valor: veces*unidad, n, veces};
@@ -277,7 +294,7 @@ function cobrosDelDia(hoy=todayStr()){
     const e = estadoPrestamo(p,hoy);
     if(e.estado==='Pagado' || e.estado==='Castigado') continue;
     const pagadoHoy = e.pagos.filter(x=>x.fecha===hoy).reduce((s,x)=>s+x.monto,0);
-    if(e.atraso>0.5 || e.venceHoy || pagadoHoy>0){
+    if(e.atraso>0.5 || e.venceHoy || pagadoHoy>0 || (typeof diaDado==='function' && diaDado(p.id, hoy))){
       out.push({p,e,pagadoHoy,cobrar: e.atraso});
     }
   }
@@ -483,6 +500,7 @@ function cobroCard(c, fecha){
       <span class="spacer"></span>
       ${c.pagadoHoy?`<span class="pill p-ok">Pagó ${fmt(c.pagadoHoy)}</span>`:chipVisita(c.p, fecha)}
       ${c.cobrar>0.5&&!c.pagadoHoy&&!visitaDe(c.p.id, fecha)?`<button class="btn sm" onclick="modalNoPago('${c.p.id}','${fecha}')">No pagó</button>`:''}
+      ${c.cobrar>0.5&&!c.pagadoHoy&&!diaDado(c.p.id, fecha)&&c.e.venceHoy&&puedeDarDia()?`<button class="btn sm" onclick="modalDarDia('${c.p.id}','${fecha}')">Dar día</button>`:''}
       ${c.cobrar>0.5?`<button class="btn pri" onclick="modalPago('${c.p.id}',null,'${fecha}')">Cobrar</button>`:(c.e.saldo>0.5?`<button class="btn pri" onclick="modalPago('${c.p.id}',null,'${fecha}')">Abonar</button>`:'')}
     </div></div>`;
 }
@@ -1140,7 +1158,7 @@ function modalDetalle(id, tab='cuotas'){
   const pagosHtml = e.pagos.length? e.pagos.map(x=>`<tr><td>${fdate(x.fecha)}</td><td class="num">${fmt(x.monto)}</td><td>${esc(x.nota||'')}<div style="margin-top:3px">${etiquetaMedio(x)}</div></td><td class="muted" style="font-size:12px">${esc(nombreUsuario(x.registradoPor))}</td>${isAdmin()?`<td style="white-space:nowrap">${celdaGPSPago(x)}</td>`:''}<td class="right no-print">${isCeo()?`<button class="btn sm" onclick="viewState._reopen=1;modalPago(null,'${x.id}')">Editar</button>`:''}</td></tr>`).join('') : `<tr><td colspan="6" class="muted">Sin pagos todavía.</td></tr>`;
   openModal(`
   <div class="row" style="margin-bottom:6px">${ava(c.nombre)}<h3 style="margin:0">${esc(c.nombre||'(sin cliente)')}</h3>${pill(e)}<span class="spacer"></span>
-    ${isNative()?'':'<button class="btn sm" onclick="window.print()">Imprimir</button>'}${isCeo()?`<button class="btn sm" onclick="modalPrestamo('${p.id}')">Editar</button>`:''}${isCeo()&&e.estado!=='Pagado'?`<button class="btn sm ${p.castigado?'':'danger'}" onclick="castigarPrestamo('${p.id}',${p.castigado?'true':'false'})">${p.castigado?'Reactivar':'Castigar'}</button>`:''}${puedeRenovar(p)?`<button class="btn sm" onclick="modalRenovacion('${p.id}')">${isAdmin()?'Renovar':'Solicitar renovación'}</button>`:''}<button class="btn sm pri" onclick="viewState._reopen=1;modalPago('${p.id}')">Registrar pago</button><button class="btn sm ghost" onclick="closeModal()">✕</button></div>
+    ${isNative()?'':'<button class="btn sm" onclick="window.print()">Imprimir</button>'}${isCeo()?`<button class="btn sm" onclick="modalPrestamo('${p.id}')">Editar</button>`:''}${isCeo()&&e.estado!=='Pagado'?`<button class="btn sm ${p.castigado?'':'danger'}" onclick="castigarPrestamo('${p.id}',${p.castigado?'true':'false'})">${p.castigado?'Reactivar':'Castigar'}</button>`:''}${puedeRenovar(p)?`<button class="btn sm" onclick="modalRenovacion('${p.id}')">${isAdmin()?'Renovar':'Solicitar renovación'}</button>`:''}${e.estado!=='Pagado'&&puedeDarDia()?`<button class="btn sm" onclick="modalDarDia('${p.id}')">Dar día</button>`:''}<button class="btn sm pri" onclick="viewState._reopen=1;modalPago('${p.id}')">Registrar pago</button><button class="btn sm ghost" onclick="closeModal()">✕</button></div>
   <p class="muted" style="margin:0 0 14px">${esc(c.cedula||'')} ${c.tel1?'· '+esc(c.tel1):''} ${c.direccion?'· '+esc(c.direccion):''} ${btnComoLlegar(c)}${p.nota?'<br>Nota: '+esc(p.nota):''}</p>
   <div class="detail-grid">
     <div><div class="l">Fecha</div><div class="v">${fdate(p.fecha)}</div></div>
@@ -1156,6 +1174,7 @@ function modalDetalle(id, tab='cuotas'){
     <div><div class="l">Próxima cuota</div><div class="v">${e.proxima?fdate(e.proxima.fecha):'—'}</div></div>
   </div>
   <div class="progress" style="margin-bottom:16px"><i style="width:${Math.min(100,e.pagado/e.totalReal*100)}%"></i></div>
+  ${listaDiasDados(p)}
   <div class="tabs no-print"><button class="${tab==='cuotas'?'on':''}" onclick="modalDetalle('${id}','cuotas')">Cuotas (${p.cuotas})</button><button class="${tab==='pagos'?'on':''}" onclick="modalDetalle('${id}','pagos')">Pagos (${e.pagos.length})</button><button class="${tab==='fotos'?'on':''}" onclick="modalDetalle('${id}','fotos')">Fotos</button></div>
   <div class="tablewrap" style="max-height:380px">
   ${tab==='cuotas'?`<table><thead><tr><th>#</th><th>Fecha</th><th class="num">Cuota</th><th class="num">Capital</th><th class="num">Interés</th><th>Estado</th></tr></thead><tbody>${cuotasHtml}</tbody></table>`

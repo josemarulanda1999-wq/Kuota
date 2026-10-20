@@ -14,7 +14,7 @@ const rutaCfg = uid => DB.rutas.find(r=>r.id===uid) || {};
 const idCierre = (uid, fecha) => `${uid}_${fecha}`;
 const cierreDe = (uid, fecha) => DB.cierres.find(c=>c.id===idCierre(uid, fecha));
 const miRutaCerrada = (fecha=todayStr()) => !isAdmin() && ME && !!cierreDe(ME.uid, fecha);
-const visitaDe = (prestamoId, fecha) => DB.visitas.filter(v=>v.prestamoId===prestamoId && v.fecha===fecha).sort((a,b)=>(b.creado||0)-(a.creado||0))[0];
+const visitaDe = (prestamoId, fecha) => DB.visitas.filter(v=>v.prestamoId===prestamoId && v.fecha===fecha && v.resultado!=='dominical').sort((a,b)=>(b.creado||0)-(a.creado||0))[0];
 const telWa = t => { let d = String(t||'').replace(/\D/g,''); if(!d) return ''; const cc = MON().tel; if(!d.startsWith(cc) || d.length <= 10) d = cc + d.replace(/^0+/,''); return d; };
 function rutaBloqueada(){ if(miRutaCerrada()){ avisar('Tu ruta de hoy ya está cerrada. Pídele a la oficina que la reabra si necesitas registrar algo más.'); return true; } return false; }
 
@@ -43,10 +43,63 @@ function modalNoPago(prestamoId, fecha){
   };
 }
 function chipVisita(p, fecha){
+  const dd = diaDado(p.id, fecha);
+  if(dd) return `<span class="pill p-ok" title="${esc(dd.nota||'')}">Día dado · ${esc(dd.motivo)}</span>`;
   const v = visitaDe(p.id, fecha);
   if(v) return `<span class="pill p-mora" title="${esc(v.nota||'')}">No pagó · ${esc(v.motivo)}${v.volver?` · vuelve ${fdateShort(v.volver)}`:''}</span>`;
   const ap = DB.visitas.find(x=>x.prestamoId===p.id && x.volver===fecha);
   return ap ? `<span class="pill p-hoy">Aplazado para hoy</span>` : '';
+}
+
+/* ---------- dar día (dominical): fuerza mayor, la cuota pasa al día siguiente sin quedar en mora ---------- */
+const MOTIVOS_DIA = ['Fuerza mayor','Calamidad familiar','Enfermedad','Día festivo del cliente','Otro'];
+const diaDado = (prestamoId, fecha) => DB.visitas.find(v=>v.prestamoId===prestamoId && v.fecha===fecha && v.resultado==='dominical');
+function puedeDarDia(){ return isAdmin() || !!rutaCfg(ME.uid).puedeDominical; }
+function modalDarDia(prestamoId, fecha){
+  if(!puedeDarDia()) return toast('La oficina no le ha dado permiso a tu ruta para dar días');
+  if(!isAdmin() && rutaBloqueada()) return;
+  const p = DB.prestamos.find(x=>x.id===prestamoId); if(!p) return;
+  const e = estadoPrestamo(p), hoy = todayStr();
+  const sugerida = fecha || (e.cron.find(c=>c.fecha>=hoy && !(diasLibres(p.id)||new Set()).has(c.fecha))||{}).fecha || hoy;
+  openModal(`<h3>Dar día · ${esc(nombreCliente(p.clienteId))}</h3>
+  <p class="muted" style="margin-top:-8px">El cliente tuvo un caso de fuerza mayor. Ese día no se le cobra, <b>no queda en mora</b> y la cuota pasa al día siguiente.</p>
+  <div class="form">
+    <label class="f">Día que se le da<input type="date" class="input" id="dFec" value="${sugerida}" ${isAdmin()?'':`min="${hoy}"`}></label>
+    <label class="f">Motivo<select class="input" id="dMot">${MOTIVOS_DIA.map(m=>`<option>${m}</option>`).join('')}</select></label>
+    <label class="f full">Nota<input class="input" id="dNot" placeholder="Opcional: qué pasó"></label>
+  </div>
+  <div class="calcbox" id="dInfo" style="margin-top:12px"></div>
+  <div class="actions"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="dOk">Dar el día</button></div>`);
+  const info = ()=>{
+    const f = document.getElementById('dFec').value; if(!f) return;
+    const libres = new Set(diasLibres(p.id)||[]); const antes = cronograma(p);
+    libres.add(f); _libIdx[p.id]=libres; const desp = cronograma(p); _libLen=-1;
+    const i = antes.findIndex(c=>c.fecha===f);
+    document.getElementById('dInfo').innerHTML = i<0
+      ? `<div><div class="l">Ese día no tiene cuota</div><div class="v" style="font-size:14px">Queda registrado igual, pero no cambia el calendario.</div></div>`
+      : `<div><div class="l">Cuota ${antes[i].n}</div><div class="v" style="font-size:15px">${fdate(antes[i].fecha)} → <b>${fdate(desp[i].fecha)}</b></div></div>
+         <div><div class="l">Última cuota</div><div class="v" style="font-size:15px">${fdate(desp[desp.length-1].fecha)}</div></div>`;
+  };
+  document.getElementById('dFec').addEventListener('change', info); info();
+  document.getElementById('dOk').onclick = async ()=>{
+    const f = document.getElementById('dFec').value;
+    if(!f) return toast('Escoge el día');
+    if(diaDado(p.id, f)) return toast('Ese día ya se le había dado');
+    const b=document.getElementById('dOk'); b.disabled=true;
+    const gps = isAdmin() ? {} : await gpsParaPago();
+    dbAdd('visitas', Object.assign({prestamoId:p.id, clienteId:p.clienteId, cobradorId:p.cobradorId||'', fecha:f, resultado:'dominical',
+      motivo:document.getElementById('dMot').value, volver:'', nota:document.getElementById('dNot').value.trim().slice(0,200)}, gps));
+    closeModal(); render(); toast('Día dado: la cuota pasa al día siguiente');
+  };
+}
+function listaDiasDados(p){
+  const l = DB.visitas.filter(v=>v.prestamoId===p.id && v.resultado==='dominical').sort((a,b)=>a.fecha.localeCompare(b.fecha));
+  if(!l.length) return '';
+  return `<div class="banner" style="background:var(--green-soft,rgba(200,241,105,.12));color:inherit">Días dados (dominical): ${l.map(v=>`<b>${fdate(v.fecha)}</b> · ${esc(v.motivo)}${v.nota?' ('+esc(v.nota)+')':''} <span class="muted" style="font-size:12px">por ${esc(nombreUsuario(v.creadoPor))}</span>${isCeo()?` <button class="btn sm ghost" onclick="quitarDiaDado('${v.id}','${p.id}')">Quitar</button>`:''}`).join(' &nbsp;·&nbsp; ')}</div>`;
+}
+async function quitarDiaDado(id, prestamoId){
+  if(!await confirmar('¿Quitar este día dado? La cuota vuelve a su fecha original y puede quedar en mora.')) return;
+  dbDel('visitas', id); closeModal(); render(); modalDetalle(prestamoId);
 }
 
 /* ---------- gastos e ingresos de la ruta ---------- */
@@ -87,7 +140,7 @@ function tablaMovRuta(uid, fecha){
 function resumenCierre(uid, fecha){
   const c = cuadreCobrador(uid, fecha);
   const lista = cobrosDelDia(fecha).filter(x=>x.p.cobradorId===uid);
-  const visitas = DB.visitas.filter(v=>v.cobradorId===uid && v.fecha===fecha);
+  const visitas = DB.visitas.filter(v=>v.cobradorId===uid && v.fecha===fecha && v.resultado!=='dominical');
   return { cobrado:c.cobradoDia, transferencias:c.transfDia||0, pagos:c.nPagosDia, base:c.baseDia, gastos:c.gastosDia, ingresos:c.ingresosDia, prestado:c.prestadoDia + c.desembolsadoDia,
            entregado:c.entregadoDia, saldoFinal:c.saldoFinal, clientes:lista.length, noPagos:visitas.length };
 }
@@ -214,14 +267,16 @@ async function compartirRecibo(pagoId){
 function bloqueCfgRuta(uid){
   const r = rutaCfg(uid);
   return `<div class="f full"><span>Permisos de la ruta</span>
-    <label class="chk"><input type="checkbox" id="rPrest" ${r.puedePrestar?'checked':''}> Puede crear créditos en la calle</label></div>
+    <label class="chk"><input type="checkbox" id="rPrest" ${r.puedePrestar?'checked':''}> Puede crear créditos en la calle</label>
+    <label class="chk"><input type="checkbox" id="rDom" ${r.puedeDominical?'checked':''}> Puede dar día (dominical) a un cliente por fuerza mayor</label></div>
     <label class="f">Monto máximo por crédito<input class="input" id="rMax" inputmode="decimal" value="${r.maxPrestamo?fmtIn(r.maxPrestamo):''}" placeholder="Sin tope = pide aprobación siempre"></label>
     <label class="f">Gasto máximo por registro<input class="input" id="rGas" inputmode="decimal" value="${r.maxGasto?fmtIn(r.maxGasto):''}" placeholder="Sin límite"></label>`;
 }
 function guardarCfgRuta(uid){
   const el = document.getElementById('rPrest'); if(!el) return;
   const g = id => document.getElementById(id) ? document.getElementById(id).value : '';
-  const d = {cobradorId:uid, puedePrestar:el.checked, maxPrestamo:num(g('rMax')), maxGasto:num(g('rGas')),
+  const dm = document.getElementById('rDom');
+  const d = {cobradorId:uid, puedePrestar:el.checked, puedeDominical:!!(dm&&dm.checked), maxPrestamo:num(g('rMax')), maxGasto:num(g('rGas')),
     salario:num(g('rSal')), periodoPago:['SEMANAL','QUINCENAL','MENSUAL'].includes(g('rPer'))?g('rPer'):'QUINCENAL',
     pctRecaudo:Math.min(100,Math.max(0,num(g('rPR')))), pctVentas:Math.min(100,Math.max(0,num(g('rPV')))),
     maxCuotas:Math.max(0,Math.round(num(g('rMC')))), maxRenov:Math.max(0,Math.round(num(g('rMR')))), actualizado:Date.now()};

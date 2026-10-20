@@ -237,7 +237,8 @@ service cloud.firestore {
       match /rutas/{u} {
         allow read: if isSuper() || isAdm(eid) || (isCob(eid) && u == uid());
         allow write: if isSuper() || ((isCeo(eid) || soloAdmin(eid)) && idOk(u)
-          && request.resource.data.keys().hasOnly(['cobradorId', 'puedePrestar', 'maxPrestamo', 'maxGasto', 'salario', 'periodoPago', 'pctRecaudo', 'pctVentas', 'maxCuotas', 'maxRenov', 'actualizado'])
+          && request.resource.data.keys().hasOnly(['cobradorId', 'puedePrestar', 'maxPrestamo', 'maxGasto', 'salario', 'periodoPago', 'pctRecaudo', 'pctVentas', 'maxCuotas', 'maxRenov', 'puedeDominical', 'actualizado'])
+          && (!('puedeDominical' in request.resource.data) || request.resource.data.puedeDominical is bool)
           && request.resource.data.cobradorId == u && request.resource.data.puedePrestar is bool
           && numOk(request.resource.data.maxPrestamo, 0, 10000000000) && numOk(request.resource.data.maxGasto, 0, 10000000000));
       }
@@ -258,10 +259,11 @@ service cloud.firestore {
         allow create: if isSuper() || isCeo(eid) || (idOk(id) && firma()
           && request.resource.data.keys().hasOnly(['prestamoId', 'clienteId', 'cobradorId', 'fecha', 'resultado', 'motivo', 'volver', 'nota', 'lat', 'lng', 'prec', 'sinGps', 'creado', 'creadoPor'])
           && idOk(request.resource.data.prestamoId) && idOk(request.resource.data.clienteId) && fechaOk(request.resource.data.fecha)
-          && request.resource.data.resultado in ['nopago', 'aplazado'] && txt(request.resource.data.motivo, 60) && optTxt(request.resource.data, 'nota', 200)
+          && request.resource.data.resultado in ['nopago', 'aplazado', 'dominical'] && txt(request.resource.data.motivo, 60) && optTxt(request.resource.data, 'nota', 200)
           && (request.resource.data.get('volver', '') == '' || fechaOk(request.resource.data.volver)) && coordsOk(request.resource.data)
           && request.resource.data.cobradorId == prest(eid, request.resource.data.prestamoId).get('cobradorId', '')
-          && (soloAdmin(eid) || (isCob(eid) && ownNew() && abierta(eid, request.resource.data.fecha))));
+          && (soloAdmin(eid) || (isCob(eid) && ownNew() && abierta(eid, request.resource.data.fecha)
+              && (request.resource.data.resultado != 'dominical' || cfgRuta(eid).get('puedeDominical', false) == true))));
         allow update, delete: if isSuper() || isCeo(eid);
       }
       match /cierres/{id} {

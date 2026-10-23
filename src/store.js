@@ -28,6 +28,8 @@ if (configured) {
   app = initializeApp(firebaseConfig);
   auth = initializeAuth(app, { persistence: [indexedDBLocalPersistence, browserLocalPersistence] });
   db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
+  // pide al navegador no borrar por su cuenta los datos guardados (cobros sin subir, sesión) cuando falta espacio
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (e) {}
 }
 
 const clean = o => { const r = {}; for (const [k, v] of Object.entries(o)) if (k !== 'id' && v !== undefined) r[k] = v; return r; };
@@ -103,6 +105,8 @@ window.S = {
   },
   /* ---------- GPS y fotos ---------- */
   setUbicacion: (uid, data) => setDoc(doc(db, ruta('ubicaciones'), uid), clean(data), { merge: true }),
+  /* lee del servidor la ubicación propia (permiso del GPS y si ya terminó la jornada), por si se borró la caché */
+  async getUbicacion(uid) { try { const s = await getDoc(doc(db, ruta('ubicaciones'), uid)); return s.exists() ? s.data() : null; } catch (e) { return null; } },
   addPunto: (uid, fecha, punto) => setDoc(doc(db, ruta('recorridos'), uid + '_' + fecha), { uid, fecha, puntos: arrayUnion(punto) }, { merge: true }),
   /* Envía la posición del GPS. En el celular va por HTTP nativo (la WebView se frena en segundo plano);
      en el navegador usa el SDK normal. Las reglas de Firestore validan igual en ambos caminos. */

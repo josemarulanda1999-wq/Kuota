@@ -47,16 +47,35 @@ const GPS = { ultimo:null, watcherId:null, webId:null, activo:false, ultEnvio:nu
 const gpsRastreable = () => !!ME && !isCeo() && (isNative() || !!navigator.geolocation);
 const lsGet = k => { try{ return localStorage.getItem(k); }catch(e){ return null; } };
 const lsSet = (k,v) => { try{ v==null ? localStorage.removeItem(k) : localStorage.setItem(k,v); }catch(e){} };
+/* el permiso del GPS y el "terminé la jornada hoy" también se guardan en la nube,
+   así borrar la caché del navegador no obliga a autorizar de nuevo ni reinicia una jornada ya terminada.
+   Va en una escritura aparte para que, si falla, no frene el envío de la posición. */
+function guardarEstadoGps(campos){
+  if(!ME) return;
+  S.setUbicacion(ME.uid, campos).catch(e=>console.warn('gps estado', e));
+}
+let _gpsNube = null;   // uid cuyo estado ya se recuperó de la nube en esta sesión
+async function recuperarEstadoGps(){
+  if(!ME || _gpsNube===ME.uid) return;
+  const uid = ME.uid, g = await S.getUbicacion(uid);
+  if(!ME || ME.uid!==uid) return;
+  _gpsNube = uid;
+  if(!g) return;
+  if(g.gpsOk===true) lsSet('kuota_gps_ok_'+uid, '1');
+  if(g.offDia===todayStr()) lsSet('kuota_gps_off_'+uid, g.offDia);
+}
 
 async function iniciarJornada(){
   if(!gpsRastreable() || GPS.activo) return;
+  if(lsGet('kuota_gps_ok_'+ME.uid)!=='1') await recuperarEstadoGps();
+  if(!ME || GPS.activo) return;
   if(lsGet('kuota_gps_ok_'+ME.uid)!=='1'){
     const ok = await confirmar(`Ubicación durante la jornada\n\nMientras tengas la jornada activa, Kuota comparte tu ubicación con ${(EMPRESA&&EMPRESA.nombre)||'la empresa'} para ver la ruta y validar los cobros. ${isNative()?'Verás un aviso fijo en el celular mientras esté activa':'En el navegador la ubicación se envía mientras tengas Kuota abierto'} y la puedes terminar cuando acabes de trabajar.\n\n¿Autorizas el uso de tu ubicación?`, {ok:'Acepto', no:'Ahora no'});
-    if(!ok){ lsSet('kuota_gps_off_'+ME.uid, todayStr()); render(); return; }
+    if(!ok){ lsSet('kuota_gps_off_'+ME.uid, todayStr()); guardarEstadoGps({offDia:todayStr()}); render(); return; }
     lsSet('kuota_gps_ok_'+ME.uid, '1');
   }
   const BG = window.CapPlugins && window.CapPlugins.BackgroundGeolocation;
-  GPS.activo = true; lsSet('kuota_gps_off_'+ME.uid, null);
+  GPS.activo = true; lsSet('kuota_gps_off_'+ME.uid, null); guardarEstadoGps({gpsOk:true, offDia:''});
   if(!isNative() || !BG){ gpsNavegador(); enviarUbic({activo:true, t:Date.now()}); render(); return; }
   try{
     GPS.watcherId = await BG.addWatcher({
@@ -117,7 +136,7 @@ function pararRastreo(){
 }
 function detenerJornada(marcarDia=true){
   const estaba = pararRastreo();
-  if(ME && marcarDia) lsSet('kuota_gps_off_'+ME.uid, todayStr());
+  if(ME && marcarDia){ lsSet('kuota_gps_off_'+ME.uid, todayStr()); guardarEstadoGps({offDia:todayStr()}); }
   if(estaba && ME) enviarUbic({activo:false, t:Date.now()});
   if(ME) render();
 }
@@ -126,7 +145,9 @@ async function toggleJornada(){
     if(await confirmar('¿Terminar la jornada? Se apaga el GPS hasta que la vuelvas a iniciar.', {ok:'Terminar jornada'})) detenerJornada(true);
   } else iniciarJornada();
 }
-function autoJornada(){
+async function autoJornada(){
+  if(!gpsRastreable() || GPS.activo) return;
+  await recuperarEstadoGps();
   if(gpsRastreable() && !GPS.activo && lsGet('kuota_gps_off_'+ME.uid)!==todayStr()) iniciarJornada();
 }
 function enviarUbic(extra, punto){

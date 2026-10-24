@@ -645,24 +645,72 @@ AFTER.prestamos = () => {
   i.addEventListener('input', ()=>{ viewState.q=i.value; const pos=i.selectionStart; render(); const j=document.getElementById('qPrest'); j.focus(); j.setSelectionRange(pos,pos); });
 };
 
+/* ---------- clientes en varias rutas ---------- */
+// la misma persona (misma cédula) en dos rutas, o un cliente con créditos activos en una ruta distinta a la suya
+const cedNorm = c => { const x=String((c&&c.cedula)||'').replace(/[^0-9a-z]/gi,'').toUpperCase(); return (x.length>=5 && !/^0+$/.test(x)) ? x : ''; };
+let _ixR = null, _ixKey = '';
+function indiceRutasCliente(){
+  const key = DB.clientes.length+':'+DB.prestamos.length+':'+DB.pagos.length;
+  if(_ixR && _ixKey===key && _ixR._c===DB.clientes && _ixR._p===DB.prestamos) return _ixR;
+  const porCed = {}, porCli = {};
+  const add = (k, r) => { (porCed[k] = porCed[k] || new Set()).add(r||''); };
+  for(const c of DB.clientes){ const k=cedNorm(c); if(k) add(k, c.cobradorId); }
+  for(const p of DB.prestamos){
+    if(!p.clienteId) continue; const e=estadoPrestamo(p); if(e.estado==='Pagado' || e.estado==='Castigado') continue;
+    const c = clienteById(p.clienteId); if(!c) continue;
+    const k = cedNorm(c); if(k) add(k, p.cobradorId); else (porCli[c.id] = porCli[c.id] || new Set()).add(p.cobradorId||'');
+  }
+  _ixR = {porCed, porCli, _c:DB.clientes, _p:DB.prestamos}; _ixKey = key; return _ixR;
+}
+function otrasRutas(c){
+  if(!c) return [];
+  const ix = indiceRutasCliente(), k = cedNorm(c), mia = c.cobradorId||'';
+  const set = new Set([...(k && ix.porCed[k] || []), ...(ix.porCli[c.id] || [])]);
+  set.delete(mia); return [...set];
+}
+const enVariasRutas = c => otrasRutas(c).length>0;
+function chipOtrasRutas(c){
+  const o = otrasRutas(c); if(!o.length || !isAdmin()) return '';
+  return `<span class="pill p-hoy" title="La misma persona tiene registro o créditos en otra ruta">También en ${esc(o.map(r=>r?nombreRuta(r):'oficina').join(', '))}</span>`;
+}
+function saldoCliente(c){ return DB.prestamos.filter(p=>p.clienteId===c.id).reduce((s,p)=>{const e=estadoPrestamo(p);return s+(e.estado==='Castigado'?0:e.saldoCuotas);},0); }
+
 VIEWS.clientes = () => {
-  const q=(viewState.q||'').toLowerCase();
+  const q=(viewState.q||'').toLowerCase(), soloDup = !!viewState.dup;
   let rows = DB.clientes.filter(c=>pasaFiltroCob(c.cobradorId)).filter(c=>!q || (c.nombre||'').toLowerCase().includes(q) || (c.cedula||'').includes(q) || (c.tel1||'').includes(q));
-  rows.sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
-  return `
-  <div class="head"><div><h1>${isAdmin()?'Clientes':'Mis clientes'}</h1><p class="sub">${rows.length} clientes</p></div>
-  <div class="row">${isAdmin()?`<button class="btn" onclick="exportCSV('clientes')">Exportar a Excel</button>`:''}<button class="btn pri" onclick="modalCliente()">+ Nuevo cliente</button></div></div>
-  <div class="toolbar"><input class="input search" id="qCli" placeholder="Buscar nombre, cédula o teléfono" value="${esc(viewState.q||'')}">${filtroCobrador('clientes')}</div>
-  ${movil() ? (rows.length?`<div class="cobros-grid">${rows.map(c=>{const ps=DB.prestamos.filter(p=>p.clienteId===c.id);const saldo=ps.reduce((s,p)=>{const e=estadoPrestamo(p);return s+(e.estado==='Castigado'?0:e.saldoCuotas);},0);const tel=(c.tel1||'').replace(/[^\d+]/g,'');return `<div class="card cobro">
-      <div class="who">${ava(c.nombre)}<div style="min-width:0;flex:1"><b>${esc(c.nombre)}</b><div class="muted" style="font-size:12.5px">${esc(c.direccion||c.tel1||'')}</div></div></div>
-      <div class="cobro-nums"><div><span>Préstamos</span><b>${ps.length}</b></div><div><span>Saldo</span><b>${fmt(saldo)}</b></div><div><span>${isAdmin()?'Ruta':'Cédula'}</span><b style="font-size:13px">${esc(isAdmin()?nombreRuta(c.cobradorId):(c.cedula||'—'))}</b></div></div>
-      <div class="row">${tel?`<a class="btn sm" href="tel:${esc(tel)}">Llamar</a>`:''}${btnComoLlegar(c)}<span class="spacer"></span>${(()=>{const act=ps.find(p=>puedeRenovar(p)); return act?`<button class="btn sm" onclick="modalRenovacion('${act.id}')">Renovar</button>`:'';})()}${isAdmin()?`<button class="btn sm" onclick="modalPrestamo(null,'${c.id}')">Prestar</button>`:''}<button class="btn sm" onclick="modalCliente('${c.id}')">Editar</button></div></div>`}).join('')}</div>`:`<div class="card"><div class="empty">${DB.clientes.length?'Sin resultados.':'Aún no hay clientes registrados.'}</div></div>`) : `<div class="card">
-  ${rows.length? `<div class="tablewrap"><table><thead><tr><th>Nombre</th><th># Identificación</th><th>Teléfono 1</th><th>Teléfono 2</th><th>Dirección</th><th>Ciudad</th>${isAdmin()?'<th>Ruta</th>':''}<th class="num">Préstamos</th><th class="num">Saldo</th><th></th></tr></thead><tbody>
-  ${rows.map(c=>{const ps=DB.prestamos.filter(p=>p.clienteId===c.id);const saldo=ps.reduce((s,p)=>{const e=estadoPrestamo(p);return s+(e.estado==='Castigado'?0:e.saldoCuotas);},0);return `<tr>
-    <td><div class="who">${ava(c.nombre)}<div><b>${esc(c.nombre)}</b>${c.obs?`<div class="muted" style="font-size:12px">${esc(c.obs)}</div>`:''}</div></div></td><td>${esc(c.cedula)}</td><td>${esc(c.tel1)}</td><td>${esc(c.tel2)}</td>
+  const nDup = isAdmin() ? DB.clientes.filter(enVariasRutas).length : 0;
+  if(soloDup) rows = rows.filter(enVariasRutas);
+  rows.sort((a,b)=> soloDup ? (cedNorm(a)||a.nombre||'').localeCompare(cedNorm(b)||b.nombre||'') : (a.nombre||'').localeCompare(b.nombre||''));
+  // apilados por ruta cuando se ven todas
+  const agrupar = isAdmin() && !viewState.cob && !soloDup && cobradores().length>0;
+  let grupos = [{id:null, rows}];
+  if(agrupar){
+    const orden = [...cobradores().map(u=>u.id), ''];
+    grupos = orden.map(id=>({id, rows: rows.filter(c=>(c.cobradorId||'')===id && (id!=='' || !userById(c.cobradorId)))}))
+      .concat([{id:'?', rows: rows.filter(c=>c.cobradorId && !cobradores().some(u=>u.id===c.cobradorId))}]).filter(g=>g.rows.length);
+  }
+  const tituloG = g => g.id===null ? '' : g.id==='' ? 'Sin ruta (oficina)' : g.id==='?' ? 'Ruta que ya no existe' : rutaCompleta(userById(g.id));
+  const cabG = (g, cols) => g.id===null ? '' : `<tr class="grupo-ruta"><td colspan="${cols}"><div class="row" style="gap:10px"><b>${esc(tituloG(g))}</b><span class="muted">${g.rows.length} cliente(s) · saldo ${fmt(g.rows.reduce((s,c)=>s+saldoCliente(c),0))}</span></div></td></tr>`;
+  const cols = isAdmin()?10:9;
+  const fila = c=>{const ps=DB.prestamos.filter(p=>p.clienteId===c.id);const saldo=saldoCliente(c);return `<tr>
+    <td><div class="who">${ava(c.nombre)}<div><b>${esc(c.nombre)}</b>${c.obs?`<div class="muted" style="font-size:12px">${esc(c.obs)}</div>`:''}${chipOtrasRutas(c)?`<div style="margin-top:3px">${chipOtrasRutas(c)}</div>`:''}</div></div></td><td>${esc(c.cedula)}</td><td>${esc(c.tel1)}</td><td>${esc(c.tel2)}</td>
     <td>${esc(c.direccion)}</td><td>${esc(c.ciudad)}</td>${isAdmin()?`<td>${esc(nombreRuta(c.cobradorId))}</td>`:''}<td class="num">${ps.length}</td><td class="num">${fmt(saldo)}</td>
-    <td class="right" style="white-space:nowrap">${isAdmin()?`<button class="btn sm" onclick="modalPrestamo(null,'${c.id}')">Prestar</button>`:''} <button class="btn sm" onclick="modalCliente('${c.id}')">Editar</button></td></tr>`}).join('')}
-  </tbody></table></div>` : `<div class="empty">${DB.clientes.length?'Sin resultados.':'Aún no hay clientes registrados.'}</div>`}
+    <td class="right" style="white-space:nowrap">${isAdmin()?`<button class="btn sm" onclick="modalPrestamo(null,'${c.id}')">Prestar</button>`:''} <button class="btn sm" onclick="modalCliente('${c.id}')">Editar</button></td></tr>`};
+  const tarjeta = c=>{const ps=DB.prestamos.filter(p=>p.clienteId===c.id);const saldo=saldoCliente(c);const tel=(c.tel1||'').replace(/[^\d+]/g,'');return `<div class="card cobro">
+      <div class="who">${ava(c.nombre)}<div style="min-width:0;flex:1"><b>${esc(c.nombre)}</b><div class="muted" style="font-size:12.5px">${esc(c.direccion||c.tel1||'')}</div>${chipOtrasRutas(c)}</div></div>
+      <div class="cobro-nums"><div><span>Préstamos</span><b>${ps.length}</b></div><div><span>Saldo</span><b>${fmt(saldo)}</b></div><div><span>${isAdmin()?'Ruta':'Cédula'}</span><b style="font-size:13px">${esc(isAdmin()?nombreRuta(c.cobradorId):(c.cedula||'—'))}</b></div></div>
+      <div class="row">${tel?`<a class="btn sm" href="tel:${esc(tel)}">Llamar</a>`:''}${btnComoLlegar(c)}<span class="spacer"></span>${(()=>{const act=ps.find(p=>puedeRenovar(p)); return act?`<button class="btn sm" onclick="modalRenovacion('${act.id}')">Renovar</button>`:'';})()}${isAdmin()?`<button class="btn sm" onclick="modalPrestamo(null,'${c.id}')">Prestar</button>`:''}<button class="btn sm" onclick="modalCliente('${c.id}')">Editar</button></div></div>`};
+  const vacio = `<div class="empty">${DB.clientes.length?(soloDup?'Ningún cliente está en más de una ruta.':'Sin resultados.'):'Aún no hay clientes registrados.'}</div>`;
+  return `
+  <div class="head"><div><h1>${isAdmin()?'Clientes':'Mis clientes'}</h1><p class="sub">${rows.length} clientes${agrupar?' · agrupados por ruta':''}</p></div>
+  <div class="row">${isAdmin()?`<button class="btn" onclick="exportCSV('clientes')">Exportar a Excel</button>`:''}<button class="btn pri" onclick="modalCliente()">+ Nuevo cliente</button></div></div>
+  ${nDup && !soloDup ? `<div class="banner"><b>${nDup} cliente(s) aparecen en más de una ruta</b> (misma cédula o créditos en otra ruta).<span class="spacer"></span><button class="btn sm" onclick="go('clientes',Object.assign({},viewState,{dup:1,cob:''}))">Ver cuáles</button></div>`:''}
+  <div class="toolbar"><input class="input search" id="qCli" placeholder="Buscar nombre, cédula o teléfono" value="${esc(viewState.q||'')}">${filtroCobrador('clientes')}
+    ${isAdmin()?`<button class="btn sm ${soloDup?'pri':''}" onclick="go('clientes',Object.assign({},viewState,{dup:${soloDup?0:1}}))">En varias rutas${nDup?` (${nDup})`:''}</button>`:''}</div>
+  ${movil() ? (rows.length ? grupos.map(g=>`${g.id!==null?`<h2 style="margin:18px 0 8px;font-size:16px">${esc(tituloG(g))} <span class="muted" style="font-size:13px;font-weight:500">· ${g.rows.length} · ${fmt(g.rows.reduce((s,c)=>s+saldoCliente(c),0))}</span></h2>`:''}<div class="cobros-grid">${g.rows.map(tarjeta).join('')}</div>`).join('') : `<div class="card">${vacio}</div>`) : `<div class="card">
+  ${rows.length? `<div class="tablewrap"><table><thead><tr><th>Nombre</th><th># Identificación</th><th>Teléfono 1</th><th>Teléfono 2</th><th>Dirección</th><th>Ciudad</th>${isAdmin()?'<th>Ruta</th>':''}<th class="num">Préstamos</th><th class="num">Saldo</th><th></th></tr></thead><tbody>
+  ${grupos.map(g=>cabG(g,cols)+g.rows.map(fila).join('')).join('')}
+  </tbody></table></div>` : vacio}
   </div>`}`;
 };
 AFTER.clientes = () => {
@@ -992,9 +1040,14 @@ function modalCliente(id, onSaved){
     ${cobSel}
   </div>
   <div class="actions">${id&&isCeo()?`<button class="btn danger" style="margin-right:auto" onclick="borrarCliente('${id}')">Borrar</button>`:''}<button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="mSave">Guardar</button></div>`);
-  document.getElementById('mSave').onclick = ()=>{
+  document.getElementById('mSave').onclick = async ()=>{
     const v = k=>document.getElementById(k).value.trim();
     if(!v('mNom')) return toast('Escribe el nombre del cliente');
+    if(isAdmin()){
+      const k = cedNorm({cedula:v('mCed')}), destino = document.getElementById('mCob').value;
+      const otros = k ? DB.clientes.filter(x=>x.id!==id && cedNorm(x)===k && (x.cobradorId||'')!==destino) : [];
+      if(otros.length && !await confirmar(`Ojo: la cédula ${v('mCed')} ya está registrada en ${otros.map(x=>`${nombreRuta(x.cobradorId)||'la oficina'} (${x.nombre})`).join(', ')}.\n\nSi lo guardas, este cliente quedará en dos rutas. ¿Guardar igual?`, {ok:'Guardar igual'})) return;
+    }
     const data = Object.assign({nombre:v('mNom'),cedula:v('mCed'),tel1:v('mT1'),tel2:v('mT2'),email:v('mMail').toLowerCase().slice(0,120),direccion:v('mDir'),ciudad:v('mCiu'),obs:v('mObs')}, cambiosUbicCliente());
     let cid=id;
     const cob = isAdmin() ? document.getElementById('mCob').value : ME.uid;
@@ -1027,6 +1080,7 @@ function modalPrestamo(id, clienteId, preset){
   openModal(`<h3>${id?'Editar préstamo':'Nuevo préstamo'}</h3>
   <div class="form">
     <label class="f full">Deudor *<select class="input" id="pCli">${clienteOptions(p.clienteId)}</select></label>
+    <div class="banner full" id="pDup" style="display:none;margin:0"></div>
     <label class="f full" id="pFueW" style="display:none">¿De dónde sale la plata?<select class="input" id="pFue"><option value="ruta" ${p.fuente!=='oficina'?'selected':''}>De la caja de la ruta (la entrega el cobrador)</option><option value="oficina" ${p.fuente==='oficina'?'selected':''}>De la oficina</option></select></label>
     <label class="f">Fecha del préstamo<input type="date" class="input" id="pFec" value="${esc(isAdmin()?p.fecha:todayStr())}" ${isAdmin()?'':'disabled'}></label>
     <label class="f">Valor del préstamo *<input class="input" id="pMon" value="${p.monto?fmtIn(p.monto):''}" inputmode="numeric" placeholder="Ej: 500.000"></label>
@@ -1065,6 +1119,12 @@ function modalPrestamo(id, clienteId, preset){
     const w=document.getElementById('pFueW'); w.style.display = r&&r.rol==='cobrador' ? '' : 'none';
     if(r) w.querySelector('option[value=ruta]').textContent = `De la caja de ${rutaDe(r)} (la entrega el cobrador)`; };
   verFuente();
+  const verDup = ()=>{ const cl=clienteById(g('pCli')), w=document.getElementById('pDup'); if(!w) return;
+    const o = isAdmin() ? otrasRutas(cl) : [];
+    w.style.display = o.length ? '' : 'none';
+    if(o.length) w.innerHTML = `Este cliente también está en <b>${esc(o.map(r=>r?nombreRuta(r):'la oficina').join(', '))}</b>. Revisa que no tenga deuda allá antes de prestarle.`; };
+  verDup();
+  document.getElementById('pCli').addEventListener('change',verDup);
   document.getElementById('pCli').addEventListener('change',verFuente);
   document.getElementById('pCli').addEventListener('change',e=>{
     if(e.target.value==='__new'){

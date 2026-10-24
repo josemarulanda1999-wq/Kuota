@@ -20,7 +20,7 @@ const prefNotif = () => Object.assign({pagos:true, creditos:true, nopago:false, 
 /* se llama cada vez que llega una colección de la nube */
 function novedades(col){
   if(!ME) return;
-  const cols = isAdmin() ? ['pagos','aprobaciones','renovaciones','visitas','cierres'] : ['aprobaciones','renovaciones','notas'];
+  const cols = isAdmin() ? ['pagos','aprobaciones','renovaciones','visitas','cierres','clientes','prestamos'] : ['aprobaciones','renovaciones','notas'];
   if(!cols.includes(col)) return;
   const lista = DB[col] || [];
   const vistos = NOTIF.vistos[col] || (NOTIF.vistos[col] = {});
@@ -45,6 +45,14 @@ function textoNovedad(col, x){
     return {t:'Crédito por aprobar', b:`${nombreRuta(x.cobradorId)} pide ${fmt(x.monto)} para ${nombreCliente(x.clienteId)}`, go:'renovaciones', ic:'credito'};
   if(col==='renovaciones' && isAdmin() && p.creditos && x.estado==='pendiente' && !mio)
     return {t:'Renovación por aprobar', b:`${nombreRuta(x.cobradorId)} pide renovar a ${nombreCliente(x.clienteId)}`, go:'renovaciones', ic:'credito'};
+  // la misma persona aparece en otra ruta (cliente nuevo o crédito nuevo)
+  if(col==='clientes' && isAdmin() && !mio && otrasRutas(x).length)
+    return {t:'Cliente en 2 rutas', b:`${nombreRuta(x.cobradorId)||'La oficina'} registró a ${x.nombre||''}, que ya está en ${otrasRutas(x).map(r=>nombreRuta(r)||'la oficina').join(', ')}`, go:'clientes', ic:'credito'};
+  if(col==='prestamos' && isAdmin() && !mio && !x.importado){
+    const c = clienteById(x.clienteId), o = c ? otrasRutas(c).filter(r=>r!==(x.cobradorId||'')) : [];
+    if(c && ((c.cobradorId||'')!==(x.cobradorId||'') || o.length))
+      return {t:'Crédito a cliente de otra ruta', b:`${nombreRuta(x.cobradorId)||'La oficina'} le prestó ${fmt(x.monto)} a ${c.nombre}, que también está en ${[...new Set([c.cobradorId||'',...o].filter(r=>r!==(x.cobradorId||'')))].map(r=>nombreRuta(r)||'la oficina').join(', ')}`, go:'clientes', ic:'credito'};
+  }
   if(col==='visitas' && isAdmin() && p.nopago && !mio)
     return {t:'No pagó', b:`${nombreCliente(x.clienteId)} · ${x.motivo} (${nombreRuta(x.cobradorId)})`, go:'cobros', ic:'nopago'};
   if(col==='cierres' && isAdmin() && p.cierres && !mio)
@@ -97,7 +105,7 @@ function btnCampana(){
 function abrirNotificaciones(){
   const items = NOTIF.items;
   openModal(`<div class="row" style="margin-bottom:6px"><h3 style="margin:0">Notificaciones</h3><span class="spacer"></span><button class="btn sm ghost" onclick="closeModal()">✕</button></div>
-  <div class="notif-lista">${items.length ? items.map((i,k)=>`<button class="notif ${i.leido?'':'nueva'}" onclick="closeModal();go('${['cuadre','renovaciones','cobros','panel','aprobaciones','avisos','movimientos'].includes(i.go)?i.go:'panel'}')">
+  <div class="notif-lista">${items.length ? items.map((i,k)=>`<button class="notif ${i.leido?'':'nueva'}" onclick="closeModal();go('${['cuadre','renovaciones','cobros','panel','aprobaciones','avisos','movimientos','clientes'].includes(i.go)?i.go:'panel'}')">
     <b>${esc(i.t)}</b><span>${esc(i.b)}</span><small>${horaDe(i.en)}</small></button>`).join('') : '<div class="empty">Aún no hay notificaciones. Aquí te avisamos cada pago que ingresen tus rutas.</div>'}</div>
   <div class="actions"><button class="btn" onclick="activarAvisosSistema()">Avisarme también en el ${isNative()?'celular':'computador'}</button>${items.length?`<button class="btn ghost" onclick="NOTIF.items=[];guardarNotif();closeModal();renderNav()">Borrar todas</button>`:''}</div>`);
   NOTIF.items.forEach(i=>i.leido=true); guardarNotif(); renderNav();

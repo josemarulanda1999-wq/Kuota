@@ -339,7 +339,7 @@ function cobrosDelDia(hoy=todayStr()){
   for(const p of DB.prestamos){
     const e = estadoPrestamo(p,hoy);
     if(e.estado==='Pagado' || e.estado==='Castigado') continue;
-    const pagadoHoy = e.pagos.filter(x=>x.fecha===hoy).reduce((s,x)=>s+x.monto,0);
+    const pagadoHoy = e.pagos.filter(x=>x.fecha===hoy && efectivo(x)).reduce((s,x)=>s+x.monto,0);
     if(e.atraso>0.5 || e.venceHoy || pagadoHoy>0 || (typeof diaDado==='function' && diaDado(p.id, hoy))){
       out.push({p,e,pagadoHoy,cobrar: e.atraso});
     }
@@ -598,7 +598,7 @@ function buscarCobro(q, fecha){
     if(!ok) continue;
     const e = estadoPrestamo(p, fecha);
     if(e.estado==='Pagado' || e.estado==='Castigado') continue;
-    const pagadoHoy = e.pagos.filter(x=>x.fecha===fecha).reduce((s,x)=>s+x.monto,0);
+    const pagadoHoy = e.pagos.filter(x=>x.fecha===fecha && efectivo(x)).reduce((s,x)=>s+x.monto,0);
     out.push({p,e,pagadoHoy,cobrar:e.atraso});
   }
   return out.sort((a,b)=>sinTildes(nombreCliente(a.p.clienteId)).localeCompare(sinTildes(nombreCliente(b.p.clienteId))));

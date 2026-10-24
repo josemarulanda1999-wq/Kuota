@@ -139,7 +139,7 @@ VIEWS.avisos = () => {
   const t = viewState.t || 'hoy', hoy = todayStr();
   const mios = DB.prestamos.filter(p=>pasaFiltroCob(p.cobradorId)).map(p=>({p, e:estadoPrestamo(p)}));
   const listas = {
-    hoy: mios.filter(({e})=>e.estado!=='Pagado' && e.estado!=='Castigado' && e.venceHoy && e.atrasoMora<1 && !(e.pagos.some(x=>x.fecha===hoy))),
+    hoy: mios.filter(({e})=>e.estado!=='Pagado' && e.estado!=='Castigado' && e.venceHoy && e.atrasoMora<1 && !(e.pagos.some(x=>x.fecha===hoy && efectivo(x)))),
     mora: mios.filter(({e})=>e.estado==='En mora').sort((a,b)=>b.e.diasMora-a.e.diasMora),
     pazysalvo: mios.filter(({e})=>e.estado==='Pagado' && e.ultimoPago && (parseD(hoy)-parseD(e.ultimoPago))/864e5 <= 30)
   };

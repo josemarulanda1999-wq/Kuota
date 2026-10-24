@@ -258,7 +258,7 @@ function celdaGPSPago(x){
   return `<span class="gps-tag ${a.nivel}">${a.txt}</span>${ver}`;
 }
 function alertasGPS(fecha, cob){
-  return DB.pagos.filter(x=>x.fecha===fecha && (!cob || x.cobradorId===cob || x.registradoPor===cob))
+  return DB.pagos.filter(x=>x.fecha===fecha && efectivo(x) && (!cob || x.cobradorId===cob || x.registradoPor===cob))
     .map(x=>({x, a:alertaPago(x)})).filter(r=>r.a && r.a.nivel!=='ok');
 }
 

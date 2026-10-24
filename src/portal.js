@@ -119,6 +119,7 @@ function modalEmpresa(id){
   <div class="form">
     <label class="f full">Nombre del negocio *<input class="input" id="eNom" value="${esc(e.nombre)}"></label>
     <label class="f">NIT o cédula<input class="input" id="eNit" value="${esc(e.nit)}"></label>
+    <label class="f">País y moneda<select class="input" id="ePais">${Object.entries(MONEDAS).map(([k,m])=>`<option value="${k}" ${(e.pais||'CO')===k?'selected':''}>${m.pais} (${m.simbolo})</option>`).join('')}</select></label>
     <label class="f">Ciudad<input class="input" id="eCiu" value="${esc(e.ciudad)}"></label>
     <label class="f">Persona de contacto<input class="input" id="eCon" value="${esc(e.contacto)}"></label>
     <label class="f">Teléfono / WhatsApp<input class="input" id="eTel" value="${esc(e.telefono)}"></label>
@@ -141,14 +142,16 @@ function modalEmpresa(id){
   ['eCA','eCC'].forEach(k=>document.getElementById(k).addEventListener('input',upd)); upd();
   document.getElementById('eSave').onclick=async ()=>{
     const g=k=>document.getElementById(k).value.trim();
-    const data={ nombre:g('eNom'), nit:g('eNit'), ciudad:g('eCiu'), contacto:g('eCon'), telefono:g('eTel'), email:g('eMail'), notas:g('eNot'),
+    const data={ nombre:g('eNom'), pais:MONEDAS[g('ePais')]?g('ePais'):'CO', nit:g('eNit'), ciudad:g('eCiu'), contacto:g('eCon'), telefono:g('eTel'), email:g('eMail'), notas:g('eNot'),
       cupoAdmins:Math.max(1,num(g('eCA'))), cupoCobradores:Math.max(1,num(g('eCC'))), diasGracia:Math.max(0,num(g('eGr'))) };
     if(!data.nombre) return toast('Escribe el nombre del negocio');
     if(id){
       const c=cuposUsados(id);
       if(data.cupoAdmins<c.admins || data.cupoCobradores<c.cobradores) return toast(`Tiene ${c.admins} admin y ${c.cobradores} cobradores activos; desactiva usuarios antes de bajar el cupo`);
       data.venceMs = calcVenceMs(e.pagadoHasta, data.diasGracia);
-      P().update('empresas/'+id, data).then(()=>toast('Empresa actualizada')).catch(falla); closeModal(); return;
+      P().update('empresas/'+id, data).then(()=>toast('Empresa actualizada')).catch(falla);
+      if(data.pais!==(e.pais||'CO')) P().set('empresas/'+id+'/config/general', {pais:data.pais}, true).catch(falla);
+      closeModal(); return;
     }
     const ceo={nombre:g('cNom'), email:g('cMail').toLowerCase(), pass:document.getElementById('cPass').value};
     if(!ceo.nombre) return toast('Escribe el nombre del CEO');
@@ -171,6 +174,27 @@ function modalEmpresa(id){
 }
 
 function verEmpresa(id){ go('empresa',{id}); }
+function modalBorrarEmpresa(eid){
+  const e=empById(eid); if(!e) return;
+  const us=usuariosDe(eid);
+  openModal(`<h3>Eliminar ${esc(e.nombre)}</h3>
+  <p>Se borran <b>para siempre</b> todos sus clientes, préstamos, pagos, rutas, fotos y movimientos, y sus ${us.length} usuario(s) pierden el acceso. No se puede deshacer.</p>
+  <p class="muted" style="font-size:13px">Si solo quieres que no entre por falta de pago, mejor usa <b>Bloquear</b>. El historial de pagos a Kuota (facturación) se conserva.</p>
+  <label class="f full">Para confirmar, escribe el nombre exacto: <b>${esc(e.nombre)}</b><input class="input" id="bNom" autocomplete="off"></label>
+  <p class="muted" id="bProg" style="font-size:13px"></p>
+  <div class="actions"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn danger" id="bOk" disabled>Eliminar para siempre</button></div>`);
+  const i=document.getElementById('bNom'), b=document.getElementById('bOk');
+  i.addEventListener('input',()=>{ b.disabled = i.value.trim()!==String(e.nombre).trim(); });
+  b.onclick=async ()=>{
+    if(i.value.trim()!==String(e.nombre).trim()) return;
+    b.disabled=true; b.textContent='Eliminando…';
+    try{
+      const r = await P().borrarEmpresa(eid, (c,n)=>{ document.getElementById('bProg').textContent=`Borrando ${c}… (${n} registros)`; });
+      closeModal(); go('empresas'); toast(`Empresa eliminada (${r.docs} registros, ${r.usuarios} usuarios)`);
+    }catch(err){ console.error(err); b.disabled=false; b.textContent='Eliminar para siempre';
+      document.getElementById('bProg').textContent='No se pudo terminar: '+(err.code==='permission-denied'?'faltan las reglas nuevas de Firebase (publícalas y vuelve a intentar).':(err.message||err)); }
+  };
+}
 V.empresa = () => {
   const e=empById(vs.id); if(!e) return '<div class="empty">Empresa no encontrada.</div>';
   const st=estadoSuscripcion(e), c=cuposUsados(e.id);
@@ -181,7 +205,8 @@ V.empresa = () => {
   <div class="row"><button class="btn" onclick="modalEmpresa('${e.id}')">Editar datos y plan</button>
     ${e.estado==='bloqueada'?`<button class="btn" onclick="bloquear('${e.id}',false)">Desbloquear</button>`:`<button class="btn danger" onclick="bloquear('${e.id}',true)">Bloquear</button>`}
     <button class="btn" onclick="entrarComoCeo('${e.id}')">Entrar como CEO</button>
-    <button class="btn pri" onclick="modalPagoKuota('${e.id}')">Registrar pago</button></div></div>
+    <button class="btn pri" onclick="modalPagoKuota('${e.id}')">Registrar pago</button>
+    <button class="btn danger" onclick="modalBorrarEmpresa('${e.id}')">Eliminar empresa</button></div></div>
   <div class="kpis">
     <div class="kpi card"><div class="l">Estado</div><div style="margin-top:8px">${pill(e)}</div><div class="n">${e.pagadoHasta?'Pagado hasta '+fdate(e.pagadoHasta)+(st.limite?' · se bloquea el '+fdate(st.limite):''):'Nunca ha pagado'}</div></div>
     <div class="kpi hl"><div class="l">Mensualidad</div><div class="v">${fmt(planMensual(e))}</div><div class="n">${planDetalle(e).map(x=>x[0]).join(' + ')}</div></div>

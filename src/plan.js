@@ -84,3 +84,15 @@ function sanearLista(col, arr){
     .map(sanearDoc)
     .filter(x => !(col === 'prestamos' || col === 'pagos') || FECHA_OK.test(x.fecha));
 }
+
+/* moneda de cada país (la usan la app y el portal al crear empresas) */
+const MONEDAS = {
+  CO:{pais:'Colombia', simbolo:'$', dec:0, loc:'es-CO', tel:'57'}, PE:{pais:'Perú', simbolo:'S/', dec:2, loc:'es-PE', tel:'51'},
+  BR:{pais:'Brasil', simbolo:'R$', dec:2, loc:'pt-BR', tel:'55'}, CL:{pais:'Chile', simbolo:'$', dec:0, loc:'es-CL', tel:'56'},
+  AR:{pais:'Argentina', simbolo:'$', dec:0, loc:'es-AR', tel:'54'}, UY:{pais:'Uruguay', simbolo:'$U', dec:2, loc:'es-UY', tel:'598'},
+  PY:{pais:'Paraguay', simbolo:'₲', dec:0, loc:'es-PY', tel:'595'},
+  EC:{pais:'Ecuador', simbolo:'US$', dec:2, loc:'es-EC', tel:'593'}, MX:{pais:'México', simbolo:'$', dec:2, loc:'es-MX', tel:'52'},
+  VE:{pais:'Venezuela', simbolo:'$', dec:2, loc:'es-VE', tel:'58'}, BO:{pais:'Bolivia', simbolo:'Bs', dec:2, loc:'es-BO', tel:'591'},
+  PA:{pais:'Panamá', simbolo:'B/.', dec:2, loc:'es-PA', tel:'507'}, DO:{pais:'Rep. Dominicana', simbolo:'RD$', dec:2, loc:'es-DO', tel:'1'},
+  GT:{pais:'Guatemala', simbolo:'Q', dec:2, loc:'es-GT', tel:'502'}, US:{pais:'Estados Unidos', simbolo:'US$', dec:2, loc:'en-US', tel:'1'}
+};

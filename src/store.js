@@ -177,6 +177,23 @@ window.S = {
       return () => uns.forEach(u => u());
     },
     newId: c => doc(collection(db, c)).id,
+    /* borra una empresa con todos sus datos y sus usuarios (no se puede deshacer) */
+    async borrarEmpresa(eid, progreso) {
+      const cols = ['clientes','prestamos','pagos','salidas','capital','ingresos','entregas','renovaciones','movruta','visitas','cierres',
+        'aprobaciones','rutas','notas','caprutas','avisos','auditoria','fotos','comprobantes','ubicaciones','recorridos','equipos','intentos','config'];
+      let n = 0;
+      for (const c of cols) {
+        const s = await getDocs(collection(db, 'empresas', eid, c));
+        for (let i = 0; i < s.docs.length; i += 400) {
+          const b = writeBatch(db); s.docs.slice(i, i + 400).forEach(d => b.delete(d.ref)); await b.commit();
+          n += Math.min(400, s.docs.length - i); progreso && progreso(c, n);
+        }
+      }
+      const us = await getDocs(query(collection(db, 'users'), where('empresaId', '==', eid)));
+      for (const d of us.docs) await deleteDoc(d.ref);
+      await deleteDoc(doc(db, 'empresas', eid));
+      return { docs: n, usuarios: us.size };
+    },
     set: (path, data, merge) => setDoc(doc(db, path), clean(data), merge ? { merge: true } : {}),
     update: (path, data) => updateDoc(doc(db, path), clean(data)),
     remove: path => deleteDoc(doc(db, path)),
@@ -186,7 +203,7 @@ window.S = {
       const b = writeBatch(db);
       b.set(doc(db, 'empresas', eid), clean({ ...emp, ceoUid: uid }));
       b.set(doc(db, 'users', uid), { nombre: ceo.nombre, email: ceo.email, rol: 'ceo', empresaId: eid, activo: true, estado: 'activo', creado: Date.now() });
-      b.set(doc(db, 'empresas', eid, 'config', 'general'), { negocio: emp.nombre });
+      b.set(doc(db, 'empresas', eid, 'config', 'general'), { negocio: emp.nombre, pais: emp.pais || 'CO' });
       b.set(doc(db, 'empresas', eid, 'config', 'finanzas'), { capitalInicial: 0 });
       await b.commit();
       return eid;

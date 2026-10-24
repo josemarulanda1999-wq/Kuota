@@ -363,6 +363,10 @@ service cloud.firestore {
       match /capital/{id} {
         allow read, write: if isSuper() || isCeo(eid);
       }
+      // el equipo Kuota puede borrar todos los datos de una empresa (eliminar empresa desde el portal)
+      match /{col}/{doc=**} {
+        allow read, delete: if isSuper();
+      }
     }
 
     // ---- datos de la primera versión (solo para moverlos desde el portal) ----

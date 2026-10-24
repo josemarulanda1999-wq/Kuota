@@ -93,14 +93,7 @@ function scheduleRender(){
 
 /* ---------- utilidades ---------- */
 /* moneda del negocio (Colombia, Perú, etc.) */
-const MONEDAS = {
-  CO:{pais:'Colombia', simbolo:'$', dec:0, loc:'es-CO', tel:'57'}, PE:{pais:'Perú', simbolo:'S/', dec:2, loc:'es-PE', tel:'51'},
-  EC:{pais:'Ecuador', simbolo:'US$', dec:2, loc:'es-EC', tel:'593'}, MX:{pais:'México', simbolo:'$', dec:2, loc:'es-MX', tel:'52'},
-  VE:{pais:'Venezuela', simbolo:'$', dec:2, loc:'es-VE', tel:'58'}, CL:{pais:'Chile', simbolo:'$', dec:0, loc:'es-CL', tel:'56'},
-  BO:{pais:'Bolivia', simbolo:'Bs', dec:2, loc:'es-BO', tel:'591'}, PA:{pais:'Panamá', simbolo:'B/.', dec:2, loc:'es-PA', tel:'507'},
-  DO:{pais:'Rep. Dominicana', simbolo:'RD$', dec:2, loc:'es-DO', tel:'1'}, GT:{pais:'Guatemala', simbolo:'Q', dec:2, loc:'es-GT', tel:'502'},
-  US:{pais:'Estados Unidos', simbolo:'US$', dec:2, loc:'en-US', tel:'1'}
-};
+/* MONEDAS está en plan.js (lo usan la app y el portal) */
 const MON = () => MONEDAS[(DB && DB.config && DB.config.pais) || 'CO'] || MONEDAS.CO;
 const fmt = n => { const m=MON(); return m.simbolo + ' ' + (Number(n)||0).toLocaleString(m.loc,{minimumFractionDigits:m.dec, maximumFractionDigits:m.dec}); };
 const fmtIn = n => (Number(n)||0).toLocaleString(MON().loc,{maximumFractionDigits:MON().dec});

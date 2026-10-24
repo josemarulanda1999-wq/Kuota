@@ -38,14 +38,17 @@ let EID = '';                                       // empresa del usuario con s
 const ruta = c => c === 'users' ? 'users' : `empresas/${EID}/${c}`;
 
 async function perfil(u) {
+  // modo soporte: el equipo Kuota entra a una empresa como si fuera su CEO.
+  // Va primero: si el superadmin también es CEO de su propio negocio, igual debe ver la empresa que escogió en el portal.
+  let eid = ''; try { eid = localStorage.getItem('kuota_soporte') || ''; } catch (e) {}
+  if (/^[A-Za-z0-9_-]{1,40}$/.test(eid)) {
+    const sup = await getDoc(doc(db, 'superadmins', u.uid)).catch(() => null);
+    if (sup && sup.exists()) return { uid: u.uid, id: u.uid, nombre: (sup.data().nombre || 'Kuota') + ' (soporte)', email: u.email, rol: 'ceo', empresaId: eid, activo: true, estado: 'activo', soporte: true };
+    try { localStorage.removeItem('kuota_soporte'); } catch (e) {}
+  }
   const s = await getDoc(doc(db, 'users', u.uid));
   if (s.exists()) return { uid: u.uid, id: u.uid, ...s.data() };
-  // modo soporte: el equipo Kuota entra a una empresa como si fuera su CEO
-  let eid = ''; try { eid = localStorage.getItem('kuota_soporte') || ''; } catch (e) {}
-  if (!/^[A-Za-z0-9_-]{1,40}$/.test(eid)) return null;
-  const sup = await getDoc(doc(db, 'superadmins', u.uid));
-  if (!sup.exists()) return null;
-  return { uid: u.uid, id: u.uid, nombre: (sup.data().nombre || 'Kuota') + ' (soporte)', email: u.email, rol: 'ceo', empresaId: eid, activo: true, estado: 'activo', soporte: true };
+  return null;
 }
 
 /* crea una cuenta de acceso sin cerrar la sesión actual */

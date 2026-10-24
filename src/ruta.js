@@ -409,6 +409,7 @@ function bloqueAjustesRuta(){
     <h2>País, moneda y rutas</h2>
     <div class="form">
       <label class="f full">País y moneda<select class="input" id="sPais">${Object.entries(MONEDAS).map(([k,m])=>`<option value="${k}" ${c.pais===k?'selected':''}>${m.pais} (${m.simbolo})</option>`).join('')}</select></label>
+      <label class="chk full"><input type="checkbox" id="sSim" ${verSimbolo()?'checked':''}> Mostrar el símbolo de la moneda junto a cada valor (ej. ${esc(MON().simbolo)} 1.500)</label>
       <label class="f full">Conceptos de gasto de las rutas (uno por línea)<textarea class="input" id="sConG" rows="5">${esc((c.conceptosGasto||[]).join('\n'))}</textarea></label>
       <label class="f full">Conceptos de ingreso de las rutas (uno por línea)<textarea class="input" id="sConI" rows="3">${esc((c.conceptosIngreso||[]).join('\n'))}</textarea></label>
       <label class="f full">Mensaje al final del recibo de pago<input class="input" id="sMsg" value="${esc(c.mensajeRecibo||'')}" maxlength="300"></label>
@@ -419,6 +420,7 @@ function bloqueAjustesRuta(){
 function guardarAjustesRuta(){
   const lineas = id => document.getElementById(id).value.split('\n').map(x=>x.trim()).filter(Boolean).slice(0,40).map(x=>x.slice(0,40));
   DB.config.pais = document.getElementById('sPais').value;
+  DB.config.verSimbolo = document.getElementById('sSim').checked;
   DB.config.conceptosGasto = lineas('sConG').length ? lineas('sConG') : defaultConfig().conceptosGasto;
   DB.config.conceptosIngreso = lineas('sConI').length ? lineas('sConI') : defaultConfig().conceptosIngreso;
   DB.config.mensajeRecibo = document.getElementById('sMsg').value.trim().slice(0,300);

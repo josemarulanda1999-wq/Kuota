@@ -139,7 +139,9 @@ function scheduleRender(){
 /* moneda del negocio (Colombia, Perú, etc.) */
 /* MONEDAS está en plan.js (lo usan la app y el portal) */
 const MON = () => MONEDAS[(DB && DB.config && DB.config.pais) || 'CO'] || MONEDAS.CO;
-const fmt = n => { const m=MON(); return m.simbolo + ' ' + (Number(n)||0).toLocaleString(m.loc,{minimumFractionDigits:m.dec, maximumFractionDigits:m.dec}); };
+// el símbolo de la moneda se puede ocultar (en Perú viene oculto: todos saben que son soles)
+const verSimbolo = () => { const v = DB && DB.config && DB.config.verSimbolo; return typeof v==='boolean' ? v : ((DB && DB.config && DB.config.pais)!=='PE'); };
+const fmt = n => { const m=MON(), t=(Number(n)||0).toLocaleString(m.loc,{minimumFractionDigits:m.dec, maximumFractionDigits:m.dec}); return verSimbolo() ? m.simbolo + ' ' + t : t; };
 const fmtIn = n => (Number(n)||0).toLocaleString(MON().loc,{maximumFractionDigits:MON().dec});
 const fmtN = n => (Number(n)||0).toLocaleString('es-CO',{maximumFractionDigits:2});
 const esc = s => String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));

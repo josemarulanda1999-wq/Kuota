@@ -235,24 +235,98 @@ async function responderAprobacion(id, ok){
 }
 
 /* ---------- recibo de pago ---------- */
+/* datos del recibo tal como quedaron en el momento de ese pago */
+function datosRecibo(pagoId){
+  const x = DB.pagos.find(y=>y.id===pagoId); if(!x) return null;
+  const p = DB.prestamos.find(y=>y.id===x.prestamoId)||{}, c = clienteById(p.clienteId)||{};
+  const orden = pagosDe(p.id).slice().sort((a,b)=>a.fecha.localeCompare(b.fecha) || (a.creado||0)-(b.creado||0));
+  let antes = 0; for(const y of orden){ if(y.id===x.id) break; antes += y.monto; }
+  const vc = Number(p.valorCuota)||0, n = Number(p.cuotas)||0, base = vc*n, desp = antes + x.monto;
+  let cuotaTxt = '';
+  if(vc>0 && n>0){
+    const desde = Math.min(n, Math.floor(antes/vc + 1e-6) + 1), hasta = Math.min(n, Math.max(desde, Math.ceil(desp/vc - 1e-6)));
+    const parcial = desp < base - 0.5 && (desp % vc) > 0.5;
+    cuotaTxt = desde===hasta ? `Cuota ${desde} de ${n}${parcial?' (abono parcial)':''}` : `Cuotas ${desde} a ${hasta} de ${n}${parcial?' (la última con abono parcial)':''}`;
+    if(antes >= base - 0.5) cuotaTxt = 'Abono a multas';
+  }
+  const e = estadoPrestamo(p);
+  return { x, p, c, negocio: DB.config.negocio||'Kuota', numero: String(x.id).slice(-6).toUpperCase(),
+    fecha: fdate(x.fecha), hora: x.creado ? new Date(x.creado).toLocaleTimeString('es-CO',{hour:'numeric',minute:'2-digit'}) : '',
+    monto: x.monto, medio: x.medio==='transferencia'?'Transferencia':'Efectivo', cuotaTxt, valorCuota: vc,
+    cuotasPagadas: Math.min(n, Math.floor(desp/vc + 1e-6) || 0), cuotas: n,
+    saldo: Math.max(0, base - desp), multa: e.multaPend||0, recibio: nombreUsuario(x.registradoPor), mensaje: DB.config.mensajeRecibo||'' };
+}
 function textoRecibo(pagoId){
-  const x = DB.pagos.find(y=>y.id===pagoId); if(!x) return '';
-  const p = DB.prestamos.find(y=>y.id===x.prestamoId)||{}, c = clienteById(p.clienteId)||{}, e = estadoPrestamo(p);
-  return `*${DB.config.negocio||'Kuota'}* — Recibo de pago\n`+
-    `Cliente: ${c.nombre||''}\nFecha: ${fdate(x.fecha)}${x.creado?' '+new Date(x.creado).toLocaleTimeString('es-CO',{hour:'numeric',minute:'2-digit'}):''}\n`+
-    `Valor pagado: ${fmt(x.monto)} (${x.medio==='transferencia'?'transferencia':'efectivo'})\nCuotas pagadas: ${e.cuotasPagadas} de ${p.cuotas}\nSaldo pendiente: ${fmt(e.saldo)}\n`+
-    `Recibió: ${nombreUsuario(x.registradoPor)}\n${DB.config.mensajeRecibo?'\n'+DB.config.mensajeRecibo:''}`;
+  const d = datosRecibo(pagoId); if(!d) return '';
+  return `*${d.negocio}* — Recibo de pago Nº ${d.numero}\n`+
+    `Cliente: ${d.c.nombre||''}${d.c.cedula?' · CC '+d.c.cedula:''}\nFecha: ${d.fecha}${d.hora?' '+d.hora:''}\n\n`+
+    `*Valor pagado: ${fmt(d.monto)}* (${d.medio.toLowerCase()})\n${d.cuotaTxt?d.cuotaTxt+'\n':''}Valor de la cuota: ${fmt(d.valorCuota)}\n`+
+    `Cuotas pagadas: ${d.cuotasPagadas} de ${d.cuotas}\n*Saldo del crédito: ${fmt(d.saldo)}*\n${d.multa>0.5?`Multas pendientes: ${fmt(d.multa)}\n`:''}`+
+    `Recibió: ${d.recibio}\n${d.mensaje?'\n'+d.mensaje:''}`;
 }
 function modalRecibo(pagoId){
-  const x = DB.pagos.find(y=>y.id===pagoId); if(!x) return;
-  const p = DB.prestamos.find(y=>y.id===x.prestamoId)||{}, c = clienteById(p.clienteId)||{};
-  const t = textoRecibo(pagoId), wa = telWa(c.tel1);
-  openModal(`<h3>Pago registrado</h3><pre class="recibo">${esc(t.replace(/\*/g,''))}</pre>
+  const d = datosRecibo(pagoId); if(!d) return;
+  const t = textoRecibo(pagoId);
+  openModal(`<h3>Pago registrado · recibo Nº ${esc(d.numero)}</h3><pre class="recibo">${esc(t.replace(/\*/g,''))}</pre>
+  <div class="form" style="margin-top:12px">
+    <label class="f full">WhatsApp del cliente<div class="row" style="flex-wrap:nowrap"><input class="input" id="rcTel" inputmode="tel" value="${esc(d.c.tel1||'')}" placeholder="Número de WhatsApp"><button class="btn pri" id="rcWa" style="white-space:nowrap">Enviar por WhatsApp</button></div></label>
+    <label class="f full">Correo<div class="row" style="flex-wrap:nowrap"><input class="input" id="rcMail" type="email" value="${esc(d.c.email||'')}" placeholder="correo@ejemplo.com"><button class="btn" id="rcCo" style="white-space:nowrap">Enviar por correo</button></div></label>
+    <label class="chk full" id="rcGuardW" style="display:none"><input type="checkbox" id="rcGuard" checked> Guardar estos datos en la ficha del cliente</label>
+  </div>
   <div class="actions"><button class="btn" onclick="closeModal()">Listo</button>
-  ${wa?`<a class="btn pri" href="https://wa.me/${wa}?text=${encodeURIComponent(t)}" target="_blank" rel="noopener" onclick="setTimeout(closeModal,300)">Enviar por WhatsApp</a>`:''}
-  ${x.comprobante?`<button class="btn" onclick="verComprobante('${pagoId}')">Ver comprobante</button>`:''}
-  ${urlReciboCorreo(pagoId)?`<a class="btn" href="${urlReciboCorreo(pagoId)}" onclick="setTimeout(closeModal,300)">Enviar por correo</a>`:''}
-  <button class="btn ${wa?'':'pri'}" onclick="compartirRecibo('${pagoId}')">Compartir</button></div>`);
+  ${d.x.comprobante?`<button class="btn" onclick="verComprobante('${pagoId}')">Ver comprobante</button>`:''}
+  <button class="btn" onclick="descargarRecibo('${pagoId}')">Descargar recibo (imagen)</button>
+  <button class="btn" onclick="compartirRecibo('${pagoId}')">Compartir</button></div>`);
+  const $=k=>document.getElementById(k);
+  const cambio=()=>{ const ch = $('rcTel').value.trim()!==(d.c.tel1||'') || $('rcMail').value.trim().toLowerCase()!==(d.c.email||''); $('rcGuardW').style.display = ch && d.c.id ? '' : 'none'; };
+  ['rcTel','rcMail'].forEach(k=>$(k).addEventListener('input',cambio));
+  const guardar=()=>{ if(!d.c.id || $('rcGuardW').style.display==='none' || !$('rcGuard').checked) return;
+    const upd={}; const tel=$('rcTel').value.trim(), mail=$('rcMail').value.trim().toLowerCase();
+    if(tel && tel!==(d.c.tel1||'')) upd.tel1=tel.slice(0,40); if(mail && emailOk(mail) && mail!==(d.c.email||'')) upd.email=mail.slice(0,120);
+    if(Object.keys(upd).length) dbUpd('clientes', d.c.id, upd); };
+  $('rcWa').onclick=()=>{ const wa=telWa($('rcTel').value); if(!wa) return toast('Escribe el número de WhatsApp');
+    guardar(); window.open(`https://wa.me/${wa}?text=${encodeURIComponent(t)}`,'_blank'); };
+  $('rcCo').onclick=()=>{ const m=$('rcMail').value.trim(); if(!emailOk(m)) return toast('Escribe un correo válido');
+    guardar(); location.href = urlMail(m, 'Recibo de pago Nº '+d.numero+' — '+d.negocio, t.replace(/\*/g,'')); };
+}
+/* recibo como imagen para descargar o mandar como foto */
+function imagenRecibo(pagoId){
+  const d = datosRecibo(pagoId); if(!d) return '';
+  const filas = [['Cliente', d.c.nombre||''], ...(d.c.cedula?[['Cédula', d.c.cedula]]:[]), ['Fecha', d.fecha+(d.hora?' '+d.hora:'')], ['Medio de pago', d.medio],
+    ...(d.cuotaTxt?[['Cuota', d.cuotaTxt]]:[]), ['Valor de la cuota', fmt(d.valorCuota)], ['Cuotas pagadas', `${d.cuotasPagadas} de ${d.cuotas}`],
+    ['Saldo del crédito', fmt(d.saldo)], ...(d.multa>0.5?[['Multas pendientes', fmt(d.multa)]]:[]), ['Recibió', d.recibio]];
+  const W=720, H=330+filas.length*52+(d.mensaje?70:0), cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+  const g=cv.getContext('2d'); const F='-apple-system,Segoe UI,Roboto,Arial,sans-serif';
+  g.fillStyle='#ffffff'; g.fillRect(0,0,W,H);
+  g.fillStyle='#111214'; g.fillRect(0,0,W,120);
+  g.fillStyle='#c8f169'; g.font=`700 34px ${F}`; g.fillText(d.negocio.slice(0,32), 40, 62);
+  g.fillStyle='#bbbbbb'; g.font=`500 20px ${F}`; g.fillText('Recibo de pago Nº '+d.numero, 40, 96);
+  g.fillStyle='#666'; g.font=`500 20px ${F}`; g.fillText('Valor pagado', 40, 172);
+  g.fillStyle='#111'; g.font=`800 52px ${F}`; g.fillText(fmt(d.monto), 40, 232);
+  let y=290; g.strokeStyle='#e6e6e6'; g.lineWidth=2;
+  for(const [k,v] of filas){
+    g.beginPath(); g.moveTo(40,y-34); g.lineTo(W-40,y-34); g.stroke();
+    g.fillStyle='#777'; g.font=`500 21px ${F}`; g.fillText(k, 40, y);
+    g.fillStyle='#111'; const vv=String(v).slice(0,60); let fs=22;
+    do{ g.font=`${k==='Saldo del crédito'?'800':'600'} ${fs}px ${F}`; fs--; } while(g.measureText(vv).width > W-300 && fs>12);
+    g.fillText(vv, W-40-g.measureText(vv).width, y);
+    y+=52;
+  }
+  if(d.mensaje){ g.fillStyle='#555'; g.font=`italic 20px ${F}`; g.fillText(d.mensaje.slice(0,60), 40, y+10); }
+  return cv.toDataURL('image/png');
+}
+async function descargarRecibo(pagoId){
+  const url = imagenRecibo(pagoId); if(!url) return;
+  const d = datosRecibo(pagoId), nombre = `recibo_${(d.c.nombre||'cliente').replace(/[^\wáéíóúñ]+/gi,'_')}_${d.x.fecha}.png`;
+  if(isNative() && window.CapPlugins){
+    try{ const {Filesystem, Share, Directory} = window.CapPlugins;
+      const r = await Filesystem.writeFile({path:nombre, data:url.split(',')[1], directory:Directory.Cache});
+      await Share.share({title:'Recibo de pago', url:r.uri}); return;
+    }catch(e){ if(String(e).includes('cancel')) return; }
+  }
+  try{ const blob = await (await fetch(url)).blob(); const f = new File([blob], nombre, {type:'image/png'});
+    if(navigator.canShare && navigator.canShare({files:[f]}) && movil()){ await navigator.share({files:[f], title:'Recibo de pago'}); return; } }catch(e){ if(String(e).includes('Abort')) return; }
+  const a=document.createElement('a'); a.href=url; a.download=nombre; document.body.appendChild(a); a.click(); a.remove();
 }
 async function compartirRecibo(pagoId){
   const t = textoRecibo(pagoId);

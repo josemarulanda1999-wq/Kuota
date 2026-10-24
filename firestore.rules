@@ -43,6 +43,11 @@ service cloud.firestore {
     function optNum(d, k, min, max) { return !(k in d) || numOk(d[k], min, max); }
     function coordsOk(d) { return optNum(d, 'lat', -90, 90) && optNum(d, 'lng', -180, 180); }
     function img(d, k) { return !(k in d) || (d[k] is string && d[k].size() < 340000 && d[k].matches('data:image/jpeg;base64,[A-Za-z0-9+/=]+')); }
+    // fecha cerca de hoy: entre 2 días atrás y 1 adelante (cubre la diferencia horaria con UTC)
+    function fechaCerca(f) {
+      return fechaOk(f) && timestamp.date(int(f[0:4]), int(f[5:7]), int(f[8:10])) > request.time - duration.value(3, 'd')
+        && timestamp.date(int(f[0:4]), int(f[5:7]), int(f[8:10])) < request.time + duration.value(1, 'd');
+    }
     // la ruta no puede registrar nada en un día que ya cerró
     function abierta(eid, f) { return !exists(/databases/$(database)/documents/empresas/$(eid)/cierres/$(uid() + '_' + f)); }
     function cfgRuta(eid) { return get(/databases/$(database)/documents/empresas/$(eid)/rutas/$(uid())).data; }
@@ -97,7 +102,7 @@ service cloud.firestore {
     }
 
     // ---- Kuota ----
-    match /meta/super { allow read: if true;
+    match /meta/super { allow read: if signedIn();
       allow create: if signedIn() && !exists(/databases/$(database)/documents/meta/super) && request.resource.data.uid == uid(); }
     match /superadmins/{sid} {
       allow read: if signedIn() && (sid == uid() || isSuper());
@@ -176,7 +181,7 @@ service cloud.firestore {
           || (idOk(id) && okPago(request.resource.data)
               && request.resource.data.cobradorId == prest(eid, request.resource.data.prestamoId).get('cobradorId', '')
               && ((soloAdmin(eid) && (!('tipo' in request.resource.data) || request.resource.data.tipo == 'renovacion'))
-                  || (isCob(eid) && ownNew() && !('tipo' in request.resource.data) && abierta(eid, request.resource.data.fecha))));
+                  || (isCob(eid) && ownNew() && !('tipo' in request.resource.data) && fechaCerca(request.resource.data.fecha) && abierta(eid, request.resource.data.fecha))));
         allow update: if isSuper() || isCeo(eid) || (soloAdmin(eid) && soloCambiaRuta() && idOVacio(request.resource.data.cobradorId));
         allow delete: if isSuper() || isCeo(eid);
       }
@@ -230,7 +235,8 @@ service cloud.firestore {
       // comprobantes de transferencias (id = id del pago)
       match /comprobantes/{pid} {
         allow read: if isSuper() || isAdm(eid) || (isCob(eid) && resource.data.get('cobradorId', '') == uid());
-        allow create: if isSuper() || ((isCeo(eid) || soloAdmin(eid) || (isCob(eid) && request.resource.data.get('cobradorId', '') == uid())) && idOk(pid)
+        allow create: if isSuper() || ((isCeo(eid) || soloAdmin(eid) || (isCob(eid) && request.resource.data.get('cobradorId', '') == uid()
+              && prest(eid, request.resource.data.prestamoId).get('cobradorId', '') == uid())) && idOk(pid)
           && request.resource.data.keys().hasOnly(['img', 'prestamoId', 'cobradorId', 'creado', 'creadoPor'])
           && img(request.resource.data, 'img') && idOk(request.resource.data.prestamoId) && request.resource.data.creadoPor == uid());
         allow update, delete: if isSuper() || isCeo(eid);
@@ -242,6 +248,7 @@ service cloud.firestore {
           && request.resource.data.keys().hasOnly(['cobradorId', 'puedePrestar', 'maxPrestamo', 'maxGasto', 'salario', 'periodoPago', 'pctRecaudo', 'pctVentas', 'maxCuotas', 'maxRenov', 'puedeDominical', 'actualizado'])
           && (!('puedeDominical' in request.resource.data) || request.resource.data.puedeDominical is bool)
           && request.resource.data.cobradorId == u && request.resource.data.puedePrestar is bool
+          && get(/databases/$(database)/documents/users/$(u)).data.empresaId == eid
           && numOk(request.resource.data.maxPrestamo, 0, 10000000000) && numOk(request.resource.data.maxGasto, 0, 10000000000));
       }
       match /movruta/{id} {
@@ -251,7 +258,7 @@ service cloud.firestore {
           && idOk(request.resource.data.cobradorId) && fechaOk(request.resource.data.fecha) && request.resource.data.tipo in ['gasto', 'ingreso']
           && txt(request.resource.data.concepto, 40) && numOk(request.resource.data.valor, 0.01, 10000000000) && optTxt(request.resource.data, 'nota', 200) && coordsOk(request.resource.data)
           && (soloAdmin(eid)
-              || (isCob(eid) && ownNew() && abierta(eid, request.resource.data.fecha)
+              || (isCob(eid) && ownNew() && fechaCerca(request.resource.data.fecha) && abierta(eid, request.resource.data.fecha)
                   && (request.resource.data.tipo == 'ingreso' || !exists(/databases/$(database)/documents/empresas/$(eid)/rutas/$(uid()))
                       || cfgRuta(eid).get('maxGasto', 0) == 0 || request.resource.data.valor <= cfgRuta(eid).get('maxGasto', 0)))));
         allow update, delete: if isSuper() || isCeo(eid);
@@ -273,7 +280,7 @@ service cloud.firestore {
         allow create: if isSuper() || ((isCeo(eid) || soloAdmin(eid) || (isCob(eid) && ownNew()))
           && id == request.resource.data.cobradorId + '_' + request.resource.data.fecha && idOk(request.resource.data.cobradorId)
           && fechaOk(request.resource.data.fecha) && request.resource.data.keys().hasOnly(['cobradorId', 'fecha', 'cerradoEn', 'resumen'])
-          && request.resource.data.resumen is map);
+          && request.resource.data.resumen is map && request.resource.data.resumen.size() <= 30);
         allow delete: if isSuper() || isCeo(eid) || soloAdmin(eid);
       }
       match /aprobaciones/{id} {
@@ -312,7 +319,8 @@ service cloud.firestore {
         allow read: if isSuper() || isAdm(eid) || (isCob(eid) && own());
         allow create: if isSuper() || ((isCeo(eid) || soloAdmin(eid)) && idOk(id) && firma()
           && request.resource.data.keys().hasOnly(['cobradorId', 'texto', 'fecha', 'leida', 'creado', 'creadoPor'])
-          && idOk(request.resource.data.cobradorId) && txt(request.resource.data.texto, 300) && request.resource.data.leida == false);
+          && idOk(request.resource.data.cobradorId) && txt(request.resource.data.texto, 300) && request.resource.data.leida == false
+          && get(/databases/$(database)/documents/users/$(request.resource.data.cobradorId)).data.empresaId == eid);
         allow update: if isSuper() || isAdm(eid) || (isCob(eid) && own()
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['leida']) && request.resource.data.leida == true);
         allow delete: if isSuper() || isCeo(eid);
@@ -322,7 +330,8 @@ service cloud.firestore {
         allow read: if isSuper() || isCeo(eid);
         allow create: if enEmpresa(eid) && request.resource.data.por == uid()
           && request.resource.data.keys().hasOnly(['accion', 'col', 'docId', 'detalle', 'por', 'nombre', 't', 'fecha'])
-          && txt(request.resource.data.accion, 20) && txt(request.resource.data.col, 40) && txt(request.resource.data.detalle, 200) && optTxt(request.resource.data, 'nombre', 80);
+          && txt(request.resource.data.accion, 20) && txt(request.resource.data.col, 40) && txt(request.resource.data.detalle, 200) && optTxt(request.resource.data, 'nombre', 80)
+          && optTxt(request.resource.data, 'docId', 60) && optNum(request.resource.data, 't', 0, 99999999999999) && optTxt(request.resource.data, 'fecha', 10);
         allow update, delete: if false;
       }
       // equipo autorizado de cada ruta: se registra solo una vez; solo el CEO lo libera
@@ -350,7 +359,8 @@ service cloud.firestore {
               && (resource == null || resource.data.get('cobradorId', '') == uid()))) && idOk(pid)
           && request.resource.data.keys().hasOnly(['foto', 'cedula', 'cedulaReverso', 'clienteId', 'cobradorId', 'creado', 'creadoPor'])
           && idOk(request.resource.data.clienteId) && request.resource.data.creadoPor == uid()
-          && img(request.resource.data, 'foto') && img(request.resource.data, 'cedula') && img(request.resource.data, 'cedulaReverso'));
+          && img(request.resource.data, 'foto') && img(request.resource.data, 'cedula') && img(request.resource.data, 'cedulaReverso')
+          && (!isCob(eid) || !exists(/databases/$(database)/documents/empresas/$(eid)/prestamos/$(pid)) || prest(eid, pid).get('cobradorId', '') == uid()));
         allow delete: if isSuper() || isCeo(eid);
       }
       // el dinero del negocio (gastos, ingresos extra y capital) solo lo ve el CEO

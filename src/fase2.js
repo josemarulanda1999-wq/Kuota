@@ -10,7 +10,7 @@ ICONS.nomina = '<path d="M3 6h18v12H3zm2 2v8h14V8zm4 1h6v2H9zm0 3h4v2H9z"/>';
 ICONS.auditoria = '<path d="M12 2L4 5v6c0 5 3.4 9.7 8 11 4.6-1.3 8-6 8-11V5zm-1 14l-4-4 1.4-1.4 2.6 2.6 5.6-5.6L18 9z"/>';
 
 /* ---------- importar desde Excel ---------- */
-const COLS_IMPORT = ['nombre','cedula','telefono','telefono2','direccion','ciudad','ruta','monto','interes','meses','periodo','fecha','pagado','valor_cuota','cuotas','credito_no'];
+const COLS_IMPORT = ['nombre','cedula','telefono','telefono2','direccion','ciudad','ruta','monto','interes','meses','periodo','fecha','pagado','valor_cuota','cuotas','credito_no','primera_cuota','cobra_domingos'];
 function descargarPlantilla(){
   const filas = [COLS_IMPORT, ['María Pérez','1012345678','3001234567','','Cra 10 # 20-30','Cali','Ruta Norte','500000','20','1','DIARIO','2026-10-01','120000','',''],
     ['Juan Ruiz','','3109876543','','Calle 5 # 8-12','Cali','Ruta Sur','1000000','20','2','SEMANAL','2026-09-15','400000','150000','8']];
@@ -62,7 +62,8 @@ function importarExcel(file){
       if(!nombre) return plan.errores.push(`Fila ${n}: falta el nombre`);
       const rutaTxt = val(f,'ruta'), cob = rutaPorNombre(rutaTxt);
       if(cob===null){ plan.sinRuta = plan.sinRuta || {}; plan.sinRuta[rutaTxt] = (plan.sinRuta[rutaTxt]||0)+1; }
-      const ced = val(f,'cedula');
+      // cédulas de relleno (0000000) no sirven para juntar clientes: se dejan vacías
+      const cedRaw = val(f,'cedula'), ced = /^[0\s.-]*$/.test(cedRaw) ? '' : cedRaw;
       let cid = ced && porCedula[ced];
       if(!cid){ cid = S.newId('clientes'); if(ced) porCedula[ced]=cid;
         plan.clientes.push({id:cid, _pend:cob===null, nombre:nombre.slice(0,120), cedula:ced.slice(0,40), tel1:val(f,'telefono').slice(0,40), tel2:val(f,'telefono2').slice(0,40),
@@ -76,8 +77,11 @@ function importarExcel(file){
       const exacto = vc>0 && nc>0;                                   // viene con cuotas y valor de cuota del otro sistema
       const k = exacto ? calcularCuotas(monto, tasa, nc, periodo, 'total') : calcular(monto, tasa, meses, periodo);
       const pid = S.newId('prestamos'), nro = val(f,'credito_no');
+      const pc = fechaImport(val(f,'primera_cuota'));                // día real de la primera cuota (ej. los que pagan otro día de la semana)
+      const dom = sinTilde(val(f,'cobra_domingos'));                  // si / no; vacío = lo que diga Ajustes
+      const exclDom = dom ? ['no','n','false','0'].includes(dom) : !!DB.config.excluirDomingos;
       plan.prestamos.push({id:pid, _pend:cob===null, clienteId:cid, fecha, monto, tasa, meses: exacto ? k.meses : meses, periodo, ...(exacto?{modoInteres:'total'}:{}),
-        excluirDomingos:!!DB.config.excluirDomingos, nota:'Importado de otro sistema'+(nro?' · Nº '+nro.slice(0,40):''),
+        excluirDomingos:exclDom, ...(pc && pc>fecha ? {primeraCuota:pc} : {}), nota:'Importado de otro sistema'+(nro?' · Nº '+nro.slice(0,40):''),
         cuotas: nc>0?nc:k.cuotas, valorCuota: vc>0?vc:k.valorCuota, interesMes:k.interesMes, total: (vc>0&&nc>0)?vc*nc:k.total, cobradorId:cob||'', fuente:'oficina', importado:true});
       const pagado = num(val(f,'pagado'));
       if(pagado>0) plan.pagos.push({id:S.newId('pagos'), _pend:cob===null, prestamoId:pid, fecha:todayStr(), monto:pagado, nota:'Pagado antes de pasar a Kuota', tipo:'importado', cobradorId:cob||'', registradoPor:ME.uid});

@@ -426,7 +426,7 @@ VIEWS.panel = () => {
       </div>
     </div>
     <div class="kpis">
-      <div class="kpi sky"><div class="l">Plata prestada en la calle</div><div class="v">${fmt(r.capCalle)}</div><div class="n">Solo capital · ${r.activos} préstamos activos<br>Por cobrar con intereses: ${fmt(r.cartera)}</div></div>
+      <div class="kpi sky"><div class="l">Plata en la calle (capital + intereses)</div><div class="v">${fmt(r.cartera)}</div><div class="n">${r.activos} préstamos activos · sin multas<br>Prestado (capital): <b>${fmt(r.capCalle)}</b><br>Utilidad (intereses): <b>${fmt(Math.max(0, r.cartera - r.capCalle))}</b></div></div>
       <div class="kpi cream"><div class="l">Cobrado hoy</div><div class="v">${fmt(r.recaudoHoy)}</div><div class="n">Ayer ${fmt(r.recaudoAyer)} · 7 días ${fmt(r.recaudo7)}<br>Total cobrado: ${fmt(r.recaudo)}</div></div>
       <div class="kpi card"><div class="l">Gastos del mes</div><div class="v">${fmt(r.gastosMes)}</div><div class="n">Total gastado: ${fmt(r.salidas)}</div></div>
       <div class="kpi card"><div class="l">Multas (aparte)</div><div class="v" style="color:var(--amber)">${fmt(r.multasPend)}</div><div class="n">${(DB.config.multa||{}).activa?`Por cobrar en ${r.conMulta} crédito(s). No suma a la calle ni a la caja.<br>Ya cobradas: ${fmt(r.multasCobradas)}`:`Las multas están apagadas.${isCeo()?' <a href="#" onclick="go(\'ajustes\');return false" style="color:var(--amber)">Activar</a>':''}`}</div></div>

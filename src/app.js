@@ -261,12 +261,16 @@ function estadoPrestamo(p, hoy=todayStr()){
 }
 function resumen(){
   const hoy = todayStr();
-  let prestado=0, recaudo=0, utilidad=0, cartera=0, mora=0, activos=0, enMora=0, multasPend=0, multasCobradas=0, conMulta=0;
+  let capCalle=0, prestado=0, recaudo=0, utilidad=0, cartera=0, mora=0, activos=0, enMora=0, multasPend=0, multasCobradas=0, conMulta=0;
   for(const p of DB.prestamos){
     const e = estadoPrestamo(p,hoy);
     if(!p.importado) prestado += p.monto;
     recaudo += e.pagado - e.pagadoImp; utilidad += e.utilidad * (e.pagado ? (e.pagado - e.pagadoImp)/e.pagado : 0);
     multasCobradas += e.multaCobrada;
+    if(e.estado!=='Pagado' && e.estado!=='Castigado'){
+      const base=(Number(p.valorCuota)||0)*(Number(p.cuotas)||0);
+      capCalle += Math.max(0, p.monto - (base>0 ? Math.min(p.monto, Math.min(e.pagado, base)*p.monto/base) : 0));   // solo capital que falta volver
+    }
     if(e.estado!=='Pagado' && e.estado!=='Castigado'){ cartera += e.saldoCuotas; activos++; if(e.multaPend>0.5){ multasPend += e.multaPend; conMulta++; } }
     if(e.estado==='En mora'){ mora += e.atrasoMora; enMora++; }
   }
@@ -276,7 +280,12 @@ function resumen(){
   const capital = DB.config.capitalInicial + aportes;
   const caja = capital - prestado + recaudo + ingresos - salidas;
   const recaudoHoy = DB.pagos.filter(x=>x.fecha===hoy && efectivo(x)).reduce((s,x)=>s+x.monto,0);
-  return { prestado, recaudo, utilidad, cartera, mora, activos, enMora, salidas, caja, capital, multasPend, multasCobradas, conMulta,
+  const hace = n => ymd(new Date(parseD(hoy).getTime() - n*864e5));
+  const ayer = hace(1), sem = hace(6), mes = hoy.slice(0,7);
+  const recaudoAyer = DB.pagos.filter(x=>x.fecha===ayer && efectivo(x)).reduce((s,x)=>s+x.monto,0);
+  const recaudo7 = DB.pagos.filter(x=>x.fecha>=sem && x.fecha<=hoy && efectivo(x)).reduce((s,x)=>s+x.monto,0);
+  const gastosMes = DB.salidas.filter(x=>(x.fecha||'').startsWith(mes)).reduce((s,x)=>s+x.valor,0) + DB.movruta.filter(x=>x.tipo==='gasto' && (x.fecha||'').startsWith(mes)).reduce((s,x)=>s+x.valor,0);
+  return { capCalle, recaudoAyer, recaudo7, gastosMes, prestado, recaudo, utilidad, cartera, mora, activos, enMora, salidas, caja, capital, multasPend, multasCobradas, conMulta,
            efectivoTotal: capital + utilidad + ingresos, utilidadNeta: utilidad + ingresos - salidas, recaudoHoy, ingresos };
 }
 /* contador aparte: multas generadas que no se han cobrado. No suman a caja, cartera ni utilidad */
@@ -405,9 +414,9 @@ VIEWS.panel = () => {
   <div class="row"><button class="btn" onclick="modalPago()">Registrar pago</button><button class="btn pri" onclick="modalPrestamo()">+ Nuevo préstamo</button></div></div>
   <div class="hero">
     <div class="card balance">
-      <div class="l">Efectivo en caja</div>
-      <div class="v">${fmt(r.caja)}</div>
-      <div class="n">Capital ${fmt(r.capital)} − prestado + recaudo − salidas</div>
+      <div class="l">Disponible para nuevos créditos</div>
+      <div class="v" style="${r.caja<0?'color:var(--red)':''}">${fmt(r.caja)}</div>
+      <div class="n">Plata real en mano: capital + lo cobrado + ingresos − lo prestado − gastos</div>
       <div class="acciones">
         <button class="accion main" onclick="modalPrestamo()"><i>${ic.plus}</i>Prestar</button>
         <button class="accion" onclick="modalPago()"><i>${ic.cobrar}</i>Cobrar</button>
@@ -417,13 +426,14 @@ VIEWS.panel = () => {
       </div>
     </div>
     <div class="kpis">
-      <div class="kpi sky"><div class="l">Cartera por cobrar</div><div class="v">${fmt(r.cartera)}</div><div class="n">${r.activos} préstamos activos</div></div>
-      <div class="kpi hl"><div class="l">Utilidad (intereses)</div><div class="v">${fmt(r.utilidad)}</div><div class="n">Neta después de salidas: ${fmt(r.utilidadNeta)}</div></div>
+      <div class="kpi sky"><div class="l">Plata prestada en la calle</div><div class="v">${fmt(r.capCalle)}</div><div class="n">Solo capital · ${r.activos} préstamos activos<br>Por cobrar con intereses: ${fmt(r.cartera)}</div></div>
+      <div class="kpi cream"><div class="l">Cobrado hoy</div><div class="v">${fmt(r.recaudoHoy)}</div><div class="n">Ayer ${fmt(r.recaudoAyer)} · 7 días ${fmt(r.recaudo7)}<br>Total cobrado: ${fmt(r.recaudo)}</div></div>
+      <div class="kpi card"><div class="l">Gastos del mes</div><div class="v">${fmt(r.gastosMes)}</div><div class="n">Total gastado: ${fmt(r.salidas)}</div></div>
+      <div class="kpi card"><div class="l">Multas (aparte)</div><div class="v" style="color:var(--amber)">${fmt(r.multasPend)}</div><div class="n">${(DB.config.multa||{}).activa?`Por cobrar en ${r.conMulta} crédito(s). No suma a la calle ni a la caja.<br>Ya cobradas: ${fmt(r.multasCobradas)}`:`Las multas están apagadas.${isCeo()?' <a href="#" onclick="go(\'ajustes\');return false" style="color:var(--amber)">Activar</a>':''}`}</div></div>
+      <div class="kpi hl"><div class="l">Utilidad (intereses cobrados)</div><div class="v">${fmt(r.utilidad)}</div><div class="n">Después de gastos: ${fmt(r.utilidadNeta)}</div></div>
       <div class="kpi card"><div class="l">En mora</div><div class="v" style="color:${r.mora>0?'var(--red)':'inherit'}">${fmt(r.mora)}</div><div class="n">${r.enMora} préstamos atrasados</div></div>
-      <div class="kpi cream"><div class="l">Recaudo total</div><div class="v">${fmt(r.recaudo)}</div><div class="n">Hoy: ${fmt(r.recaudoHoy)}</div></div>
     </div>
   </div>
-  ${contadorMultas(r)}
   <div class="grid2">
     <div class="card pad">
       <div class="row" style="margin-bottom:6px"><h2 style="margin:0">Cobros pendientes de hoy</h2><span class="spacer"></span><button class="btn sm" data-go="cobros">Ver todos</button></div>

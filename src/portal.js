@@ -134,7 +134,7 @@ function modalEmpresa(id){
   <div class="form">
     <label class="f full">Nombre *<input class="input" id="cNom"></label>
     <label class="f">Correo para entrar *<input class="input" id="cMail" type="email" autocomplete="off"></label>
-    <label class="f">Contraseña inicial *<input class="input" id="cPass" type="text" autocomplete="off" placeholder="Mínimo 6 caracteres"></label>
+    <label class="f">Contraseña inicial *<input class="input" id="cPass" type="text" autocomplete="off" placeholder="Mínimo 8, con letras y números"></label>
     <label class="chk full"><input type="checkbox" id="cPagado" checked> Ya pagó la activación (${fmt(PRECIOS.activacion)} + adicionales): activar desde hoy por un mes</label>
   </div>`}
   <div class="actions"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="eSave">${id?'Guardar':'Crear empresa'}</button></div>`, true);
@@ -156,7 +156,7 @@ function modalEmpresa(id){
     const ceo={nombre:g('cNom'), email:g('cMail').toLowerCase(), pass:document.getElementById('cPass').value};
     if(!ceo.nombre) return toast('Escribe el nombre del CEO');
     if(!/^\S+@\S+\.\S+$/.test(ceo.email)) return toast('Escribe un correo válido para el CEO');
-    if(ceo.pass.length<6) return toast('La contraseña debe tener mínimo 6 caracteres');
+    if(claveDebil(ceo.pass)) return toast(claveDebil(ceo.pass));
     const pagado=document.getElementById('cPagado').checked;
     Object.assign(data,{ estado:'activa', creado:Date.now(), creadoPor:ME.uid, pagadoHasta:'', venceMs:0, activacionPagada:false });
     const b=document.getElementById('eSave'); b.disabled=true; b.textContent='Creando…';
@@ -364,7 +364,7 @@ function modalUsuarioPortal(eid){
   document.getElementById('uSave').onclick=async ()=>{
     const nombre=document.getElementById('uNom').value.trim(), email=document.getElementById('uMail').value.trim().toLowerCase(), pass=document.getElementById('uPass').value, rol=document.getElementById('uRol').value;
     if(!nombre||!/^\S+@\S+\.\S+$/.test(email)) return toast('Escribe nombre y correo válidos');
-    if(pass.length<6) return toast('La contraseña debe tener mínimo 6 caracteres');
+    if(claveDebil(pass)) return toast(claveDebil(pass));
     const ad=rol==='admin', c=cuposUsados(eid), usado=ad?c.admins:c.cobradores, cupo=ad?(e.cupoAdmins||1):(e.cupoCobradores||1);
     try{ await P().crearUsuario(eid,nombre,email,pass,rol);
       if(usado+1>cupo) await P().update('empresas/'+eid, ad?{cupoAdmins:usado+1}:{cupoCobradores:usado+1});
@@ -432,7 +432,7 @@ async function modalMigrar(){
 function exportarEmpresas(){
   const rows=[['EMPRESA','NIT','CIUDAD','CONTACTO','TELEFONO','CORREO','ADMINS','COBRADORES','MENSUALIDAD','PAGADO HASTA','ESTADO']];
   for(const e of D.empresas) rows.push([e.nombre,e.nit,e.ciudad,e.contacto,e.telefono,e.email,e.cupoAdmins,e.cupoCobradores,planMensual(e),e.pagadoHasta,estadoSuscripcion(e).texto]);
-  const csv='﻿'+rows.map(r=>r.map(v=>{v=v==null?'':String(v); return /[";\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}).join(';')).join('\r\n');
+  const csv='﻿'+rows.map(r=>r.map(celdaSegura).join(';')).join('\r\n');
   const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.download=`empresas_kuota_${hoyK()}.csv`; a.click();
 }
 
@@ -462,7 +462,7 @@ function entrar(user, nombre){
   ME={uid:user.uid, email:user.email, nombre:nombre||user.email};
   document.getElementById('login').style.display='none'; document.getElementById('appShell').style.display='';
   if(unsub) unsub();
-  unsub=P().watch((col,data)=>{ if(col==='error'){ console.error(data); return; } D[col]= col==='kuota' ? sanearDoc(data||{}) : sanearLista(col,data); if(col==='users'){ const me=data.find(u=>u.id===ME.uid); if(me&&me.nombre&&ME.nombre===ME.email) ME.nombre=me.nombre; } scheduleRender(); });
+  unsub=P().watch((col,data)=>{ if(col==='error'){ console.error(data); return; } D[col]= col==='kuota' ? sanearDoc(data||{}) : sanearLista(col,data); if(col==='users'){ const me=D.users.find(u=>u.id===ME.uid); if(me&&me.nombre&&ME.nombre===ME.email) ME.nombre=String(me.nombre); } scheduleRender(); });
   render();
 }
 function salir(directo){
@@ -488,3 +488,11 @@ function entrarComoCeo(eid){
   try{ localStorage.setItem('kuota_soporte', eid); }catch(e){ return toast('Tu navegador no permite el modo soporte'); }
   location.href = 'index.html';
 }
+
+/* el portal controla todas las empresas: si queda abierto sin uso 30 minutos, se cierra la sesión solo */
+(function(){
+  const LIM = 30*60*1000; let ult = Date.now();
+  const toque = ()=>{ ult = Date.now(); };
+  ['click','keydown','touchstart','mousemove','scroll'].forEach(ev=>document.addEventListener(ev, toque, {passive:true}));
+  setInterval(()=>{ if(ME && Date.now()-ult > LIM){ salir(true); setTimeout(()=>{ try{ toast('Se cerró la sesión por inactividad'); }catch(e){} }, 400); } }, 60*1000);
+})();

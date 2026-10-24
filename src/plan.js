@@ -72,7 +72,7 @@ function sanearDoc(x){
   const o = {...x};
   for (const k of CAMPOS_NUM) if (k in o) { const n = Number(o[k]); o[k] = isFinite(n) ? n : 0; }
   if ('cuotas' in o) o.cuotas = Math.min(1000, Math.max(1, Math.round(o.cuotas)));
-  if ('periodo' in o && !PERIODOS_OK.includes(o.periodo)) o.periodo = 'MENSUAL';
+  if (('periodo' in o || 'monto' in o && 'valorCuota' in o) && !PERIODOS_OK.includes(o.periodo)) o.periodo = 'MENSUAL';
   for (const k of CAMPOS_TXT) if (k in o && typeof o[k] !== 'string') o[k] = o[k] == null ? '' : String(o[k]);
   for (const k of ['fecha','pagadoHasta','anterior','nuevo','fechaRenovacion','fechaCapital','volver','primeraCuota']) if (o[k] && !FECHA_OK.test(o[k])) o[k] = '';
   if (('lat' in o || 'lng' in o) && !(Math.abs(o.lat) <= 90 && Math.abs(o.lng) <= 180 && (o.lat || o.lng))) { delete o.lat; delete o.lng; }
@@ -96,3 +96,34 @@ const MONEDAS = {
   PA:{pais:'Panamá', simbolo:'B/.', dec:2, loc:'es-PA', tel:'507'}, DO:{pais:'Rep. Dominicana', simbolo:'RD$', dec:2, loc:'es-DO', tel:'1'},
   GT:{pais:'Guatemala', simbolo:'Q', dec:2, loc:'es-GT', tel:'502'}, US:{pais:'Estados Unidos', simbolo:'US$', dec:2, loc:'en-US', tel:'1'}
 };
+
+/* ---------- seguridad común (app y portal) ---------- */
+// al exportar a Excel, un texto que empiece con = + - @ se toma como fórmula: se neutraliza
+function celdaSegura(v){
+  v = v==null ? '' : String(v);
+  if (/^[=+\-@\t\r]/.test(v) && !/^-?\d+([.,]\d+)?$/.test(v)) v = "'" + v;
+  return /[";\n\r]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v;
+}
+// contraseñas nuevas: mínimo 8 caracteres con letras y números
+function claveDebil(p){
+  p = String(p||'');
+  if(p.length < 8) return 'La contraseña debe tener mínimo 8 caracteres';
+  if(!/[A-Za-zÁÉÍÓÚÑáéíóúñ]/.test(p) || !/\d/.test(p)) return 'La contraseña debe tener letras y números';
+  if(/^(12345678|password|contraseña|kuota123|qwerty12)/i.test(p)) return 'Esa contraseña es muy fácil de adivinar';
+  return '';
+}
+// nadie puede meter Kuota dentro de otra página para engañar al usuario (clickjacking)
+try{ if(window.top !== window.self){ document.documentElement.style.display='none'; window.top.location = window.self.location.href; } }catch(e){ document.documentElement.style.display='none'; }
+// en la versión web: la página solo puede conectarse con Firebase y cargar imágenes del mapa (si alguien lograra meter código, no podría mandar datos a otro servidor)
+try{
+  const nativo = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  if(!nativo && !document.querySelector('meta[http-equiv="Content-Security-Policy"]')){
+    const m=document.createElement('meta'); m.httpEquiv='Content-Security-Policy';
+    m.content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://tile.openstreetmap.org; "
+      +"font-src 'self' data:; connect-src 'self' data: blob: https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://*.firebaseapp.com; "
+      +"frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; worker-src 'self' blob:; manifest-src 'self'";
+    document.head.appendChild(m);
+    const r=document.createElement('meta'); r.name='referrer'; r.content='same-origin'; document.head.appendChild(r);
+  }
+}catch(e){}
+

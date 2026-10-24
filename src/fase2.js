@@ -173,7 +173,7 @@ function guardarAjustesFase2(){
 /* ---------- auditoría ---------- */
 function auditar(accion, col, id, detalle){
   if(!ME) return;
-  S.auditar({accion, col, docId:id||'', detalle:String(detalle||'').slice(0,200), por:ME.uid, nombre:(ME.nombre||'').slice(0,80), t:Date.now(), fecha:todayStr()}).catch(()=>{});
+  S.auditar({accion:String(accion||'').slice(0,20), col:String(col||'').slice(0,40), docId:String(id||'').slice(0,60), detalle:String(detalle||'').slice(0,200), por:ME.uid, nombre:(ME.nombre||'').slice(0,80), t:Date.now(), fecha:todayStr()}).catch(()=>{});
 }
 let AUD = [];
 async function cargarAuditoria(){ AUD = sanearLista('auditoria', await S.leerAuditoria()); if(view==='auditoria') render(); }

@@ -313,9 +313,7 @@ function cargarLeaflet(){
   const js = (src)=>new Promise(res=>{ const s=document.createElement('script'); s.src=src; s.onload=()=>res(!!window.L); s.onerror=()=>res(false); document.head.appendChild(s); });
   _leaflet = (async ()=>{
     css('leaflet/leaflet.css');
-    if(await js('leaflet/leaflet.js')) return true;
-    css('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css');
-    return js('https://unpkg.com/leaflet@1.9.4/dist/leaflet.js');
+    return js('leaflet/leaflet.js');            // solo la copia propia: no se carga código de servidores externos
   })();
   _leaflet.then(ok=>{ if(!ok) _leaflet=null; });
   return _leaflet;

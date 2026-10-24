@@ -1284,8 +1284,7 @@ function guardarAjustes(){
 }
 
 function csv(rows){
-  const e=v=>{ v = v==null?'':String(v); return /[";\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
-  return '﻿'+rows.map(r=>r.map(e).join(';')).join('\r\n');
+  return '﻿'+rows.map(r=>r.map(celdaSegura).join(';')).join('\r\n');
 }
 function exportCSV(tipo){
   let rows;
@@ -1365,7 +1364,7 @@ function modalUsuario(id){
     <label class="f full">Nombre de la ruta (si es cobrador)<input class="input" id="uRuta" placeholder="Ej: Ruta Norte"></label>
     <label class="f full">Capital para esa ruta (opcional)<input class="input" id="uCap" inputmode="decimal" placeholder="Ej: 40.000.000"></label>
     <label class="f">Correo<input class="input" id="uMail" type="email" autocomplete="off"></label>
-    <label class="f">Contraseña inicial<input class="input" id="uPass" type="text" autocomplete="off" placeholder="Mínimo 6 caracteres"></label>
+    <label class="f">Contraseña inicial<input class="input" id="uPass" type="text" autocomplete="off" placeholder="Mínimo 8, con letras y números"></label>
     <label class="f full">Rol<select class="input" id="uRol"><option value="cobrador">Ruta (cobrador: cobra su ruta y crea clientes)</option><option value="admin">Admin (ve todo y registra, no edita ni borra)</option></select></label>
   </div>
   <div class="actions"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="uSave">Enviar solicitud</button></div>`);
@@ -1374,7 +1373,7 @@ function modalUsuario(id){
     const email=document.getElementById('uMail').value.trim().toLowerCase(), pass=document.getElementById('uPass').value;
     if(!nombre) return toast('Escribe el nombre');
     if(!/^\S+@\S+\.\S+$/.test(email)) return toast('Escribe un correo válido');
-    if(pass.length<6) return toast('La contraseña debe tener mínimo 6 caracteres');
+    if(claveDebil(pass)) return toast(claveDebil(pass));
     const btn=document.getElementById('uSave'); btn.disabled=true; btn.textContent='Enviando…';
     try{ const ruta=rol==='cobrador'?(document.getElementById('uRuta').value.trim().slice(0,60)||''):''; const nuevoUid = await S.solicitarUsuario(nombre,email,pass,rol,ruta); const cap=num((document.getElementById('uCap')||{}).value); if(rol==='cobrador' && cap>0 && nuevoUid) dbAdd('caprutas',{cobradorId:nuevoUid, fecha:todayStr(), valor:cap, nota:'Capital inicial de la ruta'}); closeModal(); toast('Solicitud enviada a Kuota'); }
     catch(e){ btn.disabled=false; btn.textContent='Enviar solicitud';
@@ -1781,7 +1780,11 @@ function arrancarDatos(){
     else if(col==='marca') ponerLogo(data && data.logo);
     else if(col==='error'){ console.error(data); if(String(data&&data.code)==='permission-denied') return; toast('Error de conexión con la nube'); return; }
     else { DB[col] = sanearLista(col, data); if(typeof novedades==='function') novedades(col); }
-    if(col==='users'){ const me=data.find(u=>u.id===ME.uid); if(me && me.activo===false){ detenerTodo(); S.logout(); return; }
+    if(col==='users'){
+      // solo se copian al perfil los campos que pueden cambiar; nunca uid, empresa, rol ni modo soporte
+      const raw=(DB.users||[]).find(u=>u.id===ME.uid);
+      const me = raw ? {nombre:String(raw.nombre||''), ruta:String(raw.ruta||''), activo:raw.activo, suspendido:raw.suspendido===true, estado:String(raw.estado||'')} : null;
+      if(me && me.activo===false){ detenerTodo(); S.logout(); return; }
       if(me && me.suspendido===true && !ME.soporte){ detenerTodo(); ME=Object.assign(ME,me); iniciarSesion(ME); return; } if(me) ME=Object.assign(ME,me); }
     scheduleRender();
   });

@@ -97,7 +97,7 @@ function btnCampana(){
 function abrirNotificaciones(){
   const items = NOTIF.items;
   openModal(`<div class="row" style="margin-bottom:6px"><h3 style="margin:0">Notificaciones</h3><span class="spacer"></span><button class="btn sm ghost" onclick="closeModal()">✕</button></div>
-  <div class="notif-lista">${items.length ? items.map((i,k)=>`<button class="notif ${i.leido?'':'nueva'}" onclick="closeModal();go('${esc(i.go||'panel')}')">
+  <div class="notif-lista">${items.length ? items.map((i,k)=>`<button class="notif ${i.leido?'':'nueva'}" onclick="closeModal();go('${['cuadre','renovaciones','cobros','panel','aprobaciones','avisos','movimientos'].includes(i.go)?i.go:'panel'}')">
     <b>${esc(i.t)}</b><span>${esc(i.b)}</span><small>${horaDe(i.en)}</small></button>`).join('') : '<div class="empty">Aún no hay notificaciones. Aquí te avisamos cada pago que ingresen tus rutas.</div>'}</div>
   <div class="actions"><button class="btn" onclick="activarAvisosSistema()">Avisarme también en el ${isNative()?'celular':'computador'}</button>${items.length?`<button class="btn ghost" onclick="NOTIF.items=[];guardarNotif();closeModal();renderNav()">Borrar todas</button>`:''}</div>`);
   NOTIF.items.forEach(i=>i.leido=true); guardarNotif(); renderNav();

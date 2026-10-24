@@ -143,8 +143,10 @@ service cloud.firestore {
 
       // config/general la leen todos; config/finanzas (capital) solo el CEO
       match /config/{id} {
-        allow read: if isSuper() || (id == 'general' && enEmpresa(eid) && vigente(eid)) || isCeo(eid);
-        allow write: if isSuper() || isCeo(eid);
+        allow read: if isSuper() || (id in ['general', 'marca'] && enEmpresa(eid) && vigente(eid)) || isCeo(eid);
+        allow write: if isSuper() || (isCeo(eid) && (id != 'marca' || (request.resource.data.keys().hasOnly(['logo', 'actualizado'])
+          && (request.resource.data.get('logo', '') == '' || (request.resource.data.logo is string && request.resource.data.logo.size() < 400000
+              && request.resource.data.logo.matches('^data:image/(png|jpeg);base64,[A-Za-z0-9+/=]+$'))))));
       }
       match /clientes/{id} {
         allow read: if isSuper() || isAdm(eid) || (isCob(eid) && own());

@@ -87,6 +87,7 @@ window.S = {
     if (admin) uns.push(onSnapshot(query(collection(db, 'users'), where('empresaId', '==', EID)), s => cb('users', list(s)), err => cb('error', err)));
     else uns.push(onSnapshot(doc(db, 'users', me.uid), s => { if (s.exists()) cb('users', [{ id: s.id, ...s.data() }]); }, err => cb('error', err)));
     uns.push(onSnapshot(doc(db, ruta('config'), 'general'), s => cb('config', s.exists() ? s.data() : {}), err => cb('error', err)));
+    uns.push(onSnapshot(doc(db, ruta('config'), 'marca'), s => cb('marca', s.exists() ? s.data() : {}), () => {}));
     if (ceo) uns.push(onSnapshot(doc(db, ruta('config'), 'finanzas'), s => cb('finanzas', s.exists() ? s.data() : {}), err => cb('error', err)));
     return () => uns.forEach(u => u());
   },
@@ -95,6 +96,7 @@ window.S = {
   update: (c, id, data) => updateDoc(doc(db, ruta(c), id), clean(data)),
   remove: (c, id) => deleteDoc(doc(db, ruta(c), id)),
   setConfig: data => setDoc(doc(db, ruta('config'), 'general'), clean(data)),
+  setMarca: data => setDoc(doc(db, ruta('config'), 'marca'), clean(data)),
   setFinanzas: data => setDoc(doc(db, ruta('config'), 'finanzas'), clean(data)),
   async batchSet(ops) {
     for (let i = 0; i < ops.length; i += 400) {

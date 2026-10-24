@@ -113,7 +113,7 @@ const plantilla = k => ((DB.config.plantillas||{})[k]) || PLANTILLAS[k];
 function llenarPlantilla(k, p){
   const c = clienteById(p.clienteId)||{}, e = estadoPrestamo(p);
   const v = {cliente:(c.nombre||'').split(' ')[0]||c.nombre||'', nombre:c.nombre||'', fecha:fdate(todayStr()), valor:fmt(p.valorCuota), saldo:fmt(e.saldo),
-    atraso:fmt(e.atrasoMora||e.atraso), cuotas:e.cuotasAtraso||1, dias:e.diasMora||0, monto:fmt(p.monto), negocio:DB.config.negocio||'Kuota'};
+    atraso:fmt(e.atrasoMora||e.atraso), cuotas:e.cuotasAtraso||1, dias:e.diasMora||0, monto:fmt(p.monto), negocio:nombreNegocio()};
   return plantilla(k).replace(/\{(\w+)\}/g, (m,x)=> x in v ? v[x] : m);
 }
 const urlWa = (tel, txt) => `https://wa.me/${telWa(tel)}?text=${encodeURIComponent(txt)}`;
@@ -127,7 +127,7 @@ function marcarAviso(prestamoId, tipo, canal){
 const avisadoHoy = (prestamoId, tipo) => DB.avisos.some(a=>a.prestamoId===prestamoId && a.tipo===tipo && a.fecha===todayStr());
 function filaAviso(p, tipo, extra){
   const c = clienteById(p.clienteId)||{}, txt = llenarPlantilla(tipo, p), ok = avisadoHoy(p.id, tipo);
-  const asunto = {recordatorio:'Recordatorio de cuota', mora:'Cuotas atrasadas', pazysalvo:'Paz y salvo'}[tipo] + ' — ' + (DB.config.negocio||'Kuota');
+  const asunto = {recordatorio:'Recordatorio de cuota', mora:'Cuotas atrasadas', pazysalvo:'Paz y salvo'}[tipo] + ' — ' + nombreNegocio();
   return `<div class="card cobro">
     <div class="who">${ava(c.nombre)}<div style="min-width:0;flex:1"><b>${esc(c.nombre)}</b><div class="muted" style="font-size:12.5px">${esc(c.tel1||'Sin teléfono')}${c.email?' · '+esc(c.email):''}${isAdmin()?' · '+esc(nombreRuta(p.cobradorId)):''}</div></div>${ok?'<span class="pill p-ok">Avisado hoy</span>':extra||''}</div>
     <div class="aviso-txt">${esc(txt)}</div>
@@ -156,7 +156,7 @@ VIEWS.avisos = () => {
 function urlReciboCorreo(pagoId){
   const x = DB.pagos.find(y=>y.id===pagoId); if(!x) return '';
   const p = DB.prestamos.find(y=>y.id===x.prestamoId)||{}, c = clienteById(p.clienteId)||{};
-  return emailOk(c.email) ? urlMail(c.email, 'Recibo de pago — '+(DB.config.negocio||'Kuota'), textoRecibo(pagoId).replace(/\*/g,'')) : '';
+  return emailOk(c.email) ? urlMail(c.email, 'Recibo de pago — '+nombreNegocio(), textoRecibo(pagoId).replace(/\*/g,'')) : '';
 }
 
 /* ---------- resumen del día para el dueño ---------- */
@@ -164,7 +164,7 @@ function textoResumenDia(fecha){
   const rutas = cobradores().map(u=>({u, c:cuadreCobrador(u.id, fecha)}));
   const pagos = DB.pagos.filter(x=>x.fecha===fecha && efectivo(x));
   const tot = pagos.reduce((s,x)=>s+x.monto,0), tr = pagos.filter(x=>x.medio==='transferencia').reduce((s,x)=>s+x.monto,0);
-  return `*${DB.config.negocio||'Kuota'}* — Resumen del ${fdate(fecha)}\n`+
+  return `*${nombreNegocio()}* — Resumen del ${fdate(fecha)}\n`+
     `Cobrado: ${fmt(tot)} (${pagos.length} pagos)\nEfectivo: ${fmt(tot-tr)} · Transferencia: ${fmt(tr)}\n`+
     `Préstamos nuevos: ${fmt(DB.prestamos.filter(p=>p.fecha===fecha && !p.importado).reduce((s,p)=>s+p.monto,0))}\n\n`+
     rutas.map(({u,c})=>`• ${rutaDe(u)}: cobró ${fmt(c.cobradoDia+(c.transfDia||0))}, gastos ${fmt(c.gastosDia)}, debe tener ${fmt(c.saldoFinal)}${cierreDe(u.id,fecha)?' (cerrada)':''}`).join('\n');

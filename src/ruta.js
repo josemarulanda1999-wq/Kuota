@@ -250,7 +250,7 @@ function datosRecibo(pagoId){
     if(antes >= base - 0.5) cuotaTxt = 'Abono a multas';
   }
   const e = estadoPrestamo(p);
-  return { x, p, c, negocio: DB.config.negocio||'Kuota', numero: String(x.id).slice(-6).toUpperCase(),
+  return { x, p, c, negocio: nombreNegocio(), numero: String(x.id).slice(-6).toUpperCase(),
     fecha: fdate(x.fecha), hora: x.creado ? new Date(x.creado).toLocaleTimeString('es-CO',{hour:'numeric',minute:'2-digit'}) : '',
     monto: x.monto, medio: x.medio==='transferencia'?'Transferencia':'Efectivo', cuotaTxt, valorCuota: vc,
     cuotasPagadas: Math.min(n, Math.floor(desp/vc + 1e-6) || 0), cuotas: n,
@@ -267,7 +267,8 @@ function textoRecibo(pagoId){
 function modalRecibo(pagoId){
   const d = datosRecibo(pagoId); if(!d) return;
   const t = textoRecibo(pagoId);
-  openModal(`<h3>Pago registrado · recibo Nº ${esc(d.numero)}</h3><pre class="recibo">${esc(t.replace(/\*/g,''))}</pre>
+  openModal(`<h3>Pago registrado · recibo Nº ${esc(d.numero)}</h3>
+  <div class="row" style="align-items:center;gap:10px;margin:-4px 0 10px">${LOGO?`<img src="${LOGO}" alt="" style="width:44px;height:44px;object-fit:contain;border-radius:8px;background:#fff;padding:3px">`:''}<b>${esc(d.negocio)}</b></div><pre class="recibo">${esc(t.replace(/\*/g,''))}</pre>
   <div class="form" style="margin-top:12px">
     <label class="f full">WhatsApp del cliente<div class="row" style="flex-wrap:nowrap"><input class="input" id="rcTel" inputmode="tel" value="${esc(d.c.tel1||'')}" placeholder="Número de WhatsApp"><button class="btn pri" id="rcWa" style="white-space:nowrap">Enviar por WhatsApp</button></div></label>
     <label class="f full">Correo<div class="row" style="flex-wrap:nowrap"><input class="input" id="rcMail" type="email" value="${esc(d.c.email||'')}" placeholder="correo@ejemplo.com"><button class="btn" id="rcCo" style="white-space:nowrap">Enviar por correo</button></div></label>
@@ -299,8 +300,13 @@ function imagenRecibo(pagoId){
   const g=cv.getContext('2d'); const F='-apple-system,Segoe UI,Roboto,Arial,sans-serif';
   g.fillStyle='#ffffff'; g.fillRect(0,0,W,H);
   g.fillStyle='#111214'; g.fillRect(0,0,W,120);
-  g.fillStyle='#c8f169'; g.font=`700 34px ${F}`; g.fillText(d.negocio.slice(0,32), 40, 62);
-  g.fillStyle='#bbbbbb'; g.font=`500 20px ${F}`; g.fillText('Recibo de pago Nº '+d.numero, 40, 96);
+  let tx = 40;
+  if(LOGO_IMG){ const L=84, k=Math.min(L/LOGO_IMG.width, L/LOGO_IMG.height), w=LOGO_IMG.width*k, h=LOGO_IMG.height*k;
+    g.fillStyle='#ffffff'; if(g.roundRect){ g.beginPath(); g.roundRect(36,18,L+8,L+8,12); g.fill(); } else g.fillRect(36,18,L+8,L+8);
+    g.drawImage(LOGO_IMG, 40+(L-w)/2, 22+(L-h)/2, w, h); tx = 40+L+24; }
+  g.fillStyle='#c8f169'; let fsN=34; do{ g.font=`700 ${fsN}px ${F}`; fsN--; } while(g.measureText(d.negocio).width > W-tx-40 && fsN>18);
+  g.fillText(d.negocio.slice(0,40), tx, 62);
+  g.fillStyle='#bbbbbb'; g.font=`500 20px ${F}`; g.fillText('Recibo de pago Nº '+d.numero, tx, 96);
   g.fillStyle='#666'; g.font=`500 20px ${F}`; g.fillText('Valor pagado', 40, 172);
   g.fillStyle='#111'; g.font=`800 52px ${F}`; g.fillText(fmt(d.monto), 40, 232);
   let y=290; g.strokeStyle='#e6e6e6'; g.lineWidth=2;

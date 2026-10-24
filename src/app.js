@@ -72,6 +72,50 @@ function dbDel(col, id){
   S.remove(col, id).catch(falloNube);
 }
 const CAMPOS_FINANZAS = ['capitalInicial','fechaCapital'];   // solo el CEO los puede leer
+/* nombre y logo de cada empresa (salen en los recibos) */
+let LOGO = '', LOGO_IMG = null;
+const LOGO_OK = /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/;
+function nombreNegocio(){ const n=(DB.config.negocio||'').trim(); return (n && n!=='Kuota') ? n : ((typeof EMPRESA!=='undefined' && EMPRESA && EMPRESA.nombre) || n || 'Kuota'); }
+function ponerLogo(l){
+  LOGO = (typeof l==='string' && l.length<400000 && LOGO_OK.test(l)) ? l : '';
+  LOGO_IMG = null; if(LOGO){ const i=new Image(); i.onload=()=>{ LOGO_IMG=i; }; i.src=LOGO; }
+}
+function achicarLogo(file){
+  return new Promise((res, rej)=>{
+    const url=URL.createObjectURL(file), img=new Image();
+    img.onload=()=>{ URL.revokeObjectURL(url);
+      let lado=420, out='';
+      for(let i=0;i<8;i++){
+        const k=Math.min(1, lado/Math.max(img.width,img.height)), cv=document.createElement('canvas');
+        cv.width=Math.max(1,Math.round(img.width*k)); cv.height=Math.max(1,Math.round(img.height*k));
+        cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height);
+        out=cv.toDataURL('image/png');                          // png: respeta el fondo transparente
+        if(out.length>300000){ const c2=document.createElement('canvas'); c2.width=cv.width; c2.height=cv.height; const g=c2.getContext('2d'); g.fillStyle='#fff'; g.fillRect(0,0,c2.width,c2.height); g.drawImage(cv,0,0); out=c2.toDataURL('image/jpeg',0.85); }
+        if(out.length<300000) break; lado=Math.round(lado*0.75);
+      }
+      out.length<380000 ? res(out) : rej(new Error('grande'));
+    };
+    img.onerror=()=>{ URL.revokeObjectURL(url); rej(new Error('imagen')); };
+    img.src=url;
+  });
+}
+async function subirLogo(input){
+  const f=input.files&&input.files[0]; input.value=''; if(!f) return;
+  try{ const l=await achicarLogo(f); await S.setMarca({logo:l, actualizado:Date.now()}); ponerLogo(l); render(); toast('Logo guardado'); }
+  catch(e){ console.error(e); toast(String(e&&e.code)==='permission-denied'?'Falta publicar las reglas nuevas de Firebase':'No se pudo guardar el logo (prueba con otra imagen)'); }
+}
+async function quitarLogo(){
+  if(!await confirmar('¿Quitar el logo del negocio?')) return;
+  S.setMarca({logo:'', actualizado:Date.now()}).then(()=>{ ponerLogo(''); render(); toast('Logo quitado'); }).catch(falloNube);
+}
+function bloqueLogo(){
+  return `<div class="f full"><span>Logo del negocio (sale en los recibos)</span>
+    <div class="row" style="align-items:center;gap:12px">
+      <div style="width:84px;height:84px;border-radius:12px;background:#fff;display:flex;align-items:center;justify-content:center;overflow:hidden">${LOGO?`<img src="${LOGO}" alt="Logo" style="max-width:100%;max-height:100%;object-fit:contain">`:'<span style="color:#999;font-size:12px">Sin logo</span>'}</div>
+      <label class="btn sm pri">${LOGO?'Cambiar logo':'Subir logo'}<input type="file" accept="image/png,image/jpeg,image/webp" hidden onchange="subirLogo(this)"></label>
+      ${LOGO?'<button type="button" class="btn sm" onclick="quitarLogo()">Quitar</button>':''}
+    </div></div>`;
+}
 function cfgSave(){
   const general = {...DB.config}, fin = {};
   for(const k of CAMPOS_FINANZAS){ fin[k]=general[k]; delete general[k]; }
@@ -345,7 +389,7 @@ function renderNav(){
   const item = ([k,t]) => `<button class="${activo(k)?'on':''}" ${k==='mas'?'onclick="abrirMas()"':`data-go="${k==='caja'?'movimientos':k}"`}><svg viewBox="0 0 24 24" fill="currentColor">${ICONS[k]}</svg><span class="nl">${t}</span><span class="ns">${t}</span>${badge(k)?`<span class="badge">${badge(k)}</span>`:''}</button>`;
   const enMas = M.mas.some(([k])=>k===view);
   document.getElementById('nav').innerHTML = M.main.map(item).join('') + (M.mas.length ? item(['mas','Más']).replace('class=""', enMas?'class="on"':'class=""') : '');
-  document.getElementById('logoName').innerHTML = `<img src="logo_dark.png" class="brand-img" alt="Kuota"><small>${esc((EMPRESA&&EMPRESA.nombre)||DB.config.negocio||'')}</small>`;
+  document.getElementById('logoName').innerHTML = `<img src="logo_dark.png" class="brand-img" alt="Kuota"><small style="display:flex;align-items:center;gap:8px">${LOGO?`<img src="${LOGO}" alt="" style="width:28px;height:28px;object-fit:contain;border-radius:6px;background:#fff;padding:2px">`:''}${esc(nombreNegocio())}</small>`;
   const who = `<div class="who" style="margin-bottom:8px">${ava(ME.nombre)}<div style="min-width:0"><b style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(ME.nombre||ME.email)}</b><span>${rolDe(ME)}</span></div></div>`;
   document.getElementById('userBox').innerHTML = who + `<button class="campana-lat" onclick="abrirNotificaciones()">${ICON_CAMPANA}<span>Notificaciones</span>${sinLeer()?`<span class="badge">${sinLeer()}</span>`:''}</button>` + (chipGPS()?`<div style="margin-bottom:8px">${chipGPS()}</div>`:'') + `<button onclick="cerrarSesion()">Cerrar sesión</button>`;
   document.getElementById('topUser').innerHTML = `<img src="logo_dark.png" class="brand-img sm" alt="Kuota"><span class="spacer"></span>${chipGPS()}${btnCampana()}${ava(ME.nombre)}<button class="btn sm" onclick="cerrarSesion()">Salir</button>`;
@@ -682,7 +726,8 @@ VIEWS.ajustes = () => {
   <div class="card pad">
     <h2>Datos del negocio</h2>
     <div class="form">
-      <label class="f full">Nombre del negocio<input class="input" id="sNeg" value="${esc(c.negocio)}"></label>
+      <label class="f full">Nombre del negocio (sale en los recibos)<input class="input" id="sNeg" value="${esc(c.negocio)}"></label>
+      ${bloqueLogo()}
       <label class="f">Capital inicial<input class="input" id="sCap" value="${esc(c.capitalInicial)}" inputmode="numeric"></label>
       <label class="f">Fecha del capital inicial<input type="date" class="input" id="sFecCap" value="${esc(c.fechaCapital||'')}"></label>
       <label class="f">% interés por defecto<input class="input" id="sTasa" value="${esc(c.tasaDefecto)}"></label>
@@ -1733,6 +1778,7 @@ function arrancarDatos(){
       if(isCeo() && CAMPOS_FINANZAS.some(k=>k in data)) setTimeout(cfgSave, 500);
     }
     else if(col==='finanzas') Object.assign(DB.config, sanearDoc(data||{}));
+    else if(col==='marca') ponerLogo(data && data.logo);
     else if(col==='error'){ console.error(data); if(String(data&&data.code)==='permission-denied') return; toast('Error de conexión con la nube'); return; }
     else { DB[col] = sanearLista(col, data); if(typeof novedades==='function') novedades(col); }
     if(col==='users'){ const me=data.find(u=>u.id===ME.uid); if(me && me.activo===false){ detenerTodo(); S.logout(); return; }

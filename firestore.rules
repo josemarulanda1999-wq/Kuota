@@ -43,7 +43,7 @@ service cloud.firestore {
     function optNum(d, k, min, max) { return !(k in d) || numOk(d[k], min, max); }
     function coordsOk(d) { return optNum(d, 'lat', -90, 90) && optNum(d, 'lng', -180, 180); }
     function img(d, k) { return !(k in d) || (d[k] is string && d[k].size() < 340000 && d[k].matches('data:image/jpeg;base64,[A-Za-z0-9+/=]+')); }
-    // fecha cerca de hoy: entre 2 días atrás y 1 adelante (cubre la diferencia horaria con UTC)
+    // fecha cerca de hoy: de anteayer a mañana (en UTC; cubre la diferencia horaria de Colombia)
     function fechaCerca(f) {
       return fechaOk(f) && timestamp.date(int(f[0:4]), int(f[5:7]), int(f[8:10])) > request.time - duration.value(3, 'd')
         && timestamp.date(int(f[0:4]), int(f[5:7]), int(f[8:10])) < request.time + duration.value(1, 'd');
@@ -72,7 +72,9 @@ service cloud.firestore {
         && idOk(d.clienteId) && fechaOk(d.fecha) && numOk(d.monto, 1, 10000000000) && numOk(d.tasa, 0, 100)
         && numOk(d.meses, 0.001, 1000) && periodoOk(d.periodo) && d.cuotas is int && d.cuotas >= 1 && d.cuotas <= 1000
         && numOk(d.valorCuota, 0.01, 10000000000) && optTxt(d, 'nota', 300) && idOVacio(d.cobradorId)
-        && (!('renovacionDe' in d) || idOk(d.renovacionDe)) && (!('saldoCancelado' in d) || numOk(d.saldoCancelado, 0, 10000000000));
+        && (!('renovacionDe' in d) || idOk(d.renovacionDe)) && (!('saldoCancelado' in d) || numOk(d.saldoCancelado, 0, 10000000000))
+        && (!('excluirDomingos' in d) || d.excluirDomingos is bool) && optNum(d, 'interesMes', 0, 100000000000)
+        && optNum(d, 'creado', 0, 99999999999999);
     }
     function okPago(d) {
       return d.keys().hasOnly(['prestamoId', 'fecha', 'monto', 'nota', 'tipo', 'cobradorId', 'registradoPor', 'lat', 'lng', 'prec', 'sinGps', 'medio', 'comprobante', 'creado', 'creadoPor'])
@@ -114,7 +116,7 @@ service cloud.firestore {
     match /meta/kuota { allow read: if signedIn(); allow write: if isSuper(); }
     match /meta/admin { allow read: if isSuper(); }
     match /facturacion/{id} {
-      allow read: if isSuper() || (hasMe() && me().activo == true && me().rol == 'ceo' && resource.data.empresaId == me().empresaId);
+      allow read: if isSuper() || (hasMe() && me().activo == true && me().get('suspendido', false) != true && me().rol == 'ceo' && resource.data.empresaId == me().empresaId);
       allow write: if isSuper();
     }
 
@@ -143,7 +145,7 @@ service cloud.firestore {
 
     // ---- empresas ----
     match /empresas/{eid} {
-      allow read: if isSuper() || (hasMe() && me().empresaId == eid && me().activo == true);
+      allow read: if isSuper() || (hasMe() && me().empresaId == eid && me().activo == true && me().get('suspendido', false) != true);
       allow write: if isSuper();
 
       // config/general la leen todos; config/finanzas (capital) solo el CEO
@@ -167,6 +169,10 @@ service cloud.firestore {
           // la ruta presta desde su caja, dentro del tope que le fijó la oficina, a sus propios clientes
           || (isCob(eid) && idOk(id) && firma() && okPrestamo(request.resource.data) && ownNew()
               && request.resource.data.get('fuente', '') == 'ruta' && !('renovacionDe' in request.resource.data)
+              && !request.resource.data.keys().hasAny(['castigado', 'importado', 'saldoCancelado'])
+              && fechaCerca(request.resource.data.fecha)
+              && request.resource.data.valorCuota * request.resource.data.cuotas >= request.resource.data.monto
+              && (!('total' in request.resource.data) || numOk(request.resource.data.total, request.resource.data.monto, request.resource.data.monto * 5))
               && exists(/databases/$(database)/documents/empresas/$(eid)/rutas/$(uid()))
               && cfgRuta(eid).get('puedePrestar', false) == true && request.resource.data.monto <= cfgRuta(eid).get('maxPrestamo', 0)
               && (cfgRuta(eid).get('maxCuotas', 0) == 0 || request.resource.data.cuotas <= cfgRuta(eid).get('maxCuotas', 0))
@@ -180,7 +186,8 @@ service cloud.firestore {
         allow create: if isSuper() || isCeo(eid)
           || (idOk(id) && okPago(request.resource.data)
               && request.resource.data.cobradorId == prest(eid, request.resource.data.prestamoId).get('cobradorId', '')
-              && ((soloAdmin(eid) && (!('tipo' in request.resource.data) || request.resource.data.tipo == 'renovacion'))
+              && ((soloAdmin(eid) && (!('tipo' in request.resource.data) || request.resource.data.tipo == 'renovacion')
+                   && !exists(/databases/$(database)/documents/empresas/$(eid)/cierres/$(request.resource.data.cobradorId + '_' + request.resource.data.fecha)))
                   || (isCob(eid) && ownNew() && !('tipo' in request.resource.data) && fechaCerca(request.resource.data.fecha) && abierta(eid, request.resource.data.fecha))));
         allow update: if isSuper() || isCeo(eid) || (soloAdmin(eid) && soloCambiaRuta() && idOVacio(request.resource.data.cobradorId));
         allow delete: if isSuper() || isCeo(eid);
@@ -198,6 +205,7 @@ service cloud.firestore {
         allow create: if isSuper() || isCeo(eid)
           || (idOk(id) && firma() && okRenov(request.resource.data)
               && ((isCob(eid) && ownNew() && request.resource.data.estado == 'pendiente'
+                   && !request.resource.data.keys().hasAny(['excedente', 'saldoCancelado', 'revisadoPor', 'revisadoEn', 'entregadoPor', 'entregadoEn', 'nuevoPrestamoId'])
                    && prest(eid, request.resource.data.prestamoId).get('cobradorId', '') == uid())
                || (soloAdmin(eid) && request.resource.data.estado == 'entregada' && request.resource.data.entregadoPor == uid()
                    && excedenteOk(request.resource.data))));
@@ -244,11 +252,17 @@ service cloud.firestore {
       // ---- operación diaria de las rutas ----
       match /rutas/{u} {
         allow read: if isSuper() || isAdm(eid) || (isCob(eid) && u == uid());
-        allow write: if isSuper() || ((isCeo(eid) || soloAdmin(eid)) && idOk(u)
+        allow delete: if isSuper() || isCeo(eid);
+        allow create, update: if isSuper() || ((isCeo(eid) || (soloAdmin(eid) && resource != null
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['puedeDominical', 'actualizado']))) && idOk(u)
           && request.resource.data.keys().hasOnly(['cobradorId', 'puedePrestar', 'maxPrestamo', 'maxGasto', 'salario', 'periodoPago', 'pctRecaudo', 'pctVentas', 'maxCuotas', 'maxRenov', 'puedeDominical', 'actualizado'])
           && (!('puedeDominical' in request.resource.data) || request.resource.data.puedeDominical is bool)
           && request.resource.data.cobradorId == u && request.resource.data.puedePrestar is bool
           && get(/databases/$(database)/documents/users/$(u)).data.empresaId == eid
+          && get(/databases/$(database)/documents/users/$(u)).data.rol == 'cobrador'
+          && optNum(request.resource.data, 'salario', 0, 10000000000) && optNum(request.resource.data, 'pctRecaudo', 0, 100)
+          && optNum(request.resource.data, 'pctVentas', 0, 100) && optNum(request.resource.data, 'maxCuotas', 0, 1000)
+          && optNum(request.resource.data, 'maxRenov', 0, 1000)
           && numOk(request.resource.data.maxPrestamo, 0, 10000000000) && numOk(request.resource.data.maxGasto, 0, 10000000000));
       }
       match /movruta/{id} {
@@ -257,7 +271,7 @@ service cloud.firestore {
           && request.resource.data.keys().hasOnly(['cobradorId', 'fecha', 'tipo', 'concepto', 'valor', 'nota', 'lat', 'lng', 'prec', 'sinGps', 'creado', 'creadoPor'])
           && idOk(request.resource.data.cobradorId) && fechaOk(request.resource.data.fecha) && request.resource.data.tipo in ['gasto', 'ingreso']
           && txt(request.resource.data.concepto, 40) && numOk(request.resource.data.valor, 0.01, 10000000000) && optTxt(request.resource.data, 'nota', 200) && coordsOk(request.resource.data)
-          && (soloAdmin(eid)
+          && ((soloAdmin(eid) && get(/databases/$(database)/documents/users/$(request.resource.data.cobradorId)).data.empresaId == eid)
               || (isCob(eid) && ownNew() && fechaCerca(request.resource.data.fecha) && abierta(eid, request.resource.data.fecha)
                   && (request.resource.data.tipo == 'ingreso' || !exists(/databases/$(database)/documents/empresas/$(eid)/rutas/$(uid()))
                       || cfgRuta(eid).get('maxGasto', 0) == 0 || request.resource.data.valor <= cfgRuta(eid).get('maxGasto', 0)))));
@@ -277,7 +291,7 @@ service cloud.firestore {
       }
       match /cierres/{id} {
         allow read: if isSuper() || isAdm(eid) || (isCob(eid) && own());
-        allow create: if isSuper() || ((isCeo(eid) || soloAdmin(eid) || (isCob(eid) && ownNew()))
+        allow create: if isSuper() || ((isCeo(eid) || soloAdmin(eid) || (isCob(eid) && ownNew() && fechaCerca(request.resource.data.fecha)))
           && id == request.resource.data.cobradorId + '_' + request.resource.data.fecha && idOk(request.resource.data.cobradorId)
           && fechaOk(request.resource.data.fecha) && request.resource.data.keys().hasOnly(['cobradorId', 'fecha', 'cerradoEn', 'resumen'])
           && request.resource.data.resumen is map && request.resource.data.resumen.size() <= 30);
@@ -302,7 +316,8 @@ service cloud.firestore {
         allow create: if isSuper() || (isCeo(eid) && idOk(id) && firma()
           && request.resource.data.keys().hasOnly(['cobradorId', 'fecha', 'valor', 'nota', 'creado', 'creadoPor'])
           && idOk(request.resource.data.cobradorId) && fechaOk(request.resource.data.fecha)
-          && numOk(request.resource.data.valor, -100000000000, 100000000000) && optTxt(request.resource.data, 'nota', 200));
+          && numOk(request.resource.data.valor, -100000000000, 100000000000) && optTxt(request.resource.data, 'nota', 200)
+          && get(/databases/$(database)/documents/users/$(request.resource.data.cobradorId)).data.empresaId == eid);
         allow update, delete: if isSuper() || isCeo(eid);
       }
       // registro de avisos enviados a clientes (WhatsApp / correo)
@@ -342,7 +357,8 @@ service cloud.firestore {
           && request.resource.data.keys().hasOnly(['dev', 'modelo', 'plataforma', 'registrado', 'ultimoUso'])
           && request.resource.data.dev is string && request.resource.data.dev.size() >= 16 && request.resource.data.dev.size() <= 128
           && optTxt(request.resource.data, 'modelo', 80) && optTxt(request.resource.data, 'plataforma', 20);
-        allow update: if enEmpresa(eid) && u == uid() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ultimoUso']);
+        allow update: if enEmpresa(eid) && u == uid() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ultimoUso'])
+          && request.resource.data.ultimoUso is number;
         allow delete: if isSuper() || isCeo(eid);
       }
       match /intentos/{id} {

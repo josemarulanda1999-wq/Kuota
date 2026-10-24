@@ -349,7 +349,8 @@ AFTER.mapa = async () => {
     if(!tieneUbic(c)) continue;
     const ps = DB.prestamos.filter(p=>p.clienteId===c.id).map(p=>estadoPrestamo(p)).filter(e=>e.estado!=='Pagado');
     const atr = ps.some(e=>e.atrasoMora>0.5), saldo = ps.reduce((s,e)=>s+e.saldo,0);
-    L.circleMarker([c.lat,c.lng], {radius:7, weight:2, color:'#0e0e10', fillColor: atr?'#ff5d5d':(ps.length?'#c6f432':'#8a8a93'), fillOpacity:.95})
+    const dm = Math.max(0, ...ps.map(e=>e.estado==='En mora'?Math.max(1,e.diasMora||1):0));
+    L.circleMarker([c.lat,c.lng], {radius:7, weight:2, color:'#0e0e10', fillColor: dm>3?'#ff5d5d':dm>0?'#ffa94d':(ps.length?'#c6f432':'#8a8a93'), fillOpacity:.95})
       .bindPopup(`<b>${esc(c.nombre)}</b>${c.direccion?`<br>${esc(c.direccion)}`:''}<br>Saldo: ${fmt(saldo)}${atr?' · <span style="color:#d33">atrasado</span>':''}<br><a href="${urlComoLlegar(c)}" ${isNative()?'':'target="_blank" rel="noopener"'}>Cómo llegar</a>`)
       .addTo(MAPA.capas.cl);
     pts.push([c.lat,c.lng]);

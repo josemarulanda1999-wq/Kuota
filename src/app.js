@@ -515,7 +515,9 @@ function ava(nombre){
 function pill(e){
   if(e.estado==='Pagado') return '<span class="pill p-pag">Pagado</span>';
   if(e.estado==='Castigado') return '<span class="pill p-mora">Castigado</span>';
-  if(e.estado==='En mora') return `<span class="pill p-mora">Mora · ${e.cuotasAtraso} cuota${e.cuotasAtraso>1?'s':''}</span>`;
+  // al día en verde · mora de 1 a 3 días en naranja · más de 3 días en rojo
+  if(e.estado==='En mora'){ const d=Math.max(1, e.diasMora||1);
+    return `<span class="pill ${d<=3?'p-mora1':'p-mora'}" title="${e.cuotasAtraso} cuota${e.cuotasAtraso>1?'s':''} atrasada${e.cuotasAtraso>1?'s':''}">Mora · ${d} día${d>1?'s':''}</span>`; }
   if(e.venceHoy && e.atraso>0) return '<span class="pill p-hoy">Paga hoy</span>';
   return '<span class="pill p-ok">Al día</span>';
 }

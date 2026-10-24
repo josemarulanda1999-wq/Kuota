@@ -268,7 +268,7 @@ function modalRecibo(pagoId){
   const d = datosRecibo(pagoId); if(!d) return;
   const t = textoRecibo(pagoId);
   openModal(`<h3>Pago registrado · recibo Nº ${esc(d.numero)}</h3>
-  <div class="row" style="align-items:center;gap:10px;margin:-4px 0 10px">${LOGO?`<img src="${LOGO}" alt="" style="width:44px;height:44px;object-fit:contain;border-radius:8px;background:#fff;padding:3px">`:''}<b>${esc(d.negocio)}</b></div><pre class="recibo">${esc(t.replace(/\*/g,''))}</pre>
+  <div class="row" style="align-items:center;gap:10px;margin:-4px 0 10px">${LOGO?`<img src="${LOGO}" alt="" style="width:44px;height:44px;object-fit:contain;border-radius:8px;background:#fff;padding:3px">`:''}<b>${esc(d.negocio)}</b></div><div style="text-align:center;background:var(--panel-2);border-radius:12px;padding:10px;max-height:52vh;overflow:auto"><img id="rcImg" alt="Recibo" style="max-width:100%;width:420px;border-radius:6px"></div>
   <div class="form" style="margin-top:12px">
     <label class="f full">WhatsApp del cliente<div class="row" style="flex-wrap:nowrap"><input class="input" id="rcTel" inputmode="tel" value="${esc(d.c.tel1||'')}" placeholder="Número de WhatsApp"><button class="btn pri" id="rcWa" style="white-space:nowrap">Enviar por WhatsApp</button></div></label>
     <label class="f full">Correo<div class="row" style="flex-wrap:nowrap"><input class="input" id="rcMail" type="email" value="${esc(d.c.email||'')}" placeholder="correo@ejemplo.com"><button class="btn" id="rcCo" style="white-space:nowrap">Enviar por correo</button></div></label>
@@ -276,9 +276,10 @@ function modalRecibo(pagoId){
   </div>
   <div class="actions"><button class="btn" onclick="closeModal()">Listo</button>
   ${d.x.comprobante?`<button class="btn" onclick="verComprobante('${pagoId}')">Ver comprobante</button>`:''}
-  <button class="btn" onclick="descargarRecibo('${pagoId}')">Descargar recibo (imagen)</button>
+  <button class="btn" onclick="descargarRecibo('${pagoId}')">${isNative()||movil()?'Enviar recibo en foto':'Descargar recibo'}</button>
   <button class="btn" onclick="compartirRecibo('${pagoId}')">Compartir</button></div>`);
   const $=k=>document.getElementById(k);
+  const pinta=()=>{ const im=$('rcImg'); if(im) im.src=imagenRecibo(pagoId); }; pinta(); if(LOGO && !LOGO_IMG) setTimeout(pinta, 400);
   const cambio=()=>{ const ch = $('rcTel').value.trim()!==(d.c.tel1||'') || $('rcMail').value.trim().toLowerCase()!==(d.c.email||''); $('rcGuardW').style.display = ch && d.c.id ? '' : 'none'; };
   ['rcTel','rcMail'].forEach(k=>$(k).addEventListener('input',cambio));
   const guardar=()=>{ if(!d.c.id || $('rcGuardW').style.display==='none' || !$('rcGuard').checked) return;
@@ -290,35 +291,72 @@ function modalRecibo(pagoId){
   $('rcCo').onclick=()=>{ const m=$('rcMail').value.trim(); if(!emailOk(m)) return toast('Escribe un correo válido');
     guardar(); location.href = urlMail(m, 'Recibo de pago Nº '+d.numero+' — '+d.negocio, t.replace(/\*/g,'')); };
 }
-/* recibo como imagen para descargar o mandar como foto */
+/* recibo como imagen (estilo recibo de caja: papel, marco, sello) para descargar o mandar como foto */
 function imagenRecibo(pagoId){
   const d = datosRecibo(pagoId); if(!d) return '';
-  const filas = [['Cliente', d.c.nombre||''], ...(d.c.cedula?[['Cédula', d.c.cedula]]:[]), ['Fecha', d.fecha+(d.hora?' '+d.hora:'')], ['Medio de pago', d.medio],
-    ...(d.cuotaTxt?[['Cuota', d.cuotaTxt]]:[]), ['Valor de la cuota', fmt(d.valorCuota)], ['Cuotas pagadas', `${d.cuotasPagadas} de ${d.cuotas}`],
-    ['Saldo del crédito', fmt(d.saldo)], ...(d.multa>0.5?[['Multas pendientes', fmt(d.multa)]]:[]), ['Recibió', d.recibio]];
-  const W=720, H=330+filas.length*52+(d.mensaje?70:0), cv=document.createElement('canvas'); cv.width=W; cv.height=H;
-  const g=cv.getContext('2d'); const F='-apple-system,Segoe UI,Roboto,Arial,sans-serif';
-  g.fillStyle='#ffffff'; g.fillRect(0,0,W,H);
-  g.fillStyle='#111214'; g.fillRect(0,0,W,120);
-  let tx = 40;
-  if(LOGO_IMG){ const L=84, k=Math.min(L/LOGO_IMG.width, L/LOGO_IMG.height), w=LOGO_IMG.width*k, h=LOGO_IMG.height*k;
-    g.fillStyle='#ffffff'; if(g.roundRect){ g.beginPath(); g.roundRect(36,18,L+8,L+8,12); g.fill(); } else g.fillRect(36,18,L+8,L+8);
-    g.drawImage(LOGO_IMG, 40+(L-w)/2, 22+(L-h)/2, w, h); tx = 40+L+24; }
-  g.fillStyle='#c8f169'; let fsN=34; do{ g.font=`700 ${fsN}px ${F}`; fsN--; } while(g.measureText(d.negocio).width > W-tx-40 && fsN>18);
-  g.fillText(d.negocio.slice(0,40), tx, 62);
-  g.fillStyle='#bbbbbb'; g.font=`500 20px ${F}`; g.fillText('Recibo de pago Nº '+d.numero, tx, 96);
-  g.fillStyle='#666'; g.font=`500 20px ${F}`; g.fillText('Valor pagado', 40, 172);
-  g.fillStyle='#111'; g.font=`800 52px ${F}`; g.fillText(fmt(d.monto), 40, 232);
-  let y=290; g.strokeStyle='#e6e6e6'; g.lineWidth=2;
+  const E = (typeof EMPRESA!=='undefined' && EMPRESA) || {};
+  const sub = [E.nit?'NIT/CC '+E.nit:'', E.ciudad||'', E.telefono?'Tel. '+E.telefono:''].filter(Boolean).join('  ·  ');
+  const filas = [['Cliente', d.c.nombre||''], ...(d.c.cedula?[['Cédula', d.c.cedula]]:[]), ['Fecha', d.fecha], ...(d.hora?[['Hora', d.hora]]:[]),
+    ['Medio de pago', d.medio], ...(d.cuotaTxt?[['Concepto', d.cuotaTxt]]:[]), ['Valor de la cuota', fmt(d.valorCuota)], ['Cuotas pagadas', `${d.cuotasPagadas} de ${d.cuotas}`]];
+  const W=760, PX=40, PW=W-PX*2, top=34;
+  const logoH = LOGO_IMG ? 110 : 0;
+  const cv=document.createElement('canvas'); let g;
+  // se dibuja dos veces: la primera solo para medir el alto exacto del papel
+  const dibujar = H => { cv.width=W; cv.height=H; g=cv.getContext('2d');
+  const F='-apple-system,Segoe UI,Roboto,Arial,sans-serif', M='Menlo,Consolas,"Courier New",monospace';
+  const centro=(t,y,font,col)=>{ g.font=font; g.fillStyle=col; g.fillText(t,(W-g.measureText(t).width)/2,y); };
+  const ajusta=(t,max,peso,tam,fam)=>{ let f=tam; do{ g.font=`${peso} ${f}px ${fam}`; f--; }while(g.measureText(t).width>max && f>11); return g.font; };
+  const linea=(y,dash)=>{ g.save(); g.strokeStyle='#9a9a9a'; g.lineWidth=2; if(dash) g.setLineDash([8,7]); g.beginPath(); g.moveTo(PX+30,y); g.lineTo(W-PX-30,y); g.stroke(); g.restore(); };
+  // fondo y papel con bordes dentados arriba y abajo
+  g.fillStyle='#e9e7e1'; g.fillRect(0,0,W,H);
+  const paper=()=>{ g.beginPath(); const z=12, y0=top, y1=H-top; g.moveTo(PX,y0);
+    for(let x=PX;x<W-PX;x+=z*2){ g.lineTo(x+z,y0-z*0.9); g.lineTo(Math.min(x+z*2,W-PX),y0); }
+    g.lineTo(W-PX,y1); for(let x=W-PX;x>PX;x-=z*2){ g.lineTo(x-z,y1+z*0.9); g.lineTo(Math.max(x-z*2,PX),y1); } g.closePath(); };
+  g.save(); g.shadowColor='rgba(0,0,0,.18)'; g.shadowBlur=18; g.shadowOffsetY=6; g.fillStyle='#fffdf8'; paper(); g.fill(); g.restore();
+  // marco doble
+  g.strokeStyle='#1d1f22'; g.lineWidth=3; g.strokeRect(PX+14, top+14, PW-28, H-top*2-28);
+  g.strokeStyle='#1d1f22'; g.lineWidth=1; g.strokeRect(PX+21, top+21, PW-42, H-top*2-42);
+  let y = top + 44;
+  if(LOGO_IMG){ const L=96, k=Math.min(L/LOGO_IMG.width, (L)/LOGO_IMG.height), w=LOGO_IMG.width*k, h=LOGO_IMG.height*k; g.drawImage(LOGO_IMG,(W-w)/2,y+(L-h)/2,w,h); y += logoH; }
+  centro(d.negocio.toUpperCase(), y+30, ajusta(d.negocio.toUpperCase(), PW-90, '800', 34, F), '#111');
+  y += 30; if(sub){ centro(sub, y+28, ajusta(sub, PW-90, '500', 18, F), '#555'); y += 30; }
+  y += 30; linea(y);
+  centro('RECIBO DE CAJA', y+44, `800 28px ${F}`, '#111');
+  g.font=`600 19px ${M}`; g.fillStyle='#b3261e'; const nro='Nº '+d.numero; g.fillText(nro, W-PX-44-g.measureText(nro).width, y+44);
+  y += 70; linea(y, true); y += 40;
   for(const [k,v] of filas){
-    g.beginPath(); g.moveTo(40,y-34); g.lineTo(W-40,y-34); g.stroke();
-    g.fillStyle='#777'; g.font=`500 21px ${F}`; g.fillText(k, 40, y);
-    g.fillStyle='#111'; const vv=String(v).slice(0,60); let fs=22;
-    do{ g.font=`${k==='Saldo del crédito'?'800':'600'} ${fs}px ${F}`; fs--; } while(g.measureText(vv).width > W-300 && fs>12);
-    g.fillText(vv, W-40-g.measureText(vv).width, y);
-    y+=52;
+    g.font=`500 20px ${F}`; g.fillStyle='#555'; g.fillText(k, PX+44, y);
+    const vv=String(v); g.font=ajusta(vv, PW-300, '600', 21, F); g.fillStyle='#111'; g.fillText(vv, W-PX-44-g.measureText(vv).width, y);
+    g.save(); g.strokeStyle='#e2ded4'; g.lineWidth=1; g.beginPath(); g.moveTo(PX+44,y+16); g.lineTo(W-PX-44,y+16); g.stroke(); g.restore();
+    y += 46;
   }
-  if(d.mensaje){ g.fillStyle='#555'; g.font=`italic 20px ${F}`; g.fillText(d.mensaje.slice(0,60), 40, y+10); }
+  y += 14;
+  // caja del total
+  g.fillStyle='#111214'; const bx=PX+40, bw=PW-80, bh=96;
+  if(g.roundRect){ g.beginPath(); g.roundRect(bx,y,bw,bh,10); g.fill(); } else g.fillRect(bx,y,bw,bh);
+  g.font=`600 20px ${F}`; g.fillStyle='#c8f169'; g.fillText('VALOR PAGADO', bx+26, y+40);
+  g.font=`500 16px ${F}`; g.fillStyle='#bbb'; g.fillText(d.medio, bx+26, y+68);
+  const tot=fmt(d.monto); g.font=ajusta(tot, bw-260, '800', 46, F); g.fillStyle='#fff'; g.fillText(tot, bx+bw-26-g.measureText(tot).width, y+64);
+  y += bh + 40;
+  g.font=`600 22px ${F}`; g.fillStyle='#333'; g.fillText('Saldo del crédito', PX+44, y);
+  const sal=fmt(d.saldo); g.font=`800 26px ${F}`; g.fillStyle='#111'; g.fillText(sal, W-PX-44-g.measureText(sal).width, y);
+  y += 18;
+  if(d.multa>0.5){ y+=30; g.font=`500 18px ${F}`; g.fillStyle='#8a6d00'; g.fillText('Multas pendientes (aparte)', PX+44, y); const m=fmt(d.multa); g.fillText(m, W-PX-44-g.measureText(m).width, y); y+=10; }
+  y += 22; linea(y, true);
+  // sello PAGADO
+  g.save(); g.translate(W-PX-150, y+70); g.rotate(-0.22); g.globalAlpha=0.82; g.strokeStyle='#2e7d32'; g.lineWidth=4;
+  if(g.roundRect){ g.beginPath(); g.roundRect(-95,-34,190,68,8); g.stroke(); } else g.strokeRect(-95,-34,190,68);
+  g.lineWidth=1.5; g.strokeRect(-88,-27,176,54); g.font=`900 34px ${F}`; g.fillStyle='#2e7d32'; const st='PAGADO'; g.fillText(st,-g.measureText(st).width/2,12); g.restore();
+  // firma
+  g.save(); g.strokeStyle='#333'; g.lineWidth=1.5; g.beginPath(); g.moveTo(PX+50,y+92); g.lineTo(PX+330,y+92); g.stroke(); g.restore();
+  g.font=`600 18px ${F}`; g.fillStyle='#111'; g.fillText(d.recibio||'', PX+50, y+84);
+  g.font=`500 15px ${F}`; g.fillStyle='#666'; g.fillText('Recibió', PX+50, y+114);
+  y += 170;
+  if(d.mensaje){ centro(d.mensaje.slice(0,70), y, ajusta(d.mensaje.slice(0,70), PW-100, 'italic 500', 19, F), '#444'); y += 36; }
+  centro('Conserve este recibo como soporte de su pago', y, `500 15px ${F}`, '#777');
+  return y; };
+  const alto = dibujar(2400);
+  dibujar(alto + 30 + top + 22);
   return cv.toDataURL('image/png');
 }
 async function descargarRecibo(pagoId){

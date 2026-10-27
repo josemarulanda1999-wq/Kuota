@@ -39,6 +39,12 @@ async function abrirMiRuta(uid, fecha){
   if(!isAdmin() && typeof iniciarJornada==='function' && typeof GPS!=='undefined' && !GPS.activo && typeof gpsRastreable==='function' && gpsRastreable()) iniciarJornada();
   render(); toast(isAdmin() ? 'Ruta abierta' : 'Ruta abierta: ¡buen día de cobro!');
 }
+let _sinAbrirC = {}, _sinAbrirRef = null, _sinAbrirLen = -1, _sinAbrirHoy = '';
+function diasSinAbrirCache(uid){
+  const A = DB.aperturas||[], hoy = todayStr();
+  if(_sinAbrirRef!==A || _sinAbrirLen!==A.length || _sinAbrirHoy!==hoy){ _sinAbrirC={}; _sinAbrirRef=A; _sinAbrirLen=A.length; _sinAbrirHoy=hoy; }
+  return _sinAbrirC[uid] || (_sinAbrirC[uid] = diasSinAbrir(uid, hoy));
+}
 // días que la ruta no abrió (desde su primera apertura y sin contar domingos)
 function diasSinAbrir(uid, hasta){
   const ap = (DB.aperturas||[]).filter(a=>a.cobradorId===uid).map(a=>a.fecha).sort();
@@ -59,7 +65,8 @@ function bloqueAperturaRuta(fecha){
   if(cierreDe(ME.uid, fecha)) return '';
   const a = aperturaDe(ME.uid, fecha);
   const sin = [...diasSinAbrir(ME.uid, fecha)].filter(f=>f >= ymd(new Date(parseD(fecha).getTime()-14*864e5)));
-  const avisoSin = sin.length ? `<div class="banner" style="display:block">No abriste la ruta ${sin.length===1?'el '+fdate(sin[0]):'estos días: '+sin.map(fdate).join(', ')}. Las cuotas de ${sin.length===1?'ese día':'esos días'} se suman a las de hoy: cobra todo lo pendiente.</div>` : '';
+  const correr = DB.config.sinAbrir==='correr';
+  const avisoSin = sin.length ? `<div class="banner" style="display:block">No abriste la ruta ${sin.length===1?'el '+fdate(sin[0]):'estos días: '+sin.map(fdate).join(', ')}. ${correr?`Las cuotas de ${sin.length===1?'ese día':'esos días'} se corrieron un día: no generan mora.`:`Las cuotas de ${sin.length===1?'ese día':'esos días'} se suman a las de hoy: cobra todo lo pendiente.`}</div>` : '';
   if(!a) return `<div class="card pad abrir-ruta" style="margin-bottom:16px;text-align:center">
     <h2 style="margin:0 0 6px">Tu ruta de hoy está sin abrir</h2><p class="muted" style="margin:0 0 14px">Ábrela para empezar a cobrar. Al final del día la cierras.</p>
     <button class="btn pri" style="font-size:17px;padding:14px 28px" onclick="abrirMiRuta()">Abrir ruta de hoy</button></div>${avisoSin}`;
@@ -458,6 +465,7 @@ function bloqueAjustesRuta(){
     <h2>País, moneda y rutas</h2>
     <div class="form">
       <label class="f full">País y moneda<select class="input" id="sPais">${Object.entries(MONEDAS).map(([k,m])=>`<option value="${k}" ${c.pais===k?'selected':''}>${m.pais} (${m.simbolo})</option>`).join('')}</select></label>
+      <label class="f full">Si una ruta no abre un día<select class="input" id="sSinA"><option value="sumar" ${c.sinAbrir!=='correr'?'selected':''}>Las cuotas de ese día se suman al día siguiente (cuenta como mora)</option><option value="correr" ${c.sinAbrir==='correr'?'selected':''}>Ese día no cuenta: las cuotas se corren un día y no generan mora</option></select></label>
       <label class="chk full"><input type="checkbox" id="sSim" ${verSimbolo()?'checked':''}> Mostrar el símbolo de la moneda junto a cada valor (ej. ${esc(MON().simbolo)} 1.500)</label>
       <label class="f full">Conceptos de gasto de las rutas (uno por línea)<textarea class="input" id="sConG" rows="5">${esc((c.conceptosGasto||[]).join('\n'))}</textarea></label>
       <label class="f full">Conceptos de ingreso de las rutas (uno por línea)<textarea class="input" id="sConI" rows="3">${esc((c.conceptosIngreso||[]).join('\n'))}</textarea></label>
@@ -470,6 +478,7 @@ function guardarAjustesRuta(){
   const lineas = id => document.getElementById(id).value.split('\n').map(x=>x.trim()).filter(Boolean).slice(0,40).map(x=>x.slice(0,40));
   DB.config.pais = document.getElementById('sPais').value;
   DB.config.verSimbolo = document.getElementById('sSim').checked;
+  DB.config.sinAbrir = document.getElementById('sSinA').value==='correr' ? 'correr' : 'sumar';
   DB.config.conceptosGasto = lineas('sConG').length ? lineas('sConG') : defaultConfig().conceptosGasto;
   DB.config.conceptosIngreso = lineas('sConI').length ? lineas('sConI') : defaultConfig().conceptosIngreso;
   DB.config.mensajeRecibo = document.getElementById('sMsg').value.trim().slice(0,300);

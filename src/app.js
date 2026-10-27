@@ -218,10 +218,15 @@ function addPeriodo(d, periodo, excluirDomingos){
 }
 /* días dados (dominical / fuerza mayor): la cuota de ese día pasa al día siguiente y no cuenta como mora */
 let _libIdx=null, _libRef=null, _libLen=-1;
-function diasLibres(prestamoId){
+function diasLibres(prestamoId, cobradorId){
   const V = (typeof DB!=='undefined' && DB.visitas) || [];
   if(_libRef!==V || _libLen!==V.length){ _libIdx={}; for(const v of V) if(v.resultado==='dominical') (_libIdx[v.prestamoId]=_libIdx[v.prestamoId]||new Set()).add(v.fecha); _libRef=V; _libLen=V.length; }
-  return (prestamoId && _libIdx[prestamoId]) || null;
+  const propios = (prestamoId && _libIdx[prestamoId]) || null;
+  // opción del negocio: los días que la ruta no abrió no cuentan (las cuotas se corren y no generan mora)
+  const sin = (cobradorId && DB.config && DB.config.sinAbrir==='correr' && typeof diasSinAbrirCache==='function') ? diasSinAbrirCache(cobradorId) : null;
+  if(!sin || !sin.size) return propios;
+  if(!propios) return sin;
+  return new Set([...propios, ...sin]);
 }
 function diaSiguienteHabil(d, excluirDomingos, libres){
   const n=new Date(d);
@@ -230,7 +235,7 @@ function diaSiguienteHabil(d, excluirDomingos, libres){
 }
 function cronograma(p){
   const out=[]; let d=parseD(p.fecha);
-  const libres = diasLibres(p.id);
+  const libres = diasLibres(p.id, p.cobradorId);
   for(let i=1;i<=p.cuotas;i++){
     // primeraCuota: en renovaciones se puede dejar que siga cobrando el mismo día de siempre (ej. los jueves)
     if(i===1 && p.primeraCuota && p.primeraCuota>p.fecha) d=parseD(p.primeraCuota); else d=addPeriodo(d,p.periodo,p.excluirDomingos);
@@ -807,9 +812,10 @@ VIEWS.ajustes = () => {
     <h2>Respaldo de la información</h2>
     <p class="muted" style="margin-top:-6px">Todo queda guardado en la nube y se sincroniza con los celulares de las rutas. Igual puedes descargar una copia cuando quieras.</p>
     <div class="row" style="margin-bottom:10px">
-      <button class="btn" onclick="descargarRespaldo()">Descargar copia (.json)</button>
+      <button class="btn" onclick="descargarRespaldo();marcarCopia()">Descargar copia ahora (.json)</button>
       <button class="btn" onclick="document.getElementById('impFile').click()">Subir datos de la app anterior</button>
     </div>
+    ${bloqueCopiaAuto()}
     <h2 style="margin-top:18px">Importar clientes y créditos desde Excel</h2>
     <p class="muted" style="margin-top:-6px">Para pasar tu cartera desde otro sistema. Descarga la plantilla, llénala en Excel y guárdala como CSV.</p>
     <div class="row" style="margin-bottom:10px">
@@ -1727,14 +1733,17 @@ function modalBase(cobradorId, fecha){ modalMovRuta(cobradorId, fecha, 'base'); 
 function modalMovRuta(cobradorId, fecha, tipo){
   const c=cuadreCobrador(cobradorId), base = tipo==='base';
   openModal(`<h3>${base?'Asignar base a':'Recibir plata de'} ${esc(nombreRuta(cobradorId))}</h3>
-  <p class="muted" style="margin-top:-8px">${base?'Es la plata con la que la ruta sale a trabajar (para prestar y dar vueltas). Se suma a lo que debe tener la ruta.':`La ruta tiene en la mano ${fmt(c.enMano)}.`}</p>
+  <p class="muted" style="margin-top:-8px">${base?'Es la plata con la que la ruta sale a trabajar (para prestar y dar vueltas). Se suma a lo que debe tener la ruta.':`La ruta tiene en la mano ${fmt(c.enMano)}. Si recibes todo, la ruta queda en ${fmt(0)} y mañana sale solo con la base que le asignes.`}</p>
   <div class="form">
     <label class="f">Fecha<input type="date" class="input" id="eFec" value="${fecha||todayStr()}"></label>
     <label class="f">${base?'Valor de la base':'Valor recibido'}<input class="input" id="eVal" inputmode="numeric" value="${!base&&c.enMano>0?fmtIn(c.enMano):''}"></label>
     <label class="f full">Nota<input class="input" id="eNot" placeholder="Opcional"></label>
   </div>
-  <div class="actions"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="eSave">${base?'Asignar base':'Guardar entrega'}</button></div>`);
+  ${base?'':`<div class="calcbox" style="margin-top:10px"><div><div class="l">La ruta queda con</div><div class="v" id="eQueda">${fmt(0)}</div></div></div>`}
+  <div class="actions"><button class="btn" onclick="closeModal()">Cancelar</button>${base?'':`<button class="btn" type="button" onclick="document.getElementById('eVal').value=fmtIn(${Math.max(0,c.enMano)});document.getElementById('eVal').dispatchEvent(new Event('input'))">Recibir todo (dejar en 0)</button>`}<button class="btn pri" id="eSave">${base?'Asignar base':'Guardar entrega'}</button></div>`);
   const val=document.getElementById('eVal'); val.addEventListener('blur',()=>{ const n=num(val.value); if(n) val.value=fmtIn(n); });
+  const queda=()=>{ const q=document.getElementById('eQueda'); if(q){ const r=c.enMano-num(val.value); q.textContent=fmt(r); q.style.color=Math.abs(r)<0.5?'var(--green)':'inherit'; } };
+  val.addEventListener('input',queda); queda();
   document.getElementById('eSave').onclick=()=>{
     const v=num(val.value); if(v<=0) return toast('Escribe el valor');
     const d={cobradorId,fecha:document.getElementById('eFec').value||todayStr(),valor:v,nota:document.getElementById('eNot').value.trim()};
@@ -1757,6 +1766,26 @@ async function descargar(nombre, contenido, tipo){
   }
   const b=new Blob([contenido],{type:tipo}); const a=document.createElement('a');
   a.href=URL.createObjectURL(b); a.download=nombre; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+/* copia automática: cuando el dueño abre Kuota y ya toca, se descarga sola la copia (.json) en este equipo */
+const COPIA_K = () => 'kuota_copia_'+(ME?ME.empresaId:'');
+function cfgCopia(){ try{ return JSON.parse(lsGet(COPIA_K())||'{}')||{}; }catch(e){ return {}; } }
+function marcarCopia(){ const c=cfgCopia(); c.ultima=todayStr(); lsSet(COPIA_K(), JSON.stringify(c)); if(view==='ajustes') render(); }
+function bloqueCopiaAuto(){
+  const c=cfgCopia(), f=c.frec||'no';
+  return `<div class="f full" style="margin:6px 0 4px"><span>Copia automática en este ${isNative()?'celular':'computador'}</span>
+    <div class="row" style="align-items:center"><select class="input" style="width:auto" onchange="const c=cfgCopia();c.frec=this.value;lsSet(COPIA_K(),JSON.stringify(c));toast(this.value==='no'?'Copia automática apagada':'Copia automática activada');render()">
+      <option value="no" ${f==='no'?'selected':''}>Apagada</option><option value="diaria" ${f==='diaria'?'selected':''}>Todos los días</option><option value="semanal" ${f==='semanal'?'selected':''}>Cada semana</option></select>
+      <span class="muted" style="font-size:13px">Última copia: ${c.ultima?fdate(c.ultima):'nunca'}</span></div>
+    <div class="muted" style="font-size:12px;margin-top:4px">Cuando abras Kuota y ya toque, la copia se descarga sola${isNative()?' (te sale para guardarla o compartirla)':' en la carpeta de Descargas'}. Además, todo queda guardado en la nube.</div></div>`;
+}
+function revisarCopiaAuto(){
+  if(!isCeo() || (ME && ME.soporte)) return;
+  const c=cfgCopia(); if(!c.frec || c.frec==='no') return;
+  const dias = c.frec==='diaria' ? 1 : 7;
+  if(c.ultima && (parseD(todayStr())-parseD(c.ultima))/864e5 < dias) return;
+  if(!DB.clientes.length && !DB.prestamos.length) return;
+  descargarRespaldo(); marcarCopia(); toast('Copia automática de tu información descargada');
 }
 function descargarRespaldo(){
   const d={...DB}; delete d.users;
@@ -1857,6 +1886,7 @@ function arrancarDatos(){
   });
   escucharEquipo();
   escucharEquipos();
+  setTimeout(()=>{ try{ revisarCopiaAuto(); }catch(e){ console.error(e); } }, 8000);
   setTimeout(autoJornada, 1500);
   render();
 }

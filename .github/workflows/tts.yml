@@ -14,20 +14,32 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
-      - name: Generar voz (es-CO, mujer)
+      - name: Generar voz (es-CO, mujer) con marcas de tiempo por palabra
         run: |
           pip install edge-tts
           python - <<'PY'
-          import json, asyncio, os, edge_tts
-          seg = json.load(open('tts/segmentos.json', encoding='utf-8'))
-          os.makedirs('tts/out', exist_ok=True)
+          import json, asyncio, os, inspect, edge_tts
+          cfg = json.load(open('tts/segmentos.json', encoding='utf-8'))
+          voz, rate, pitch = cfg.get('voz','es-CO-SalomeNeural'), cfg.get('rate','+0%'), cfg.get('pitch','+0Hz')
+          kw = {'boundary': 'WordBoundary'} if 'boundary' in inspect.signature(edge_tts.Communicate.__init__).parameters else {}
+          async def uno(texto, base):
+              c = edge_tts.Communicate(texto, voz, rate=rate, pitch=pitch, **kw)
+              palabras = []
+              with open(base + '.mp3', 'wb') as f:
+                  async for ch in c.stream():
+                      if ch['type'] == 'audio': f.write(ch['data'])
+                      elif ch['type'] == 'WordBoundary':
+                          palabras.append({'t': ch['offset'] / 1e7, 'd': ch['duration'] / 1e7, 'w': ch['text']})
+              json.dump(palabras, open(base + '.json', 'w', encoding='utf-8'), ensure_ascii=False)
           async def main():
-              for i, s in enumerate(seg['textos']):
-                  c = edge_tts.Communicate(s, seg.get('voz', 'es-CO-SalomeNeural'), rate=seg.get('rate', '+0%'))
-                  await c.save(f'tts/out/{i:02d}.mp3')
+              for nombre, textos in cfg['tutoriales'].items():
+                  os.makedirs(f'tts/out/{nombre}', exist_ok=True)
+                  for i, t in enumerate(textos):
+                      await uno(t, f'tts/out/{nombre}/{i:02d}')
           asyncio.run(main())
           PY
       - name: Guardar audios
         run: |
           git config user.name "kuota-bot"; git config user.email "kuota-bot@users.noreply.github.com"
+          git rm -rq --cached tts/out 2>/dev/null || true
           git add tts/out && git commit -m "Audios generados" && git push

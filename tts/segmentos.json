@@ -1,20 +1,78 @@
 {
  "voz": "es-CO-SalomeNeural",
- "rate": "+0%",
- "textos": [
-  "¡Hola! En este video te enseño cómo crear un cliente nuevo en Kuota. Es muy fácil y no te toma más de un minuto.",
-  "Primero, entra a Clientes, en el menú de la izquierda.",
-  "Aquí ves todos tus clientes, organizados por ruta.",
-  "Ahora toca el botón Nuevo cliente.",
-  "Escribe el nombre completo del cliente. Es el único dato obligatorio.",
-  "Luego pon el número de cédula y la ciudad.",
-  "Agrega los teléfonos. El teléfono uno es el que usamos para enviarle mensajes por WhatsApp.",
-  "Si tiene correo, escríbelo. Así le puedes mandar los recibos de pago.",
-  "Pon la dirección y, si quieres, alguna observación. Por ejemplo, a qué hora es mejor cobrarle.",
-  "Si estás en la casa o en el negocio del cliente, toca Usar mi ubicación actual. Así la ruta sabrá cómo llegar.",
-  "Escoge la ruta que lo va a cobrar.",
-  "Y toca Guardar.",
-  "¡Listo! El cliente ya aparece en su ruta. Desde aquí puedes hacerle un préstamo con el botón Prestar, o editar sus datos.",
-  "¡Así de fácil! Gracias por usar Kuota."
- ]
+ "rate": "-4%",
+ "pitch": "+0Hz",
+ "tutoriales": {
+  "crear": [
+   "¡Hola! Te voy a mostrar cómo crear un cliente nuevo en Kuota. Es rapidito, mira.",
+   "Primero, entra a Clientes, aquí en el menú de la izquierda.",
+   "Acá ves todos tus clientes, organizados por ruta.",
+   "Ahora dale clic al botón Nuevo cliente.",
+   "Escribe el nombre completo. Es el único dato obligatorio.",
+   "Después, el número de cédula, y la ciudad.",
+   "Pon los teléfonos. El primero es el que usamos para escribirle por WhatsApp.",
+   "Si tiene correo, escríbelo, así le llegan los recibos de pago.",
+   "Agrega la dirección, y si quieres, alguna observación. Por ejemplo, a qué hora es mejor cobrarle.",
+   "Si estás en la casa o en el negocio del cliente, toca Usar mi ubicación actual. Así la ruta sabe cómo llegar.",
+   "Escoge la ruta que lo va a cobrar.",
+   "Y le das Guardar.",
+   "¡Listo! El cliente ya aparece en su ruta, y desde aquí le puedes hacer un préstamo con el botón Prestar.",
+   "Así de fácil. ¡Nos vemos en el próximo tutorial!"
+  ],
+  "abrir_cerrar": [
+   "¡Hola! En este video te muestro cómo abrir y cerrar el día de tu ruta en Kuota.",
+   "Cuando entras por la mañana, te aparece este aviso: tu ruta de hoy está sin abrir.",
+   "Para empezar a cobrar, toca Abrir ruta de hoy.",
+   "Listo. La ruta queda abierta, y se guarda la hora y tu ubicación.",
+   "Ahora ya puedes cobrar normalmente. Por ejemplo, tocas Cobrar en el cliente, y registras el pago.",
+   "Al terminar el día, toca Cerrar ruta del día.",
+   "Kuota te muestra el resumen: cuánto cobraste, cuánto gastaste, y cuánto efectivo debes tener.",
+   "Si todo está bien, confirmas, y la ruta queda cerrada hasta mañana.",
+   "¡Así de fácil! Recuerda abrir y cerrar tu ruta todos los días."
+  ],
+  "dias_sin_abrir": [
+   "¿Qué pasa si una ruta no abre un día? En Kuota, tú decides cómo se manejan esos días.",
+   "Entra a Ajustes.",
+   "Busca la parte de país, moneda y rutas.",
+   "En la opción: si una ruta no abre un día, escoge: ese día no cuenta.",
+   "Así, las cuotas de ese día se corren para el día siguiente, no se suman, y el cliente no queda en mora.",
+   "Y le das Guardar.",
+   "Si prefieres que se sumen y cuenten como mora, escoges la otra opción. ¡Listo!"
+  ],
+  "buscar": [
+   "Te enseño cómo buscar un cliente rápido en Kuota.",
+   "Entra a Clientes.",
+   "En la barra de búsqueda, escribe el nombre, la cédula o el teléfono.",
+   "Kuota te va mostrando los resultados mientras escribes.",
+   "También puedes buscar por la cédula.",
+   "Y si estás en Cobros, también hay un buscador, para cobrarle o abonarle a cualquier cliente, aunque hoy no le toque cuota.",
+   "¡Así de fácil encuentras a cualquier cliente!"
+  ],
+  "semana": [
+   "¿Quieres saber cuánto se recogió en la semana, y cuánto se prestó? Te muestro.",
+   "Entra a Análisis de rutas.",
+   "Arriba escoges el periodo. Toca siete días.",
+   "Aquí ves cuánto se cobró en los últimos siete días, y cómo va comparado con la semana anterior.",
+   "Y en la tabla, por cada ruta: lo cobrado, lo prestado, los gastos, y la utilidad.",
+   "También puedes ver el mes, el mes pasado, o el año. ¡Así tienes todo claro!"
+  ],
+  "ruta_en_cero": [
+   "Te muestro cómo dejar la ruta en cero todos los días, para manejar la base aparte.",
+   "Entra a Cuadre.",
+   "Aquí ves cuánta plata debe tener cada ruta en efectivo.",
+   "Al final del día, toca Recibir plata, en la ruta.",
+   "Ahora toca: Recibir todo, dejar en cero.",
+   "Mira: la ruta queda en cero. Le das Guardar entrega.",
+   "Al otro día, le asignas la base con la que sale a trabajar, con el botón Asignar base.",
+   "Así, cada día la ruta empieza solo con su base, y todo lo cobrado queda en la oficina."
+  ],
+  "copias": [
+   "Toda tu información queda guardada en la nube, pero igual puedes sacar copias. Te muestro cómo.",
+   "Entra a Ajustes, y baja hasta: respaldo de la información.",
+   "Para una copia manual, toca Descargar copia ahora. El archivo se guarda en tu computador.",
+   "Para que se haga sola, en copia automática escoge: todos los días, o cada semana.",
+   "Así, cada vez que abras Kuota y toque, la copia se descarga sola. Y aquí ves cuándo fue la última.",
+   "¡Listo! Tu información siempre respaldada."
+  ]
+ }
 }

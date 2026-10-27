@@ -1,0 +1,20 @@
+{
+ "voz": "es-CO-SalomeNeural",
+ "rate": "+0%",
+ "textos": [
+  "¡Hola! En este video te enseño cómo crear un cliente nuevo en Kuota. Es muy fácil y no te toma más de un minuto.",
+  "Primero, entra a Clientes, en el menú de la izquierda.",
+  "Aquí ves todos tus clientes, organizados por ruta.",
+  "Ahora toca el botón Nuevo cliente.",
+  "Escribe el nombre completo del cliente. Es el único dato obligatorio.",
+  "Luego pon el número de cédula y la ciudad.",
+  "Agrega los teléfonos. El teléfono uno es el que usamos para enviarle mensajes por WhatsApp.",
+  "Si tiene correo, escríbelo. Así le puedes mandar los recibos de pago.",
+  "Pon la dirección y, si quieres, alguna observación. Por ejemplo, a qué hora es mejor cobrarle.",
+  "Si estás en la casa o en el negocio del cliente, toca Usar mi ubicación actual. Así la ruta sabrá cómo llegar.",
+  "Escoge la ruta que lo va a cobrar.",
+  "Y toca Guardar.",
+  "¡Listo! El cliente ya aparece en su ruta. Desde aquí puedes hacerle un préstamo con el botón Prestar, o editar sus datos.",
+  "¡Así de fácil! Gracias por usar Kuota."
+ ]
+}

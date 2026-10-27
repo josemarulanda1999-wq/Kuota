@@ -81,7 +81,7 @@ window.S = {
     const uns = [];
     const admin = me.rol === 'ceo' || me.rol === 'admin';
     const ceo = me.rol === 'ceo';
-    const ruta_ = ['movruta', 'visitas', 'cierres', 'aprobaciones', 'rutas', 'notas', 'caprutas', 'avisos'];
+    const ruta_ = ['movruta', 'visitas', 'cierres', 'aperturas', 'aprobaciones', 'rutas', 'notas', 'caprutas', 'avisos'];
     const cols = (ceo ? ['clientes', 'prestamos', 'pagos', 'salidas', 'capital', 'ingresos', 'entregas', 'renovaciones'] : ['clientes', 'prestamos', 'pagos', 'entregas', 'renovaciones']).concat(ruta_);
     for (const c of cols) {
       const q = admin ? collection(db, ruta(c)) : query(collection(db, ruta(c)), where('cobradorId', '==', me.uid));

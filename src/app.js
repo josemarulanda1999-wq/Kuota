@@ -11,7 +11,7 @@ const defaultConfig = () => ({ negocio:'Kuota', capitalInicial:0, fechaCapital:'
   pais:'CO', conceptosGasto:['Gasolina','Alimentación','Transporte','Arreglo de moto','Celular y recargas','Papelería','Otros'],
   conceptosIngreso:['Multa','Seguro del cliente','Aporte a la ruta','Otros'], mensajeRecibo:'Gracias por su pago puntual.' });
 const emptyDB = () => ({ config:defaultConfig(), clientes:[], prestamos:[], pagos:[], salidas:[], capital:[], ingresos:[], entregas:[], renovaciones:[], users:[],
-  movruta:[], visitas:[], cierres:[], aprobaciones:[], rutas:[], notas:[], caprutas:[], avisos:[] });
+  movruta:[], visitas:[], cierres:[], aperturas:[], aprobaciones:[], rutas:[], notas:[], caprutas:[], avisos:[] });
 
 let DB = emptyDB();
 let ME = null;            // perfil del usuario: {uid, nombre, email, rol, activo}
@@ -542,7 +542,7 @@ function cobroCard(c, fecha){
     <div class="who" onclick="modalDetalle('${c.p.id}')" style="cursor:pointer">${ava(cl.nombre)}<div style="min-width:0;flex:1"><b>${esc(cl.nombre||'(sin cliente)')}</b><div class="muted" style="font-size:12.5px">${esc(cl.direccion||'Sin dirección')}</div></div>${pill(c.e)}</div>
     <div class="cobro-nums">
       <div><span>Cuota</span><b>${fmt(c.p.valorCuota)}</b></div>
-      <div><span>Pendiente</span><b style="color:${c.cobrar>0.5?'var(--red)':'inherit'}">${fmt(c.cobrar)}</b></div>
+      <div><span>Pendiente</span><b style="color:${c.cobrar>0.5?'var(--red)':'inherit'}">${fmt(c.cobrar)}</b>${(()=>{ const d=c.cobrar>0.5?detallePendiente(c.p,c.e,fecha):null; return d&&d.n>1?`<em style="font-style:normal;font-size:11.5px;display:block">${d.n} cuotas${d.sinAbrir.length?` · ${d.sinAbrir.length} de día${d.sinAbrir.length>1?'s':''} sin abrir`:''}</em>`:''; })()}</div>
       <div><span>Debe en total</span><b>${fmt(c.e.saldoCuotas)}</b>${c.e.multaPend>0.5?`<em style="font-style:normal;font-size:11.5px;color:var(--amber)">+ multa ${fmt(c.e.multaPend)}</em>`:''}</div>
     </div>
     <div class="row">
@@ -569,6 +569,7 @@ VIEWS.cobros = () => {
   return `
   <div class="head"><div><h1>${isAdmin()?'Cobros del día':'Mi ruta'}</h1><p class="sub">Cuotas que vencen y préstamos atrasados. Marca el pago apenas cobres.</p></div>
   <div class="row">${isAdmin()?'':`${puedePrestarRuta()?`<button class="btn pri" onclick="modalPrestamo()">+ Crédito nuevo</button>`:''}<button class="btn ${puedePrestarRuta()?'':'pri'}" onclick="elegirRenovacion()">Solicitar renovación</button>`}${isAdmin()?'':'<button class="btn" onclick="modalEnrutar()">Orden de visita</button><button class="btn" data-go="avisos">Avisar a clientes</button>'}${filtroCobrador('cobros')}<input type="date" class="input" style="width:auto" value="${fecha}" onchange="go('cobros',Object.assign({},viewState,{fecha:this.value}))">${isNative()?'':'<button class="btn no-print" onclick="window.print()">Imprimir ruta</button>'}</div></div>
+  ${bloqueAperturaRuta(fecha)}
   <div class="kpis">
     <div class="kpi sky"><div class="l">Visitados</div><div class="v">${visitados} de ${dia.length}</div><div class="progress" style="margin-top:8px"><i style="width:${dia.length?visitados/dia.length*100:0}%"></i></div></div>
     <div class="kpi cream"><div class="l">Pendiente por cobrar</div><div class="v">${fmt(totalCobrar)}</div></div>
@@ -1678,7 +1679,8 @@ VIEWS.cuadre = () => {
       <div class="cr-fila total"><span>Debes tener en efectivo</span><b>${fmt(c.saldoFinal)}</b></div>
       <div class="cr-fila transf"><span>Cobrado por transferencia (${c.nTransfDia}) · va a la cuenta, no a tu mano</span><b>${fmt(c.transfDia)}</b></div>
       ${(()=>{ const ci=cierreDe(ME.uid, fecha); return ci ? `<div class="banner" style="margin:14px 0 0">Ruta cerrada a las ${new Date(ci.cerradoEn).toLocaleTimeString('es-CO',{hour:'numeric',minute:'2-digit'})}.</div>`
-        : hoy ? `<div class="row" style="margin-top:14px"><button class="btn sm" onclick="modalGastoRuta('gasto')">+ Gasto</button><button class="btn sm" onclick="modalGastoRuta('ingreso')">+ Ingreso</button><span class="spacer"></span><button class="btn sm pri" onclick="cerrarMiRuta()">Cerrar ruta del día</button></div>` : ''; })()}
+        : hoy ? (aperturaDe(ME.uid, fecha) ? `<div class="row" style="margin-top:14px"><button class="btn sm" onclick="modalGastoRuta('gasto')">+ Gasto</button><button class="btn sm" onclick="modalGastoRuta('ingreso')">+ Ingreso</button><span class="spacer"></span><button class="btn sm pri" onclick="cerrarMiRuta()">Cerrar ruta del día</button></div>`
+          : `<div class="row" style="margin-top:14px"><span class="muted">La ruta de hoy está sin abrir.</span><span class="spacer"></span><button class="btn sm pri" onclick="abrirMiRuta()">Abrir ruta de hoy</button></div>`) : ''; })()}
     </div>
     ${tablaMovRuta(ME.uid, fecha)}
     ${tablaPagosDia(c.pagosDia)}`;
@@ -1707,7 +1709,8 @@ VIEWS.cuadre = () => {
     <div class="cr-fila total"><span>Debe tener en efectivo</span><b style="color:${c.saldoFinal>0.5?'var(--amber)':'inherit'}">${fmt(c.saldoFinal)}</b></div>
     <div class="cr-fila transf"><span>Por transferencia (${c.nTransfDia})</span><b>${fmt(c.transfDia)}</b></div>
     ${(()=>{ const ci=cierreDe(u.id, fecha); return ci ? `<div class="row" style="margin-top:10px"><span class="pill p-ok">Cerrada ${new Date(ci.cerradoEn).toLocaleTimeString('es-CO',{hour:'numeric',minute:'2-digit'})}</span><span class="spacer"></span><button class="btn sm" onclick="reabrirRuta('${u.id}','${fecha}')">Reabrir</button></div>`
-      : `<div class="row" style="margin-top:10px"><span class="pill p-hoy">Abierta</span><span class="spacer"></span><button class="btn sm ghost" onclick="cerrarRutaOficina('${u.id}','${fecha}')">Cerrar</button></div>`; })()}
+      : aperturaDe(u.id, fecha) ? `<div class="row" style="margin-top:10px"><span class="pill p-hoy">Abierta ${new Date(aperturaDe(u.id, fecha).abiertaEn).toLocaleTimeString('es-CO',{hour:'numeric',minute:'2-digit'})}</span><span class="spacer"></span><button class="btn sm ghost" onclick="cerrarRutaOficina('${u.id}','${fecha}')">Cerrar</button></div>`
+      : `<div class="row" style="margin-top:10px"><span class="pill p-mora">Sin abrir</span><span class="spacer"></span><button class="btn sm ghost" onclick="abrirMiRuta('${u.id}','${fecha}')">Abrir</button></div>`; })()}
     <div class="row" style="margin-top:10px"><button class="btn sm" onclick="modalBase('${u.id}','${fecha}')">Asignar base</button><button class="btn sm" onclick="modalGastoRuta('gasto','${u.id}','${fecha}')">+ Gasto</button><button class="btn sm" onclick="modalGastoRuta('ingreso','${u.id}','${fecha}')">+ Ingreso</button><button class="btn sm ghost" onclick="modalNota('${u.id}')">Nota</button><span class="spacer"></span><button class="btn sm pri" onclick="modalEntrega('${u.id}','${fecha}')">Recibir plata</button></div>
   </div>`).join('')}</div>`:`<div class="card"><div class="empty">Aún no tienes rutas. Solicítalas en Usuarios.</div></div>`}
   ${(()=>{const es=DB.entregas.filter(x=>x.fecha===fecha); return es.length?`<div class="card pad" style="margin:16px 0"><h2>Bases y entregas de ese día</h2><div class="tablewrap"><table><tbody>${es.map(x=>`<tr><td>${x.tipo==='base'?'<span class="pill p-pag">Base</span>':'<span class="pill p-ok">Entrega</span>'}</td><td>${esc(nombreRuta(x.cobradorId))}</td><td>${esc(x.nota||'')}</td><td class="num">${fmt(x.valor)}</td><td class="muted">${esc(nombreUsuario(x.creadoPor))}</td><td class="right">${isCeo()?`<button class="btn sm danger" onclick="borrarEntrega('${x.id}')">Borrar</button>`:''}</td></tr>`).join('')}</tbody></table></div></div>`:'<div style="height:16px"></div>';})()}

@@ -297,6 +297,17 @@ service cloud.firestore {
           && request.resource.data.resumen is map && request.resource.data.resumen.size() <= 30);
         allow delete: if isSuper() || isCeo(eid) || soloAdmin(eid);
       }
+      // apertura del día: la ruta abre su día antes de cobrar (id = cobrador_fecha); la oficina también la puede abrir
+      match /aperturas/{id} {
+        allow read: if isSuper() || isAdm(eid) || (isCob(eid) && own());
+        allow create: if isSuper() || ((isCeo(eid) || soloAdmin(eid) || (isCob(eid) && ownNew() && fechaCerca(request.resource.data.fecha)))
+          && id == request.resource.data.cobradorId + '_' + request.resource.data.fecha && idOk(request.resource.data.cobradorId)
+          && fechaOk(request.resource.data.fecha) && request.resource.data.keys().hasOnly(['cobradorId', 'fecha', 'abiertaEn', 'por', 'lat', 'lng', 'prec'])
+          && optNum(request.resource.data, 'abiertaEn', 0, 99999999999999) && coordsOk(request.resource.data) && optNum(request.resource.data, 'prec', 0, 100000)
+          && request.resource.data.get('por', '') == uid()
+          && get(/databases/$(database)/documents/users/$(request.resource.data.cobradorId)).data.empresaId == eid);
+        allow delete: if isSuper() || isCeo(eid) || soloAdmin(eid);
+      }
       match /aprobaciones/{id} {
         allow read: if isSuper() || isAdm(eid) || (isCob(eid) && own());
         allow create: if isSuper() || isCeo(eid) || (isCob(eid) && idOk(id) && firma() && ownNew()

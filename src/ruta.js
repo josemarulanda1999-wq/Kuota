@@ -16,7 +16,55 @@ const cierreDe = (uid, fecha) => DB.cierres.find(c=>c.id===idCierre(uid, fecha))
 const miRutaCerrada = (fecha=todayStr()) => !isAdmin() && ME && !!cierreDe(ME.uid, fecha);
 const visitaDe = (prestamoId, fecha) => DB.visitas.filter(v=>v.prestamoId===prestamoId && v.fecha===fecha && v.resultado!=='dominical').sort((a,b)=>(b.creado||0)-(a.creado||0))[0];
 const telWa = t => { let d = String(t||'').replace(/\D/g,''); if(!d) return ''; const cc = MON().tel; if(!d.startsWith(cc) || d.length <= 10) d = cc + d.replace(/^0+/,''); return d; };
-function rutaBloqueada(){ if(miRutaCerrada()){ avisar('Tu ruta de hoy ya está cerrada. Pídele a la oficina que la reabra si necesitas registrar algo más.'); return true; } return false; }
+function rutaBloqueada(){
+  if(miRutaCerrada()){ avisar('Tu ruta de hoy ya está cerrada. Pídele a la oficina que la reabra si necesitas registrar algo más.'); return true; }
+  if(!isAdmin() && ME && !aperturaDe(ME.uid, todayStr())){ pedirAbrirRuta(); return true; }
+  return false;
+}
+/* ---------- apertura del día: cada ruta abre su día antes de cobrar y lo cierra al final ---------- */
+const aperturaDe = (uid, fecha) => (DB.aperturas||[]).find(a=>a.id===idCierre(uid, fecha));
+const miRutaAbierta = () => !isAdmin() && ME && !!aperturaDe(ME.uid, todayStr());
+function pedirAbrirRuta(){
+  openModal(`<h3>Primero abre tu ruta de hoy</h3><p class="muted" style="margin-top:-6px">Para registrar cobros, visitas o gastos tienes que abrir la ruta del día. Al terminar, la cierras.</p>
+    <div class="actions"><button class="btn" onclick="closeModal()">Ahora no</button><button class="btn pri" onclick="closeModal();abrirMiRuta()">Abrir ruta</button></div>`);
+}
+async function abrirMiRuta(uid, fecha){
+  uid = uid || ME.uid; fecha = fecha || todayStr();
+  if(aperturaDe(uid, fecha)) return toast('La ruta ya está abierta');
+  if(cierreDe(uid, fecha)) return avisar('Esa ruta ya se cerró ese día.');
+  const d = {cobradorId:uid, fecha, abiertaEn:Date.now(), por:ME.uid};
+  if(!isAdmin()){ try{ const g = await gpsParaPago(); if(g && g.lat) Object.assign(d, {lat:g.lat, lng:g.lng, prec:g.prec||0}); }catch(e){} }
+  S.set('aperturas', idCierre(uid, fecha), d).catch(falloNube);
+  DB.aperturas = (DB.aperturas||[]).concat([{id:idCierre(uid, fecha), ...d}]);
+  if(!isAdmin() && typeof iniciarJornada==='function' && typeof GPS!=='undefined' && !GPS.activo && typeof gpsRastreable==='function' && gpsRastreable()) iniciarJornada();
+  render(); toast(isAdmin() ? 'Ruta abierta' : 'Ruta abierta: ¡buen día de cobro!');
+}
+// días que la ruta no abrió (desde su primera apertura y sin contar domingos)
+function diasSinAbrir(uid, hasta){
+  const ap = (DB.aperturas||[]).filter(a=>a.cobradorId===uid).map(a=>a.fecha).sort();
+  if(!ap.length) return new Set();
+  const hechos = new Set(ap), out = new Set();
+  const d = parseD(ap[0]);
+  for(let i=0;i<120 && ymd(d) < hasta;i++){ const f=ymd(d); if(d.getDay()!==0 && !hechos.has(f)) out.add(f); d.setDate(d.getDate()+1); }
+  return out;
+}
+// cuotas que debe hoy y cuáles vienen de días en que no se abrió la ruta
+function detallePendiente(p, e, fecha){
+  const debe = e.cron.filter(c=>c.n > e.cuotasPagadas && c.fecha <= fecha);
+  const sin = p.cobradorId ? diasSinAbrir(p.cobradorId, fecha) : new Set();
+  return { n: debe.length, sinAbrir: debe.filter(c=>sin.has(c.fecha)).map(c=>c.fecha) };
+}
+function bloqueAperturaRuta(fecha){
+  if(isAdmin() || fecha!==todayStr()) return '';
+  if(cierreDe(ME.uid, fecha)) return '';
+  const a = aperturaDe(ME.uid, fecha);
+  const sin = [...diasSinAbrir(ME.uid, fecha)].filter(f=>f >= ymd(new Date(parseD(fecha).getTime()-14*864e5)));
+  const avisoSin = sin.length ? `<div class="banner" style="display:block">No abriste la ruta ${sin.length===1?'el '+fdate(sin[0]):'estos días: '+sin.map(fdate).join(', ')}. Las cuotas de ${sin.length===1?'ese día':'esos días'} se suman a las de hoy: cobra todo lo pendiente.</div>` : '';
+  if(!a) return `<div class="card pad abrir-ruta" style="margin-bottom:16px;text-align:center">
+    <h2 style="margin:0 0 6px">Tu ruta de hoy está sin abrir</h2><p class="muted" style="margin:0 0 14px">Ábrela para empezar a cobrar. Al final del día la cierras.</p>
+    <button class="btn pri" style="font-size:17px;padding:14px 28px" onclick="abrirMiRuta()">Abrir ruta de hoy</button></div>${avisoSin}`;
+  return `<div class="banner" style="background:var(--green-soft);color:inherit"><span class="pill p-ok">Ruta abierta</span> desde las ${new Date(a.abiertaEn).toLocaleTimeString('es-CO',{hour:'numeric',minute:'2-digit'})}<span class="spacer"></span><button class="btn sm pri" onclick="cerrarMiRuta()">Cerrar ruta del día</button></div>${avisoSin}`;
+}
 
 /* ---------- visitas: no pagó / aplazado ---------- */
 const MOTIVOS_NOPAGO = ['No estaba en casa','No tenía plata','Pagará más tarde','Se negó a pagar','Cliente enfermo o viaje','Dirección no encontrada','Otro'];
@@ -147,6 +195,7 @@ function resumenCierre(uid, fecha){
 async function cerrarMiRuta(){
   const fecha = todayStr();
   if(cierreDe(ME.uid, fecha)) return avisar('Tu ruta de hoy ya está cerrada.');
+  if(!aperturaDe(ME.uid, fecha)) return avisar('Tu ruta de hoy no está abierta todavía.');
   const r = resumenCierre(ME.uid, fecha);
   const sinVisitar = cobrosDelDia(fecha).filter(x=>x.p.cobradorId===ME.uid && x.pagadoHoy<=0 && !visitaDe(x.p.id, fecha)).length;
   if(!await confirmar(`Cerrar la ruta de hoy\n\nCobrado en efectivo: ${fmt(r.cobrado)} (${r.pagos} pagos)\nPor transferencia: ${fmt(r.transferencias)}\nGastos: ${fmt(r.gastos)}\nPrestado: ${fmt(r.prestado)}\nDebes tener en efectivo: ${fmt(r.saldoFinal)}${sinVisitar?`\n\nOjo: ${sinVisitar} cliente(s) sin pago ni visita registrada.`:''}\n\nDespués de cerrar no podrás registrar más cobros hoy.`, {ok:'Cerrar ruta'})) return;

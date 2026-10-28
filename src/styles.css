@@ -248,6 +248,20 @@ html,body{overflow-x:hidden}
 .mainwrap,main{max-width:100%}
 .calc-form{grid-template-columns:repeat(3,minmax(0,1fr))}
 @media (max-width:760px){ .calc-form{grid-template-columns:1fr} }
+/* tarjetas de cobros, préstamos y clientes: se ajustan al ancho del celular en vez de estirarse con nombres o cifras largas */
+.cobros-grid{grid-template-columns:repeat(auto-fill,minmax(min(300px,100%),1fr))}
+@media (max-width:760px){ .cobros-grid{grid-template-columns:minmax(0,1fr)} }
+.cobro{min-width:0}
+.cobro .who{min-width:0}
+.cobro .who > div{min-width:0;flex:1 1 auto}
+.cobro .row{flex-wrap:wrap;min-width:0}
+.cobro-nums{grid-template-columns:repeat(3,minmax(0,1fr))}
+.cobro-nums > div{min-width:0}
+.cobro-nums b{display:block;overflow-wrap:anywhere}
+/* panel: las tablas anchas se desplazan dentro de su tarjeta sin empujar la pantalla */
+.grid2{grid-template-columns:minmax(0,1.3fr) minmax(0,1fr)}
+@media (max-width:1100px){ .grid2{grid-template-columns:minmax(0,1fr)} }
+.grid2 > *{min-width:0}
 
 /* menú "Más" y pestañas de Caja */
 .mas-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}

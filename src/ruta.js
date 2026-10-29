@@ -18,13 +18,34 @@ const visitaDe = (prestamoId, fecha) => DB.visitas.filter(v=>v.prestamoId===pres
 const telWa = t => { let d = String(t||'').replace(/\D/g,''); if(!d) return ''; const cc = MON().tel; if(!d.startsWith(cc) || d.length <= 10) d = cc + d.replace(/^0+/,''); return d; };
 function rutaBloqueada(){
   if(miRutaCerrada()){ avisar('Tu ruta de hoy ya está cerrada. Pídele a la oficina que la reabra si necesitas registrar algo más.'); return true; }
-  if(!isAdmin() && ME && !aperturaDe(ME.uid, todayStr())){ pedirAbrirRuta(); return true; }
+  if(!isAdmin() && ME && !aperturaDe(ME.uid, todayStr())){
+    // si hoy ya registró pagos, visitas o gastos, la ruta sí se abrió: la apertura solo no ha llegado al celular
+    if(trabajoHoy()){ recuperarApertura(); return false; }
+    pedirAbrirRuta(); return true;
+  }
   return false;
+}
+function trabajoHoy(){
+  const h = todayStr(), yo = ME.uid;
+  return DB.pagos.some(x=>x.fecha===h && x.registradoPor===yo) || DB.visitas.some(x=>x.fecha===h && x.creadoPor===yo) || DB.movruta.some(x=>x.fecha===h && x.creadoPor===yo);
+}
+/* trae la apertura de hoy directo de la nube (por si el celular la perdió al reconectarse) */
+let _recuperando = null;
+function recuperarApertura(){
+  if(_recuperando) return _recuperando;
+  const id = idCierre(ME.uid, todayStr());
+  _recuperando = S.getUno('aperturas', id).then(a=>{ _recuperando = null;
+    if(a && !aperturaDe(ME.uid, todayStr())){ DB.aperturas = (DB.aperturas||[]).concat([sanearDoc(a)]); scheduleRender(); }
+    return a; });
+  return _recuperando;
 }
 /* ---------- apertura del día: cada ruta abre su día antes de cobrar y lo cierra al final ---------- */
 const aperturaDe = (uid, fecha) => (DB.aperturas||[]).find(a=>a.id===idCierre(uid, fecha));
 const miRutaAbierta = () => !isAdmin() && ME && !!aperturaDe(ME.uid, todayStr());
-function pedirAbrirRuta(){
+async function pedirAbrirRuta(){
+  // antes de pedirla, se revisa en la nube: puede que ya esté abierta
+  const a = await recuperarApertura();
+  if(a){ toast('Tu ruta de hoy sí está abierta. Vuelve a intentarlo.'); return; }
   openModal(`<h3>Primero abre tu ruta de hoy</h3><p class="muted" style="margin-top:-6px">Para registrar cobros, visitas o gastos tienes que abrir la ruta del día. Al terminar, la cierras.</p>
     <div class="actions"><button class="btn" onclick="closeModal()">Ahora no</button><button class="btn pri" onclick="closeModal();abrirMiRuta()">Abrir ruta</button></div>`);
 }
@@ -32,6 +53,9 @@ async function abrirMiRuta(uid, fecha){
   uid = uid || ME.uid; fecha = fecha || todayStr();
   if(aperturaDe(uid, fecha)) return toast('La ruta ya está abierta');
   if(cierreDe(uid, fecha)) return avisar('Esa ruta ya se cerró ese día.');
+  // si ya existe en la nube no se vuelve a crear (la nube no deja reescribirla)
+  const ya = await S.getUno('aperturas', idCierre(uid, fecha));
+  if(ya){ if(!aperturaDe(uid, fecha)) DB.aperturas = (DB.aperturas||[]).concat([sanearDoc(ya)]); render(); return toast('La ruta ya estaba abierta'); }
   const d = {cobradorId:uid, fecha, abiertaEn:Date.now(), por:ME.uid};
   if(!isAdmin()){ try{ const g = await gpsParaPago(); if(g && g.lat) Object.assign(d, {lat:g.lat, lng:g.lng, prec:g.prec||0}); }catch(e){} }
   S.set('aperturas', idCierre(uid, fecha), d).catch(falloNube);

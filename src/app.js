@@ -418,8 +418,9 @@ function cobrosDelDia(hoy=todayStr()){
   const out=[];
   for(const p of DB.prestamos){
     const e = estadoPrestamo(p,hoy);
-    if(e.estado==='Pagado' || e.estado==='Castigado') continue;
+    if(e.estado==='Castigado') continue;
     const pagadoHoy = e.pagos.filter(x=>x.fecha===hoy && efectivo(x)).reduce((s,x)=>s+x.monto,0);
+    if(e.estado==='Pagado' && pagadoHoy<0.5) continue;      // el que terminó de pagar hoy sigue en la lista del día (en visitados)
     if(e.atraso>0.5 || e.venceHoy || pagadoHoy>0 || (typeof diaDado==='function' && diaDado(p.id, hoy))){
       out.push({p,e,pagadoHoy,cobrar: e.atraso});
     }
@@ -627,6 +628,7 @@ function cobroCard(c, fecha){
     <div class="row">
       ${tel?`<a class="btn sm" href="tel:${esc(tel)}">Llamar</a>`:''}${btnUbicRuta(cl)}
       ${puedeRenovar(c.p)?`<button class="btn sm" onclick="modalRenovacion('${c.p.id}')">Renovar</button>`:''}
+      ${c.e.estado==='Pagado'&&(isAdmin()||!miRutaCerrada())?`<button class="btn sm" onclick="modalPrestamo(null,'${c.p.clienteId}')">Crédito nuevo</button>`:''}
       <span class="spacer"></span>
       ${c.pagadoHoy?`<span class="pill p-ok">Pagó ${fmt(c.pagadoHoy)}</span>`:chipVisita(c.p, fecha)}
       ${c.cobrar>0.5&&!c.pagadoHoy&&!visitaDe(c.p.id, fecha)?`<button class="btn sm" onclick="modalNoPago('${c.p.id}','${fecha}')">No pagó</button>`:''}

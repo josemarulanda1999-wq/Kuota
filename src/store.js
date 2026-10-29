@@ -142,6 +142,7 @@ window.S = {
   setFotos: (pid, data) => setDoc(doc(db, ruta('fotos'), pid), clean(data)),
   auditar: data => setDoc(doc(collection(db, ruta('auditoria'))), clean(data)),
   async leerAuditoria() { try { const s = await getDocs(collection(db, ruta('auditoria'))); return list(s); } catch (e) { return []; } },
+  async getUno(c, id) { try { const s = await getDoc(doc(db, ruta(c), id)); return s.exists() ? { id: s.id, ...s.data() } : null; } catch (e) { return null; } },
   async getComprobante(id) { try { const s = await getDoc(doc(db, ruta('comprobantes'), id)); return s.exists() ? s.data() : null; } catch (e) { return null; } },
   setComprobante: (id, data) => setDoc(doc(db, ruta('comprobantes'), id), clean(data)),
   /* ---------- equipo autorizado (cada ruta solo entra desde su celular) ---------- */

@@ -1944,7 +1944,8 @@ VIEWS.cuadre = () => {
           : `<div class="row" style="margin-top:14px"><span class="muted">La ruta de hoy está sin abrir.</span><span class="spacer"></span><button class="btn sm pri" onclick="abrirMiRuta()">Abrir ruta de hoy</button></div>`) : ''; })()}
     </div>
     ${tablaMovRuta(ME.uid, fecha)}
-    ${tablaPagosDia(c.pagosDia)}`;
+    ${tablaPagosDia(c.pagosDia)}
+    ${historialCuadres()}`;
   }
   const filas = cobradores().map(u=>({u,c:cuadreCobrador(u.id,fecha)}));
   const yo = cuadreCobrador(ME.uid, fecha);
@@ -1975,6 +1976,7 @@ VIEWS.cuadre = () => {
     <div class="row" style="margin-top:10px"><button class="btn sm" onclick="modalBase('${u.id}','${fecha}')">Asignar base</button><button class="btn sm" onclick="modalGastoRuta('gasto','${u.id}','${fecha}')">+ Gasto</button><button class="btn sm" onclick="modalGastoRuta('ingreso','${u.id}','${fecha}')">+ Ingreso</button><button class="btn sm ghost" onclick="modalNota('${u.id}')">Nota</button><span class="spacer"></span><button class="btn sm pri" onclick="modalEntrega('${u.id}','${fecha}')">Recibir plata</button></div>
   </div>`).join('')}</div>`:`<div class="card"><div class="empty">Aún no tienes rutas. Solicítalas en Usuarios.</div></div>`}
   ${(()=>{const es=DB.entregas.filter(x=>x.fecha===fecha); return es.length?`<div class="card pad" style="margin:16px 0"><h2>Bases y entregas de ese día</h2><div class="tablewrap"><table><tbody>${es.map(x=>`<tr><td>${x.tipo==='base'?'<span class="pill p-pag">Base</span>':'<span class="pill p-ok">Entrega</span>'}</td><td>${esc(nombreRuta(x.cobradorId))}</td><td>${esc(x.nota||'')}</td><td class="num">${fmt(x.valor)}</td><td class="muted">${esc(nombreUsuario(x.creadoPor))}</td><td class="right">${isCeo()?`<button class="btn sm danger" onclick="borrarEntrega('${x.id}')">Borrar</button>`:''}</td></tr>`).join('')}</tbody></table></div></div>`:'<div style="height:16px"></div>';})()}
+  ${historialCuadres()}
   ${tablaPagosDia(todosPagos,true)}`;
 };
 /* ---------- créditos y renovaciones que la ruta entregó ese día (detalle del cuadre) ---------- */

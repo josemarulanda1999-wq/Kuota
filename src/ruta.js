@@ -318,8 +318,47 @@ async function cerrarRutaOficina(uid, fecha){
   render(); toast('Ruta cerrada');
 }
 async function reabrirRuta(uid, fecha){
-  if(!await confirmar(`¿Reabrir ${nombreRuta(uid)} del ${fdate(fecha)}? Podrá volver a registrar cobros y gastos ese día.`, {ok:'Reabrir'})) return;
+  if(!isAdmin()) return avisar('Solo la oficina puede reabrir una ruta cerrada.');
+  const hoy = fecha===todayStr();
+  if(!await confirmar(`¿Reabrir ${nombreRuta(uid)} del ${fdate(fecha)}?\n\n${hoy ? 'El cobrador podrá volver a registrar cobros, gastos y créditos de hoy. Al terminar debe cerrarla otra vez.' : 'Como es un día anterior, lo que falte (un pago, un gasto…) lo registras tú desde la oficina con esa fecha. Luego la vuelves a cerrar desde el historial de cuadres.'}`, {ok:'Reabrir'})) return;
+  const ci = cierreDe(uid, fecha);
+  if(typeof auditar==='function') auditar('reabrir', 'cierres', idCierre(uid, fecha), `${nombreRuta(uid)} del ${fecha}`+(ci&&ci.resumen?` (cerrada con ${fmt(ci.resumen.saldoFinal||0)} en efectivo)`:''));
   dbDel('cierres', idCierre(uid, fecha)); render(); toast('Ruta reabierta');
+}
+
+/* ---------- historial: el cuadre de cada día queda guardado ----------
+   Un día cerrado muestra lo que quedó guardado al cerrar; uno sin cerrar se calcula en vivo. */
+function diasDeRuta(uid, desde){
+  const f = new Set([...(DB.aperturas||[]).filter(a=>a.cobradorId===uid).map(a=>a.fecha), ...DB.cierres.filter(c=>c.cobradorId===uid).map(c=>c.fecha)]);
+  return [...f].filter(x=>x && x>=desde).sort().reverse();
+}
+function filaHistorial(uid, fecha){
+  const ci = cierreDe(uid, fecha), r = ci && ci.resumen ? ci.resumen : resumenCierre(uid, fecha);
+  const hora = t => t ? new Date(t).toLocaleTimeString('es-CO',{hour:'numeric',minute:'2-digit'}) : '';
+  const estado = ci ? `<span class="pill p-ok">Cerrada ${hora(ci.cerradoEn)}</span>`
+    : fecha===todayStr() ? '<span class="pill p-hoy">Abierta</span>' : '<span class="pill p-mora">Sin cerrar</span>';
+  const acciones = `<button class="btn sm" onclick="modalCierre('${uid}','${fecha}')">Ver</button>`
+    + (isAdmin() ? (ci ? ` <button class="btn sm ghost" onclick="reabrirRuta('${uid}','${fecha}')">Reabrir</button>` : ` <button class="btn sm ghost" onclick="cerrarRutaOficina('${uid}','${fecha}')">Cerrar</button>`) : '');
+  return {r, ci, html:`<tr><td style="white-space:nowrap"><b>${fdate(fecha)}</b><div class="muted" style="font-size:12px">${diaSem(fecha)}</div></td>${isAdmin()&&cobradores().length>1?`<td>${esc(nombreRuta(uid))}</td>`:''}<td>${estado}</td>
+    <td class="num">${fmt(r.cobrado||0)}</td><td class="num">${fmt(r.transferencias||0)}</td><td class="num">${fmt(r.prestado||0)}</td><td class="num">${fmt(r.gastos||0)}</td><td class="num">${fmt(r.entregado||0)}</td>
+    <td class="num"><b>${fmt(r.saldoFinal||0)}</b></td><td class="right" style="white-space:nowrap">${acciones}</td></tr>`};
+}
+function historialCuadres(){
+  const meses = Number(viewState.hm)||1;
+  const desde = ymd(new Date(Date.now() - meses*31*864e5));
+  const rutaSel = isAdmin() ? (viewState.hr||'') : ME.uid;
+  const rutas = isAdmin() ? cobradores().filter(u=>!rutaSel || u.id===rutaSel).map(u=>u.id) : [ME.uid];
+  const filas = rutas.flatMap(uid=>diasDeRuta(uid, desde).map(f=>({uid, f}))).sort((a,b)=>b.f.localeCompare(a.f) || nombreRuta(a.uid).localeCompare(nombreRuta(b.uid)));
+  const hs = filas.map(x=>filaHistorial(x.uid, x.f));
+  const sinCerrar = hs.filter((h,i)=>!h.ci && filas[i].f<todayStr()).length;
+  const sel = isAdmin() && cobradores().length>1 ? `<select class="input" style="width:auto" onchange="go('cuadre',Object.assign({},viewState,{hr:this.value}))"><option value="">Todas las rutas</option>${cobradores().map(u=>`<option value="${u.id}" ${rutaSel===u.id?'selected':''}>${esc(rutaCompleta(u))}</option>`).join('')}</select>` : '';
+  return `<div class="card pad" style="margin-top:16px"><div class="row" style="margin-bottom:8px"><h2 style="margin:0">Cuadres guardados por día</h2><span class="spacer"></span>${sel}
+    <select class="input" style="width:auto" onchange="go('cuadre',Object.assign({},viewState,{hm:this.value}))">${[[1,'Último mes'],[3,'3 meses'],[12,'Este año']].map(([v,t])=>`<option value="${v}" ${meses===v?'selected':''}>${t}</option>`).join('')}</select></div>
+    ${sinCerrar?`<div class="banner" style="margin:0 0 10px">${sinCerrar} día(s) quedaron sin cerrar.${isAdmin()?' Revísalos y ciérralos con “Cerrar”.':''}</div>`:''}
+    ${filas.length ? `<div class="tablewrap"><table><thead><tr><th>Día</th>${isAdmin()&&cobradores().length>1?'<th>Ruta</th>':''}<th>Estado</th><th class="num">Cobrado efectivo</th><th class="num">Transferencias</th><th class="num">Prestado</th><th class="num">Gastos</th><th class="num">Entregó</th><th class="num">Debía tener</th><th></th></tr></thead>
+      <tbody>${hs.map(h=>h.html).join('')}</tbody></table></div>
+      <p class="muted" style="font-size:12px;margin:8px 0 0">El día cerrado muestra lo que quedó guardado al cerrar. ${isAdmin()?'Si hay que corregir algo, reábrelo, registra lo que falta con esa fecha y vuelve a cerrarlo.':'Si te faltó algo, pídele a la oficina que reabra ese día.'}</p>`
+      : '<div class="empty">Todavía no hay días registrados en este periodo.</div>'}</div>`;
 }
 
 /* ---------- enrutar: orden de visita ---------- */

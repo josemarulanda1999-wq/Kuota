@@ -179,7 +179,11 @@ service cloud.firestore {
               && (cfgRuta(eid).get('maxCuotas', 0) == 0 || request.resource.data.cuotas <= cfgRuta(eid).get('maxCuotas', 0))
               && get(/databases/$(database)/documents/empresas/$(eid)/clientes/$(request.resource.data.clienteId)).data.cobradorId == uid()
               && abierta(eid, request.resource.data.fecha));
-        allow update: if isSuper() || isCeo(eid) || (soloAdmin(eid) && soloCambiaRuta() && idOVacio(request.resource.data.cobradorId));
+        allow update: if isSuper() || isCeo(eid) || (soloAdmin(eid) && soloCambiaRuta() && idOVacio(request.resource.data.cobradorId))
+          // semanales: la oficina o la ruta dueña del crédito cambian el día de pago (solo la fecha de la primera cuota)
+          || ((soloAdmin(eid) || (isCob(eid) && own())) && resource.data.periodo == 'SEMANAL'
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['primeraCuota'])
+              && fechaOk(request.resource.data.primeraCuota) && request.resource.data.primeraCuota > resource.data.fecha);
         allow delete: if isSuper() || isCeo(eid);
       }
       match /pagos/{id} {
@@ -317,7 +321,8 @@ service cloud.firestore {
       match /aprobaciones/{id} {
         allow read: if isSuper() || isAdm(eid) || (isCob(eid) && own());
         allow create: if isSuper() || isCeo(eid) || (isCob(eid) && idOk(id) && firma() && ownNew()
-          && request.resource.data.keys().hasOnly(['tipo', 'cobradorId', 'clienteId', 'monto', 'tasa', 'meses', 'cuotas', 'modoInteres', 'periodo', 'excluirDomingos', 'nota', 'fecha', 'estado', 'prestamoId', 'creado', 'creadoPor'])
+          && request.resource.data.keys().hasOnly(['tipo', 'cobradorId', 'clienteId', 'monto', 'tasa', 'meses', 'cuotas', 'modoInteres', 'periodo', 'excluirDomingos', 'nota', 'fecha', 'estado', 'prestamoId', 'primeraCuota', 'creado', 'creadoPor'])
+          && (!('primeraCuota' in request.resource.data) || fechaOk(request.resource.data.primeraCuota))
           && request.resource.data.tipo == 'prestamo' && request.resource.data.estado == 'pendiente' && idOk(request.resource.data.clienteId)
           && numOk(request.resource.data.monto, 1, 10000000000) && numOk(request.resource.data.tasa, 0, 100) && numOk(request.resource.data.meses, 0.001, 1000)
           && periodoOk(request.resource.data.periodo) && optTxt(request.resource.data, 'nota', 300) && (!('prestamoId' in request.resource.data) || idOk(request.resource.data.prestamoId))

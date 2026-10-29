@@ -260,6 +260,25 @@ function siguienteMismoDia(pViejo, periodo, hoy=todayStr()){
 }
 const DIAS_SEM=['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
 const diaSem = f => DIAS_SEM[parseD(f).getDay()];
+/* ---------- semanales con día fijo de pago (ej. todos los sábados) ---------- */
+const diasEntre = (a,b) => Math.round((parseD(b)-parseD(a))/864e5);
+// fecha de la primera cuota tal como está hoy (sin días dados)
+const primeraDe = p => p.primeraCuota && p.primeraCuota>p.fecha ? p.primeraCuota : ymd(addPeriodo(parseD(p.fecha), p.periodo, p.excluirDomingos));
+// las dos próximas fechas con ese día de la semana, después de la fecha del préstamo
+function opcionesPrimeraSemanal(fecha, dow){
+  const d=parseD(fecha), out=[];
+  for(let i=1;i<=14 && out.length<2;i++){ const x=new Date(d); x.setDate(d.getDate()+i); if(x.getDay()===dow) out.push(ymd(x)); }
+  return out;
+}
+// por defecto, la que quede más cerca a una semana después del préstamo
+function primeraSemanalDefecto(fecha, dow){
+  const o=opcionesPrimeraSemanal(fecha, dow);
+  return o.reduce((m,x)=>Math.abs(diasEntre(fecha,x)-7) < Math.abs(diasEntre(fecha,m)-7) ? x : m, o[0]);
+}
+const ORDEN_DIAS = [1,2,3,4,5,6,0];
+const opcionesDiaSemana = sel => ORDEN_DIAS.map(d=>`<option value="${d}" ${d===sel?'selected':''}>${DIAS_SEM[d].charAt(0).toUpperCase()+DIAS_SEM[d].slice(1)}</option>`).join('');
+const losDias = dow => 'los ' + DIAS_SEM[dow] + (dow===0||dow===6 ? 's' : '');   // los sábados, los lunes
+const textoDiaPago = p => p.periodo==='SEMANAL' ? ` · ${losDias(parseD(primeraDe(p)).getDay())}` : '';
 /* multa por no pago: cada N visitas "no pagó" se suma una cuota (o un valor fijo) al saldo */
 /* multa por día de atraso: cada día que el cliente amanece atrasado se cobra un valor fijo según el monto del crédito
    (ej. créditos de más de 500.000 → 20.000 por día; de 500.000 o menos → 10.000 por día) */
@@ -1138,6 +1157,10 @@ function modalPrestamo(id, clienteId, preset){
     <label class="f">Fecha del préstamo<input type="date" class="input" id="pFec" value="${esc(isAdmin()?p.fecha:todayStr())}" ${isAdmin()?'':'disabled'}></label>
     <label class="f">Valor del préstamo *<input class="input" id="pMon" value="${p.monto?fmtIn(p.monto):''}" inputmode="numeric" placeholder="Ej: 500.000"></label>
     <label class="f">Forma de pago<select class="input" id="pPer">${PERIODOS.map(x=>`<option ${x===p.periodo?'selected':''}>${x}</option>`).join('')}</select></label>
+    <div class="f full" id="pDiaW" style="display:none;margin:0"><div class="row" style="gap:12px;align-items:flex-end;flex-wrap:wrap">
+      <label class="f" style="flex:1;min-width:150px">Día de pago<select class="input" id="pDia"></select></label>
+      <label class="f" style="flex:1;min-width:190px">Primera cuota<select class="input" id="pPri"></select></label></div>
+      <div class="muted" style="font-size:12px;margin-top:4px">Todas las cuotas quedan ese día de la semana.</div></div>
     <label class="f"><span id="pCuoL">Número de cuotas</span><input class="input" id="pCuo" value="${esc(p.cuotas || Math.max(1,Math.round((Number(p.meses)||1)*(DB.config.factores[p.periodo]||1))))}" inputmode="numeric"></label>
     <label class="f">% de interés<input class="input" id="pTas" value="${esc(p.tasa)}" inputmode="decimal"></label>
     <label class="f">¿Cómo se cobra el interés?<select class="input" id="pMod"><option value="total" ${modoDe(p)==='total'?'selected':''}>Una vez sobre el préstamo</option><option value="mensual" ${modoDe(p)==='mensual'?'selected':''}>Mensual (según la duración)</option></select></label>
@@ -1162,6 +1185,19 @@ function modalPrestamo(id, clienteId, preset){
       <div><div class="l">Total a pagar</div><div class="v">${fmt(c.valorCuota*c.cuotas)}</div></div>`;
   };
   const g = k=>document.getElementById(k).value;
+  // semanal: día fijo de pago
+  const priOrig = id && p.periodo==='SEMANAL' ? primeraDe(p) : '';
+  document.getElementById('pDia').innerHTML = opcionesDiaSemana(parseD(priOrig || ymd(addPeriodo(parseD(g('pFec')||todayStr()),'SEMANAL'))).getDay());
+  const verDia = ()=>{
+    const sem = g('pPer')==='SEMANAL'; document.getElementById('pDiaW').style.display = sem ? '' : 'none'; if(!sem) return;
+    const f = g('pFec')||todayStr(), dow = Number(g('pDia')), ant = g('pPri');
+    let ops = opcionesPrimeraSemanal(f, dow);
+    if(priOrig && parseD(priOrig).getDay()===dow && priOrig>f && !ops.includes(priOrig)) ops = [priOrig, ...ops];
+    const def = ops.includes(ant) ? ant : (priOrig && ops.includes(priOrig) ? priOrig : primeraSemanalDefecto(f, dow));
+    document.getElementById('pPri').innerHTML = ops.map(x=>{ const n=diasEntre(f,x); return `<option value="${x}" ${x===def?'selected':''}>${fdate(x)} · ${n===1?'mañana':'en '+n+' días'}</option>`; }).join('');
+  };
+  ['pPer','pDia','pFec'].forEach(k=>document.getElementById(k).addEventListener('change',verDia));
+  verDia();
   ['pMon','pTas','pCuo','pPer','pMod'].forEach(k=>{ const el=document.getElementById(k); el.addEventListener('input',upd); el.addEventListener('change',upd); });
   const seg=document.getElementById('pSeg'); let segTocado=false;
   if(seg){ seg.addEventListener('input',()=>segTocado=true);
@@ -1195,6 +1231,10 @@ function modalPrestamo(id, clienteId, preset){
     const meses = c.meses;
     const data = {clienteId:cli,fecha:g('pFec')||todayStr(),monto,tasa,meses,periodo,modoInteres:modo,excluirDomingos:document.getElementById('pDom').checked,nota:g('pNot').trim(),
       cuotas:c.cuotas,valorCuota:c.valorCuota,interesMes:c.interesMes,total:c.total};
+    if(!isAdmin()) data.fecha = todayStr();
+    const pri = periodo==='SEMANAL' ? g('pPri') : '';
+    if(pri && pri>data.fecha && pri!==ymd(addPeriodo(parseD(data.fecha),'SEMANAL'))) data.primeraCuota = pri;
+    else if(id && p.primeraCuota && (periodo==='SEMANAL' || periodo!==p.periodo)) data.primeraCuota = '';   // vuelve a contar desde la fecha del préstamo
     let cobP = (clienteById(cli)||{}).cobradorId || '';
     data.fuente = document.getElementById('pFueW').style.display==='none' ? 'oficina' : document.getElementById('pFue').value;
     if(!isAdmin()){
@@ -1209,7 +1249,8 @@ function modalPrestamo(id, clienteId, preset){
         const pid = S.newId('prestamos');
         if(hayFotos(FOTOS_TMP)) guardarFotos(pid, cli, FOTOS_TMP).catch(falloNube);
         FOTOS_TMP = {};
-        dbAdd('aprobaciones', {tipo:'prestamo', cobradorId:ME.uid, clienteId:cli, monto, tasa, meses, cuotas:c.cuotas, modoInteres:modo, periodo, excluirDomingos:data.excluirDomingos, nota:data.nota, fecha:todayStr(), estado:'pendiente', prestamoId:pid});
+        dbAdd('aprobaciones', {tipo:'prestamo', cobradorId:ME.uid, clienteId:cli, monto, tasa, meses, cuotas:c.cuotas, modoInteres:modo, periodo, excluirDomingos:data.excluirDomingos, nota:data.nota, fecha:todayStr(), estado:'pendiente', prestamoId:pid,
+          ...(data.primeraCuota ? {primeraCuota:data.primeraCuota} : {})});
         closeModal(); render();
         return avisar(capOk==='solicitud' ? `Tu ruta no tiene capital disponible para este crédito (quedan ${fmt(Math.max(0,capitalRuta(ME.uid).disponible))}). Quedó como solicitud para que la oficina lo apruebe o le añada capital.`
           : max ? `El crédito pasa el tope de tu ruta (${fmt(max)}). Quedó como solicitud y la oficina lo debe aprobar antes de entregar la plata.` : 'Quedó como solicitud. La oficina la debe aprobar antes de entregar la plata.');
@@ -1339,13 +1380,13 @@ function modalDetalle(id, tab='cuotas'){
   const pagosHtml = e.pagos.length? e.pagos.map(x=>`<tr><td>${fdate(x.fecha)}</td><td class="num">${fmt(x.monto)}</td><td>${esc(x.nota||'')}<div style="margin-top:3px">${etiquetaMedio(x)}</div></td><td class="muted" style="font-size:12px">${esc(nombreUsuario(x.registradoPor))}</td>${isAdmin()?`<td style="white-space:nowrap">${celdaGPSPago(x)}</td>`:''}<td class="right no-print" style="white-space:nowrap">${x.tipo!=='importado'&&x.tipo!=='renovacion'?`<button class="btn sm" onclick="modalRecibo('${x.id}')">Recibo</button> `:''}${puedeEditarPago(x)?`<button class="btn sm" onclick="viewState._reopen=1;modalPago(null,'${x.id}')">Editar</button>`:''}</td></tr>`).join('') : `<tr><td colspan="6" class="muted">Sin pagos todavía.</td></tr>`;
   openModal(`
   <div class="row" style="margin-bottom:6px">${ava(c.nombre)}<h3 style="margin:0">${esc(c.nombre||'(sin cliente)')}</h3>${pill(e)}<span class="spacer"></span>
-    ${isNative()?'':'<button class="btn sm" onclick="window.print()">Imprimir</button>'}${isCeo()?`<button class="btn sm" onclick="modalPrestamo('${p.id}')">Editar</button>`:''}${isCeo()&&e.estado!=='Pagado'?`<button class="btn sm ${p.castigado?'':'danger'}" onclick="castigarPrestamo('${p.id}',${p.castigado?'true':'false'})">${p.castigado?'Reactivar':'Castigar'}</button>`:''}${puedeRenovar(p)?`<button class="btn sm" onclick="modalRenovacion('${p.id}')">${isAdmin()?'Renovar':'Solicitar renovación'}</button>`:''}${e.estado!=='Pagado'&&puedeDarDia()?`<button class="btn sm" onclick="modalDarDia('${p.id}')">Dar día</button>`:''}<button class="btn sm pri" onclick="viewState._reopen=1;modalPago('${p.id}')">Registrar pago</button><button class="btn sm ghost" onclick="closeModal()">✕</button></div>
+    ${isNative()?'':'<button class="btn sm" onclick="window.print()">Imprimir</button>'}${isCeo()?`<button class="btn sm" onclick="modalPrestamo('${p.id}')">Editar</button>`:''}${isCeo()&&e.estado!=='Pagado'?`<button class="btn sm ${p.castigado?'':'danger'}" onclick="castigarPrestamo('${p.id}',${p.castigado?'true':'false'})">${p.castigado?'Reactivar':'Castigar'}</button>`:''}${puedeRenovar(p)?`<button class="btn sm" onclick="modalRenovacion('${p.id}')">${isAdmin()?'Renovar':'Solicitar renovación'}</button>`:''}${e.estado!=='Pagado'&&puedeDarDia()?`<button class="btn sm" onclick="modalDarDia('${p.id}')">Dar día</button>`:''}${p.periodo==='SEMANAL'&&e.estado!=='Pagado'&&e.estado!=='Castigado'?`<button class="btn sm" onclick="modalDiaPago('${p.id}')">Día de pago</button>`:''}<button class="btn sm pri" onclick="viewState._reopen=1;modalPago('${p.id}')">Registrar pago</button><button class="btn sm ghost" onclick="closeModal()">✕</button></div>
   <p class="muted" style="margin:0 0 14px">${esc(c.cedula||'')} ${c.tel1?'· '+esc(c.tel1):''} ${c.direccion?'· '+esc(c.direccion):''} ${btnComoLlegar(c)}${p.nota?'<br>Nota: '+esc(p.nota):''}</p>
   <div class="detail-grid">
     <div><div class="l">Fecha</div><div class="v">${fdate(p.fecha)}</div></div>
     <div><div class="l">Valor prestado</div><div class="v">${fmt(p.monto)}</div></div>
     <div><div class="l">Interés</div><div class="v">${fmtN(p.tasa)}% ${p.modoInteres==='total'?'sobre el préstamo':'mensual · '+fmtN(p.meses)+' mes(es)'}</div></div>
-    <div><div class="l">Forma de pago</div><div class="v">${p.periodo.charAt(0)+p.periodo.slice(1).toLowerCase()} · ${p.cuotas} cuotas</div></div>
+    <div><div class="l">Forma de pago</div><div class="v">${p.periodo.charAt(0)+p.periodo.slice(1).toLowerCase()} · ${p.cuotas} cuotas${textoDiaPago(p)}</div></div>
     <div><div class="l">Valor cuota</div><div class="v">${fmt(p.valorCuota)}</div></div>
     <div><div class="l">Total a pagar</div><div class="v">${fmt(e.totalReal - e.multa.valor)}</div></div>
     <div><div class="l">Pagado</div><div class="v" style="color:var(--green)">${fmt(e.pagado)}</div></div>

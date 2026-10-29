@@ -703,16 +703,50 @@ AFTER.cobros = () => {
   i.addEventListener('input', ()=>{ viewState.q=i.value; const pos=i.selectionStart; render(); const j=document.getElementById('qCob'); if(j){ j.focus(); j.setSelectionRange(pos,pos); } });
 };
 
+/* ---------- de dónde salió la plata de cada crédito ---------- */
+function origenCredito(p){
+  if(p.importado) return {k:'imp', efectivo:0, html:'<span class="muted">Importado de otro sistema</span>'};
+  if(p.renovacionDe){
+    const r = DB.renovaciones.find(x=>x.nuevoPrestamoId===p.id) || {};
+    const exc = Number(r.excedente ?? (p.monto - (p.saldoCancelado||0))) || 0;
+    const ent = r.entregadoPor ? userById(r.entregadoPor) : null;
+    const quien = r.estado==='aprobada' ? `${esc(nombreRuta(r.cobradorId))} (por entregar)` : ent && ent.rol==='cobrador' ? 'caja de '+esc(nombreRuta(ent.id)) : 'la oficina';
+    return {k:'ren', efectivo: r.medioEntrega==='transferencia' ? 0 : exc,
+      html:`<span class="pill p-pag">Renovación</span> cruzó ${fmt(p.saldoCancelado ?? r.saldoCancelado ?? 0)} de la deuda y entregó <b>${fmt(exc)}</b> de ${quien}${r.medioEntrega==='transferencia'?' por transferencia':r.estado==='entregada'?' en efectivo':''}`};
+  }
+  const fuente = p.fuente || (p.cobradorId && p.creadoPor===p.cobradorId ? 'ruta' : 'oficina');
+  if(fuente==='ruta') return {k:'ruta', efectivo:p.monto, html:`<span class="pill p-ok">Caja de ruta</span> ${esc(nombreRuta(p.cobradorId))}`};
+  return {k:'ofi', efectivo:p.monto, html:`<span class="pill p-hoy">Oficina</span>${p.cobradorId?` <span class="muted">· lo cobra ${esc(nombreRuta(p.cobradorId))}</span>`:''}`};
+}
+function resumenPrestamosDia(ps, dia){
+  const clientes = new Set(ps.map(p=>p.clienteId)).size;
+  const o = ps.map(p=>({p, o:origenCredito(p)}));
+  const suma = k => o.filter(x=>x.o.k===k);
+  const nuevos = o.filter(x=>x.o.k!=='ren' && x.o.k!=='imp'), ren = suma('ren');
+  const porRuta = {};
+  for(const x of suma('ruta')) porRuta[x.p.cobradorId] = (porRuta[x.p.cobradorId]||0) + x.p.monto;
+  return `<div class="kpis" style="margin-bottom:12px">
+    <div class="kpi sky"><div class="l">${dia===todayStr()?'Hoy':fdate(dia)}</div><div class="v">${clientes} cliente${clientes===1?'':'s'}</div><div class="n">${ps.length} crédito(s) · ${nuevos.length} nuevo(s) · ${ren.length} renovación(es)</div></div>
+    <div class="kpi hl"><div class="l">Valor prestado</div><div class="v">${fmt(ps.reduce((s,p)=>s+p.monto,0))}</div><div class="n">Efectivo que salió: ${fmt(o.reduce((s,x)=>s+x.o.efectivo,0))}</div></div>
+    <div class="kpi cream"><div class="l">De dónde salió</div><div class="v" style="font-size:15px;line-height:1.5">
+      ${Object.keys(porRuta).map(id=>`${esc(nombreRuta(id))}: <b>${fmt(porRuta[id])}</b>`).join('<br>')}${suma('ofi').length?`${Object.keys(porRuta).length?'<br>':''}Oficina: <b>${fmt(suma('ofi').reduce((s,x)=>s+x.p.monto,0))}</b>`:''}
+      ${ren.length?`<br>Renovaciones (entregado): <b>${fmt(ren.reduce((s,x)=>s+(Number((DB.renovaciones.find(r=>r.nuevoPrestamoId===x.p.id)||{}).excedente)||0),0))}</b>`:''}${!ps.length?'—':''}</div></div>
+  </div>`;
+}
 VIEWS.prestamos = () => {
   const q = (viewState.q||'').toLowerCase();
   const f = viewState.f||'activos';
   let rows = DB.prestamos.filter(p=>pasaFiltroCob(p.cobradorId)).map(p=>({p,e:estadoPrestamo(p),c:clienteById(p.clienteId)||{}}));
   if(q) rows = rows.filter(r=>(r.c.nombre||'').toLowerCase().includes(q) || (r.c.cedula||'').includes(q));
+  const dia = viewState.dia || '';
+  if(dia) rows = rows.filter(r=>r.p.fecha===dia);                     // por día se ven todos los que se hicieron ese día, sin importar su estado
+  else {
   if(f==='activos') rows = rows.filter(r=>r.e.estado!=='Pagado');
   if(f==='mora') rows = rows.filter(r=>r.e.estado==='En mora');
   if(f==='pagados') rows = rows.filter(r=>r.e.estado==='Pagado');
+  }
   rows.sort((a,b)=>b.p.fecha.localeCompare(a.p.fecha));
-  const fb = (k,t)=>`<button class="btn sm ${f===k?'pri':''}" onclick="go('prestamos',Object.assign({},viewState,{f:'${k}'}))">${t}</button>`;
+  const fb = (k,t)=>`<button class="btn sm ${f===k&&!dia?'pri':''}" onclick="go('prestamos',Object.assign({},viewState,{f:'${k}'}))">${t}</button>`;
   return `
   <div class="head"><div><h1>Préstamos</h1><p class="sub">${DB.prestamos.length} préstamos registrados</p></div>
   ${isAdmin()?`<div class="row"><button class="btn" onclick="exportCSV('prestamos')">Exportar a Excel</button><button class="btn pri" onclick="modalPrestamo()">+ Nuevo préstamo</button></div>`:(puedePrestarRuta()?`<div class="row"><button class="btn pri" onclick="modalPrestamo()">+ Crédito nuevo</button></div>`:'')}</div>
@@ -720,18 +754,22 @@ VIEWS.prestamos = () => {
     <input class="input search" id="qPrest" placeholder="Buscar por nombre o cédula" value="${esc(viewState.q||'')}">
     ${filtroCobrador('prestamos')}
     ${fb('activos','Activos')}${fb('mora','En mora')}${fb('pagados','Pagados')}${fb('todos','Todos')}
+    <span class="row" style="gap:6px;flex-wrap:nowrap"><span class="muted" style="font-size:13px">Día</span><input type="date" class="input" style="width:auto" value="${dia}" onchange="go('prestamos',Object.assign({},viewState,{dia:this.value}))">
+      ${dia?`<button class="btn sm" onclick="go('prestamos',Object.assign({},viewState,{dia:''}))">Quitar</button>`:`<button class="btn sm" onclick="go('prestamos',Object.assign({},viewState,{dia:todayStr()}))">Hoy</button>`}</span>
   </div>
-  ${verPorRutas() && !viewState.cob && !q ? selectorRutas('prestamos') : movil() ? (rows.length?`<div class="cobros-grid">${rows.map(({p,e,c})=>`<div class="card cobro" onclick="modalDetalle('${p.id}')" style="cursor:pointer">
+  ${dia ? resumenPrestamosDia(rows.map(r=>r.p), dia) : ''}
+  ${verPorRutas() && !viewState.cob && !q && !dia ? selectorRutas('prestamos') : movil() ? (rows.length?`<div class="cobros-grid">${rows.map(({p,e,c})=>`<div class="card cobro" onclick="modalDetalle('${p.id}')" style="cursor:pointer">
       <div class="who">${ava(c.nombre)}<div style="min-width:0;flex:1"><b>${esc(c.nombre||'(sin cliente)')}</b><div class="muted" style="font-size:12.5px">${fdate(p.fecha)} · ${p.cuotas} cuotas ${p.periodo.toLowerCase()}</div></div>${pill(e)}</div>
+      <div style="font-size:12.5px">${origenCredito(p).html}</div>
       <div class="cobro-nums"><div><span>Prestado</span><b>${fmt(p.monto)}</b></div><div><span>Cuota</span><b>${fmt(p.valorCuota)}</b></div><div><span>Saldo</span><b>${fmt(e.saldo)}</b></div></div>
       <div><div class="progress"><i style="width:${Math.min(100,e.pagado/e.totalReal*100)}%"></i></div><div class="muted" style="font-size:11.5px;margin-top:4px">${e.cuotasPagadas} de ${p.cuotas} cuotas pagadas</div></div>${puedeRenovar(p)?`<div class="row"><span class="spacer"></span><button class="btn sm" onclick="event.stopPropagation();modalRenovacion('${p.id}')">${isAdmin()?'Renovar':'Solicitar renovación'}</button></div>`:''}</div>`).join('')}</div>`:`<div class="card"><div class="empty">${DB.prestamos.length?'No hay préstamos con ese filtro.':(isAdmin()?'Aún no hay préstamos.':'Todavía no tienes préstamos asignados.')}</div></div>`) : `<div class="card">
-  ${rows.length? `<div class="tablewrap"><table><thead><tr><th>Deudor</th><th>Fecha</th><th class="num">Valor</th><th class="num">% Int.</th><th>Periodo</th><th class="num">Cuota</th><th>Avance</th><th class="num">Saldo</th><th>Estado</th></tr></thead><tbody>
+  ${rows.length? `<div class="tablewrap"><table><thead><tr><th>Deudor</th><th>Fecha</th><th class="num">Valor</th><th class="num">% Int.</th><th>Periodo</th><th class="num">Cuota</th><th>Avance</th><th class="num">Saldo</th><th>De dónde salió la plata</th><th>Estado</th></tr></thead><tbody>
   ${rows.map(({p,e,c})=>`<tr class="click" onclick="modalDetalle('${p.id}')">
     <td><div class="who">${ava(c.nombre)}<div><b>${esc(c.nombre||'(sin cliente)')}</b><div class="muted" style="font-size:12px">${esc(c.cedula||'')}${isAdmin()&&cobradores().length?' · '+esc(nombreRuta(p.cobradorId)):''}</div></div></div></td>
     <td>${fdate(p.fecha)}</td><td class="num">${fmt(p.monto)}</td><td class="num">${fmtN(p.tasa)}%</td>
     <td>${p.periodo.charAt(0)+p.periodo.slice(1).toLowerCase()} · ${p.cuotas}</td><td class="num">${fmt(p.valorCuota)}</td>
     <td style="min-width:110px"><div class="progress"><i style="width:${Math.min(100,e.pagado/e.totalReal*100)}%"></i></div><div class="muted" style="font-size:11px;margin-top:3px">${e.cuotasPagadas}/${p.cuotas} cuotas</div></td>
-    <td class="num">${fmt(e.saldo)}</td><td>${pill(e)}</td></tr>`).join('')}
+    <td class="num">${fmt(e.saldo)}</td><td style="font-size:12.5px;max-width:220px">${origenCredito(p).html}</td><td>${pill(e)}</td></tr>`).join('')}
   </tbody></table></div>` : `<div class="empty">${DB.prestamos.length?'No hay préstamos con ese filtro.':(isAdmin()?'Aún no hay préstamos. Crea el primero con “+ Nuevo préstamo”.':'Todavía no tienes préstamos asignados.')}</div>`}
   </div>`}`;
 };

@@ -150,3 +150,10 @@ document.addEventListener('input', e=>{
   if(!el || el.tagName!=='INPUT' || !el.classList.contains('input')) return;
   if(el.getAttribute('inputmode')==='numeric' || CAMPOS_PLATA_EXTRA.includes(el.id) || el.hasAttribute('data-plata')) formatearPlata(el);
 }, true);
+
+// iPhone (Safari) ignora el bloqueo de zoom del viewport: se frena el pellizco (menos dentro del mapa, que sí necesita zoom)
+try{
+  const enMapa = e => !!(e.target && e.target.closest && e.target.closest('.leaflet-container'));
+  ['gesturestart','gesturechange','gestureend'].forEach(ev=>document.addEventListener(ev, e=>{ if(!enMapa(e)) e.preventDefault(); }, {passive:false}));
+  document.addEventListener('touchmove', e=>{ if(e.touches && e.touches.length>1 && !enMapa(e)) e.preventDefault(); }, {passive:false});
+}catch(e){}

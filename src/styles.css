@@ -366,3 +366,9 @@ tr.grupo-ruta:hover td{background:var(--panel-2)}
 .modal-x:hover{background:var(--brand,#c8f169);color:#111}
 @media (max-width:760px){ .modal-x{width:44px;height:44px;margin:-8px -6px 6px 10px} }
 @media print{ .modal-x{display:none!important} }
+
+/* sin zoom en el navegador del celular (igual que la app): sin zoom al tocar campos ni con doble toque, y toques más rápidos */
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%;touch-action:manipulation}
+.leaflet-container{touch-action:pan-x pan-y pinch-zoom}
+button,a,.btn,input,select,textarea,label{touch-action:manipulation}
+@media (max-width:760px){ input.input,select.input,textarea.input{font-size:16px} }

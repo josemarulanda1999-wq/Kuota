@@ -278,6 +278,29 @@ function primeraSemanalDefecto(fecha, dow){
 const ORDEN_DIAS = [1,2,3,4,5,6,0];
 const opcionesDiaSemana = sel => ORDEN_DIAS.map(d=>`<option value="${d}" ${d===sel?'selected':''}>${DIAS_SEM[d].charAt(0).toUpperCase()+DIAS_SEM[d].slice(1)}</option>`).join('');
 const losDias = dow => 'los ' + DIAS_SEM[dow] + (dow===0||dow===6 ? 's' : '');   // los sábados, los lunes
+/* selector de día fijo para semanales (renovaciones y aprobaciones) */
+function htmlDiaSemanal(pfx){
+  return `<div class="row" style="gap:12px;align-items:flex-end;flex-wrap:wrap">
+    <label class="f" style="flex:1;min-width:150px">Día de pago<select class="input" id="${pfx}Dia"></select></label>
+    <label class="f" style="flex:1;min-width:190px">Primera cuota<select class="input" id="${pfx}Pri"></select></label></div>`;
+}
+// fecha = día en que nace el crédito; inicial = primera cuota ya escogida (si la hay). Devuelve una función que da la fecha elegida.
+function activarDiaSemanal(pfx, fecha, inicial, alCambiar){
+  const dia=document.getElementById(pfx+'Dia'), pri=document.getElementById(pfx+'Pri');
+  const ini = inicial && inicial>fecha ? inicial : '';
+  dia.innerHTML = opcionesDiaSemana(parseD(ini || ymd(addPeriodo(parseD(fecha),'SEMANAL'))).getDay());
+  const pinta = ()=>{
+    const dow=Number(dia.value), ant=pri.value;
+    let ops=opcionesPrimeraSemanal(fecha, dow);
+    if(ini && parseD(ini).getDay()===dow && !ops.includes(ini)) ops=[ini, ...ops];
+    const def = ops.includes(ant) ? ant : (ini && ops.includes(ini) ? ini : primeraSemanalDefecto(fecha, dow));
+    pri.innerHTML = ops.map(x=>{ const n=diasEntre(fecha,x); return `<option value="${x}" ${x===def?'selected':''}>${fdate(x)} · ${n===1?'mañana':'en '+n+' días'}</option>`; }).join('');
+  };
+  dia.addEventListener('change',()=>{ pinta(); if(alCambiar) alCambiar(); });
+  pri.addEventListener('change',()=>{ if(alCambiar) alCambiar(); });
+  pinta();
+  return ()=>pri.value;
+}
 const textoDiaPago = p => p.periodo==='SEMANAL' ? ` · ${losDias(parseD(primeraDe(p)).getDay())}` : '';
 /* multa por no pago: cada N visitas "no pagó" se suma una cuota (o un valor fijo) al saldo */
 /* multa por día de atraso: cada día que el cliente amanece atrasado se cobra un valor fijo según el monto del crédito
@@ -1617,6 +1640,7 @@ function modalRenovacion(prestamoId, renovacionId){
   const base = ren || { monto:p.monto, tasa:p.tasa, meses:p.meses, cuotas:p.cuotas, modoInteres:modoDe(p), periodo:p.periodo, excluirDomingos:p.excluirDomingos, nota:'' };
   if(!base.cuotas) base.cuotas = Math.max(1, Math.round((Number(base.meses)||1)*(DB.config.factores[base.periodo]||1)));
   if(!base.modoInteres) base.modoInteres = 'mensual';
+  let modoDia = base.primeraCuota==='' ? 'hoy' : (aprobar && base.periodo==='SEMANAL' && base.primeraCuota ? 'escoger' : 'mismo');
   openModal(`<div class="row" style="margin-bottom:12px">${ava(cl.nombre)}<h3 style="margin:0">${aprobar?'Aprobar renovación':directo?'Renovar crédito':'Solicitar renovación'}</h3></div>
   <p class="muted" style="margin-top:-4px">${esc(cl.nombre||'')}${ren?' · solicitó '+esc(nombreUsuario(ren.creadoPor)):''}</p>
   <div class="calcbox" style="margin-bottom:14px">
@@ -1631,7 +1655,8 @@ function modalRenovacion(prestamoId, renovacionId){
     <label class="f">% de interés<input class="input" id="rTas" inputmode="decimal" value="${esc(num(base.tasa))}"></label>
     <label class="f">¿Cómo se cobra el interés?<select class="input" id="rMod"><option value="total" ${base.modoInteres==='total'?'selected':''}>Una vez sobre el préstamo</option><option value="mensual" ${base.modoInteres!=='total'?'selected':''}>Mensual (según la duración)</option></select></label>
     <div class="f full" id="rDiaW" style="display:block"><span style="display:block">¿Cuándo paga la primera cuota del nuevo crédito?</span>
-      <div class="seg" id="rDia"><button type="button" data-d="mismo" class="${base.primeraCuota!==''?'on':''}">Mismo día de siempre</button><button type="button" data-d="hoy" class="${base.primeraCuota===''?'on':''}">Contar desde hoy</button></div>
+      <div class="seg" id="rDia"><button type="button" data-d="mismo" class="${modoDia==='mismo'?'on':''}">Mismo día de siempre</button><button type="button" data-d="hoy" class="${modoDia==='hoy'?'on':''}">Contar desde hoy</button><button type="button" data-d="escoger" class="${modoDia==='escoger'?'on':''}">Escoger día</button></div>
+      <div id="rEsc" style="display:none;margin-top:10px">${htmlDiaSemanal('rS')}</div>
       <div class="muted" id="rDiaTxt" style="font-size:12.5px;margin-top:6px"></div></div>
     <label class="f full">Nota<input class="input" id="rNot" value="${esc(base.nota||'')}" placeholder="Opcional"></label>
   </div>
@@ -1639,16 +1664,23 @@ function modalRenovacion(prestamoId, renovacionId){
   ${aprobar?'':`<p class="muted" style="font-size:12.5px">${directo?'El préstamo actual queda pagado con el nuevo y se registra la entrega del efectivo.':'El Admin o el CEO revisa la solicitud. Cuando la apruebe te aparece en tu ruta para que entregues el efectivo.'}</p>`}
   <div class="actions">${aprobar?`<button class="btn danger" style="margin-right:auto" id="rNo">Rechazar</button>`:''}<button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="rOk">${aprobar?'Aprobar renovación':directo?'Renovar':'Enviar solicitud'}</button></div>`);
   const $=k=>document.getElementById(k);
-  let modoDia = base.primeraCuota==='' ? 'hoy' : 'mismo';
+  let pintaDia = ()=>{};
+  const priEsc = activarDiaSemanal('rS', todayStr(), base.periodo==='SEMANAL' ? base.primeraCuota : '', ()=>pintaDia());
   const primera = ()=>{
     const per=$('rPer').value, hoy=todayStr();
     const normal = ymd(addPeriodo(parseD(hoy), per, base.excluirDomingos));
     if(per==='DIARIO') return {fecha:'', normal, txt:`Diario: empieza a pagar el ${fdate(normal)}.`, diario:true};
     const mismo = (aprobar && base.primeraCuota && base.primeraCuota>hoy) ? base.primeraCuota : siguienteMismoDia(p, per, hoy);
+    if(modoDia==='escoger' && per==='SEMANAL'){ const f=priEsc(); return {fecha: f===normal?'':f, normal, txt:`Paga <b>${losDias(parseD(f).getDay())}</b>: primera cuota el <b>${fdate(f)}</b>.`}; }
     if(modoDia==='mismo') return {fecha: mismo===normal?'':mismo, normal, txt:`Sigue pagando los <b>${diaSem(mismo)}</b>: primera cuota el <b>${fdate(mismo)}</b>${mismo<normal?' (más pronto que contando desde hoy)':''}.`};
     return {fecha:'', normal, txt:`Primera cuota el <b>${fdate(normal)}</b> (${diaSem(normal)}), contando desde hoy.`};
   };
-  const pintaDia = ()=>{ const f=primera(); $('rDia').style.display=f.diario?'none':''; $('rDiaTxt').innerHTML=f.txt; };
+  pintaDia = ()=>{
+    const sem = $('rPer').value==='SEMANAL';
+    if(!sem && modoDia==='escoger'){ modoDia='mismo'; document.querySelectorAll('#rDia button').forEach(x=>x.classList.toggle('on',x.dataset.d==='mismo')); }
+    $('rDia').querySelector('[data-d=escoger]').style.display = sem ? '' : 'none';
+    $('rEsc').style.display = sem && modoDia==='escoger' ? '' : 'none';
+    const f=primera(); $('rDia').style.display=f.diario?'none':''; $('rDiaTxt').innerHTML=f.txt; };
   document.querySelectorAll('#rDia button').forEach(b=>b.onclick=()=>{ modoDia=b.dataset.d; document.querySelectorAll('#rDia button').forEach(x=>x.classList.toggle('on',x===b)); pintaDia(); });
   $('rPer').addEventListener('change',pintaDia); pintaDia();
   const calc=()=>{

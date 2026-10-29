@@ -344,7 +344,7 @@ function tarjetaAprobacion(a){
   return `<div class="card cobro">
     <div class="who">${ava(nombreCliente(a.clienteId))}<div style="min-width:0;flex:1"><b>${esc(nombreCliente(a.clienteId))}</b><div class="muted" style="font-size:12.5px">Crédito nuevo · ${esc(nombreRuta(a.cobradorId))} · ${fdate(a.fecha)}</div></div>${est}</div>
     <div class="cobro-nums"><div><span>Monto</span><b>${fmt(a.monto)}</b></div><div><span>Interés</span><b>${fmtN(a.tasa)}% · ${k.cuotas} ${(UNIDAD_CUOTA[a.periodo]||['',''])[1]}</b></div><div><span>Cuota</span><b>${fmt(k.valorCuota)}</b></div></div>
-    <div class="muted" style="font-size:12.5px">Tope de la ruta: ${fmt(rutaCfg(a.cobradorId).maxPrestamo||0)}${a.nota?' · '+esc(a.nota):''}</div>
+    <div class="muted" style="font-size:12.5px">Tope de la ruta: ${fmt(rutaCfg(a.cobradorId).maxPrestamo||0)}${a.periodo==='SEMANAL'&&a.primeraCuota?` · paga ${losDias(parseD(a.primeraCuota).getDay())}`:''}${a.nota?' · '+esc(a.nota):''}</div>
     ${a.estado==='pendiente'&&isAdmin()?`<div class="row"><button class="btn sm danger" onclick="responderAprobacion('${a.id}',false)">Rechazar</button><span class="spacer"></span><button class="btn sm pri" onclick="responderAprobacion('${a.id}',true)">Aprobar crédito</button></div>`:''}
   </div>`;
 }
@@ -352,15 +352,30 @@ async function responderAprobacion(id, ok){
   const a = DB.aprobaciones.find(x=>x.id===id); if(!a || a.estado!=='pendiente') return;
   if(!ok){ if(!await confirmar('¿Rechazar esta solicitud de crédito?', {peligro:true, ok:'Rechazar'})) return;
     dbUpd('aprobaciones', id, {estado:'rechazada', revisadoPor:ME.uid, revisadoEn:Date.now()}); render(); return; }
+  if(a.periodo==='SEMANAL') return modalAprobarSemanal(a);
   if(!await confirmar(`¿Aprobar el crédito de ${fmt(a.monto)} para ${nombreCliente(a.clienteId)}? La ruta entrega la plata y se descuenta de su caja.`, {ok:'Aprobar'})) return;
+  aprobarCredito(a);
+}
+/* semanal: al aprobar, la oficina confirma o cambia el día de pago que escogió la ruta */
+function modalAprobarSemanal(a){
+  const hoy = todayStr();
+  openModal(`<h3>Aprobar crédito · ${esc(nombreCliente(a.clienteId))}</h3>
+  <p class="muted" style="margin-top:-8px">${fmt(a.monto)} semanal · ${esc(nombreRuta(a.cobradorId))}. La ruta entrega la plata y se descuenta de su caja.${a.primeraCuota?` La ruta pidió que pague <b>${losDias(parseD(a.primeraCuota).getDay())}</b>.`:''}</p>
+  <div class="form"><div class="f full" style="display:block">${htmlDiaSemanal('aS')}<div class="muted" style="font-size:12px;margin-top:4px">Todas las cuotas quedan ese día de la semana.</div></div></div>
+  <div class="actions"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="aSOk">Aprobar crédito</button></div>`);
+  const pri = activarDiaSemanal('aS', hoy, a.primeraCuota && a.primeraCuota>hoy ? a.primeraCuota : (a.primeraCuota ? primeraSemanalDefecto(hoy, parseD(a.primeraCuota).getDay()) : ''));
+  document.getElementById('aSOk').onclick = ()=>{ const f = pri(); closeModal(); aprobarCredito(a, f); };
+}
+function aprobarCredito(a, priElegida){
+  if(!a || a.estado!=='pendiente') return;
   const k = (a.cuotas ? calcularCuotas(a.monto, a.tasa, a.cuotas, a.periodo, a.modoInteres||'mensual') : calcular(a.monto, a.tasa, a.meses, a.periodo));
   const pid = a.prestamoId || S.newId('prestamos');
   // si la ruta escogió día de pago (semanal), se respeta; si esa fecha ya pasó, se toma el mismo día de la semana siguiente
-  const priAp = a.periodo==='SEMANAL' && a.primeraCuota ? (a.primeraCuota>todayStr() ? a.primeraCuota : primeraSemanalDefecto(todayStr(), parseD(a.primeraCuota).getDay())) : '';
+  const priAp = priElegida ? priElegida : a.periodo==='SEMANAL' && a.primeraCuota ? (a.primeraCuota>todayStr() ? a.primeraCuota : primeraSemanalDefecto(todayStr(), parseD(a.primeraCuota).getDay())) : '';
   const obj = {...(priAp && priAp!==ymd(addPeriodo(parseD(todayStr()),'SEMANAL')) ? {primeraCuota:priAp} : {}), clienteId:a.clienteId, fecha:todayStr(), monto:a.monto, tasa:a.tasa, meses:k.meses||a.meses, periodo:a.periodo, modoInteres:a.modoInteres||'mensual', excluirDomingos:!!a.excluirDomingos,
     nota:a.nota||'', cuotas:k.cuotas, valorCuota:k.valorCuota, interesMes:k.interesMes, total:k.total, cobradorId:a.cobradorId, fuente:'ruta', creado:Date.now(), creadoPor:ME.uid};
   DB.prestamos.push(Object.assign({id:pid}, obj)); S.set('prestamos', pid, obj).catch(falloNube);
-  dbUpd('aprobaciones', id, {estado:'aprobada', prestamoId:pid, revisadoPor:ME.uid, revisadoEn:Date.now()});
+  dbUpd('aprobaciones', a.id, {estado:'aprobada', prestamoId:pid, revisadoPor:ME.uid, revisadoEn:Date.now()});
   render(); toast('Crédito aprobado');
 }
 

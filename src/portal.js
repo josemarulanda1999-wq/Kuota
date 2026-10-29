@@ -18,7 +18,9 @@ const AVA_COL=['#c8f169','#cfe4f4','#efeac2','#f5c7d9','#c9c3f7','#bdeee0'];
 function ava(nombre){ const n=String(nombre||'?').trim(), p=n.split(/\s+/); const ini=((p[0]||'?')[0]+((p[1]||'')[0]||'')).toUpperCase(); let h=0; for(const ch of n) h=(h*31+ch.charCodeAt(0))>>>0; return `<span class="ava" style="background:${AVA_COL[h%AVA_COL.length]}">${esc(ini)}</span>`; }
 function toast(msg){ const t=document.createElement('div'); t.className='toast'; t.textContent=msg; document.body.appendChild(t); setTimeout(()=>t.remove(),2600); }
 function falla(e){ console.error(e); toast(e&&e.code==='permission-denied'?'No tienes permiso para hacer eso':'No se pudo guardar'); }
-function openModal(html, wide){ const r=document.getElementById('modalRoot'); r.innerHTML=`<div class="modal-bg" id="mbg"><div class="card modal ${wide?'wide':''}">${html}</div></div>`; document.getElementById('mbg').addEventListener('mousedown',e=>{ if(e.target.id==='mbg') closeModal(); }); }
+const BTN_CERRAR = '<button type="button" class="modal-x" onclick="closeModal()" aria-label="Cerrar" title="Cerrar"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>';
+const conCerrar = html => /closeModal\(\)"[^>]*>\s*✕/.test(html) ? html : BTN_CERRAR + html;   // toda ventana trae su flecha para cerrar
+function openModal(html, wide){ const r=document.getElementById('modalRoot'); r.innerHTML=`<div class="modal-bg" id="mbg"><div class="card modal ${wide?'wide':''}">${conCerrar(html)}</div></div>`; document.getElementById('mbg').addEventListener('mousedown',e=>{ if(e.target.id==='mbg') closeModal(); }); }
 function closeModal(){ document.getElementById('modalRoot').innerHTML=''; }
 document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeModal(); });
 const movil = () => window.innerWidth < 760;

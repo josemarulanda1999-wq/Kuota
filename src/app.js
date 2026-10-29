@@ -1021,9 +1021,11 @@ function modalMovimiento(tipo='ingreso', id){
 }
 
 /* ---------- modales ---------- */
+const BTN_CERRAR = '<button type="button" class="modal-x" onclick="closeModal()" aria-label="Cerrar" title="Cerrar"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>';
+const conCerrar = html => /closeModal\(\)"[^>]*>\s*✕/.test(html) ? html : BTN_CERRAR + html;   // toda ventana trae su flecha para cerrar
 function openModal(html, wide){
   const root=document.getElementById('modalRoot');
-  root.innerHTML = `<div class="modal-bg" id="mbg"><div class="card modal ${wide?'wide':''}">${html}</div></div>`;
+  root.innerHTML = `<div class="modal-bg" id="mbg"><div class="card modal ${wide?'wide':''}">${conCerrar(html)}</div></div>`;
   document.getElementById('mbg').addEventListener('mousedown',e=>{ if(e.target.id==='mbg') closeModal(); });
   const f = root.querySelector('input:not([type=hidden]):not([type=checkbox]),select'); if(f) setTimeout(()=>{ if(!root.contains(document.activeElement)) f.focus(); },30);
 }

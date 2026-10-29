@@ -274,6 +274,7 @@ async function modalCierre(uid, fecha){
     <p class="muted" style="margin:0 0 12px">${ci?`Cerrada a las ${new Date(ci.cerradoEn).toLocaleTimeString('es-CO',{hour:'numeric',minute:'2-digit'})}`:'La ruta todavía no ha cerrado este día: estos datos son en vivo.'}</p>
     <div class="calcbox" style="margin-bottom:12px">
       <div><div class="l">Cobrado en efectivo</div><div class="v">${fmt(r.cobrado||0)}</div></div>
+      <div><div class="l">Prestado y renovado</div><div class="v">${fmt(r.prestado||0)}</div></div>
       <div><div class="l">Transferencias</div><div class="v">${fmt(r.transferencias||0)}</div></div>
       <div><div class="l">Gastos</div><div class="v">${fmt(r.gastos||0)}</div></div>
       <div><div class="l">Debe tener en efectivo</div><div class="v">${fmt(r.saldoFinal||0)}</div></div>
@@ -283,6 +284,7 @@ async function modalCierre(uid, fecha){
     <div class="grid2" style="gap:12px">
       <div class="card pad" style="background:var(--panel-2)"><div class="row" style="margin-bottom:8px"><b>Pagaron</b><span class="pill p-ok">${pag.length}</span><span class="spacer"></span><b>${fmt(tot(pag,'m'))}</b></div>
         ${pag.length?`<div class="tablewrap" style="max-height:300px"><table><tbody>${pag.map(x=>`<tr><td>${esc(x.c)}</td><td class="muted" style="font-size:12px">${esc(x.h||'')}${x.t==='T'?' · transf.':''}</td><td class="num">${fmt(x.m)}</td></tr>`).join('')}</tbody></table></div>`:'<p class="muted" style="margin:0">Nadie pagó este día.</p>'}</div>
+      ${seccionPrestadoDia(uid, fecha)}
       <div class="card pad" style="background:var(--panel-2)"><div class="row" style="margin-bottom:8px"><b>Quedaron pendientes</b><span class="pill p-mora">${pen.length}</span><span class="spacer"></span><b style="color:var(--red)">${fmt(tot(pen,'d'))}</b></div>
         ${pen.length?`<div class="tablewrap" style="max-height:300px"><table><tbody>${pen.map(x=>`<tr><td>${esc(x.c)}<div class="muted" style="font-size:12px">${esc(x.r||'')}</div></td><td class="num">${fmt(x.d)}</td></tr>`).join('')}</tbody></table></div>`:'<p class="muted" style="margin:0">Todos pagaron. 🎉</p>'}</div>
     </div>
@@ -832,4 +834,27 @@ function tablaCajasRutas(){
   <tr><td><b>Total</b></td><td class="num"><b>${fmt(total)}</b></td><td colspan="4"></td></tr>
   </tbody></table></div>
   <p class="muted" style="font-size:12px;margin:8px 0 0">Disponible = capital asignado − lo prestado + lo cobrado + ingresos − gastos de esa caja. Al registrar un gasto o ingreso escoges de qué caja es.</p></div>`;
+}
+
+/* ---------- en "Ver el día": lo que se prestó y renovó, y de dónde salió la plata ---------- */
+function prestadoDeRutaDia(uid, fecha){
+  const fRen = r=>r.entregadoEn ? ymd(new Date(r.entregadoEn)) : (r.fechaRenovacion||'');
+  const renDia = new Set(DB.renovaciones.filter(r=>r.estado==='entregada' && r.entregadoPor===uid && fRen(r)===fecha).map(r=>r.nuevoPrestamoId));
+  return DB.prestamos.filter(p=>!p.importado && p.cobradorId===uid && (p.fecha===fecha || renDia.has(p.id)))
+    .sort((a,b)=>(a.creado||0)-(b.creado||0));
+}
+function seccionPrestadoDia(uid, fecha){
+  const ps = prestadoDeRutaDia(uid, fecha);
+  const hora = t => t ? new Date(t).toLocaleTimeString('es-CO',{hour:'numeric',minute:'2-digit'}) : '';
+  const o = ps.map(p=>({p, o:origenCredito(p), ren: p.renovacionDe ? (DB.renovaciones.find(r=>r.nuevoPrestamoId===p.id)||{}) : null}));
+  const deRuta = o.filter(x=>x.o.k==='ruta' || (x.o.k==='ren' && x.ren && x.ren.estado==='entregada' && x.ren.entregadoPor===uid && x.ren.medioEntrega!=='transferencia'));
+  const totRuta = deRuta.reduce((s,x)=>s+(x.o.k==='ren' ? (Number(x.ren.excedente)||0) : x.p.monto),0);
+  const totOfi = o.filter(x=>x.o.k==='ofi').reduce((s,x)=>s+x.p.monto,0);
+  const totTrans = o.filter(x=>x.o.k==='ren' && x.ren && x.ren.medioEntrega==='transferencia').reduce((s,x)=>s+(Number(x.ren.excedente)||0),0);
+  return `<div class="card pad" style="background:var(--panel-2);grid-column:1/-1"><div class="row" style="margin-bottom:8px"><b>Prestado y renovado</b><span class="pill p-pag">${ps.length}</span><span class="spacer"></span><b>${fmt(ps.reduce((s,p)=>s+p.monto,0))}</b></div>
+    ${ps.length ? `<div class="tablewrap" style="max-height:300px"><table><tbody>${o.map(({p,o,ren})=>`<tr class="click" onclick="closeModal();modalDetalle('${p.id}')">
+      <td>${esc(nombreCliente(p.clienteId))}<div class="muted" style="font-size:12px">${hora(ren&&ren.entregadoEn||p.creado)} · ${p.cuotas} cuotas ${p.periodo.toLowerCase()}</div><div style="font-size:12px;margin-top:3px">${o.html}</div></td>
+      <td class="num">${fmt(p.monto)}</td></tr>`).join('')}</tbody></table></div>
+    <div class="row" style="gap:14px;margin-top:10px;font-size:13px;flex-wrap:wrap"><span>Del cuadre de la ruta (efectivo): <b>${fmt(totRuta)}</b></span>${totOfi?`<span>De la oficina: <b>${fmt(totOfi)}</b></span>`:''}${totTrans?`<span>Por transferencia: <b>${fmt(totTrans)}</b></span>`:''}</div>`
+    : '<p class="muted" style="margin:0">No se prestó ni renovó ese día.</p>'}</div>`;
 }

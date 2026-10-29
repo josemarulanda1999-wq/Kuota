@@ -1769,7 +1769,9 @@ function activarMedioEntrega(){
 // datos de la entrega para guardar en la renovación; pregunta si falta el comprobante
 async function datosEntrega(medio){
   if(medio==='transferencia' && !COMP_TMP && !await confirmar('No adjuntaste el comprobante de la transferencia. ¿Guardar así?', {ok:'Guardar sin comprobante'})) return null;
-  return { medioEntrega: medio, comprobanteEntrega: medio==='transferencia' && !!COMP_TMP };
+  // en efectivo no se guarda nada extra (así funciona también con las reglas anteriores de Firebase)
+  if(medio!=='transferencia') return {};
+  return { medioEntrega: 'transferencia', comprobanteEntrega: !!COMP_TMP };
 }
 const idCompRenov = renId => 'R' + renId;   // el comprobante de la entrega se guarda con este id
 function ejecutarRenovacion(p, saldo, d, ren, entrega){
@@ -1807,7 +1809,13 @@ function marcarEntregada(id){
   const medio = activarMedioEntrega();
   document.getElementById('eOk').onclick = async ()=>{
     const ent = await datosEntrega(medio()); if(!ent) return;
-    dbUpd('renovaciones',id,{estado:'entregada',entregadoPor:ME.uid,entregadoEn:Date.now(),...ent});
+    const cambio = {estado:'entregada',entregadoPor:ME.uid,entregadoEn:Date.now(),...ent};
+    S.update('renovaciones', id, cambio).then(()=>{}, e=>{
+      // si la nube no lo dejó, se devuelve a "aprobada" para que pueda intentarlo otra vez
+      const cur = DB.renovaciones.find(x=>x.id===id); if(cur){ cur.estado='aprobada'; delete cur.entregadoPor; delete cur.entregadoEn; delete cur.medioEntrega; delete cur.comprobanteEntrega; render(); }
+      if(e && e.code==='permission-denied') avisar(ent.medioEntrega ? 'No se pudo guardar la entrega por transferencia: falta publicar las reglas nuevas de Firebase. Avísale a la oficina, o regístrala en efectivo.' : 'No tienes permiso para registrar esta entrega. Avísale a la oficina.');
+      else falloNube(e); });
+    Object.assign(DB.renovaciones.find(x=>x.id===id)||{}, cambio);
     if(ent.comprobanteEntrega) guardarComprobante(idCompRenov(id), r.nuevoPrestamoId||r.prestamoId, r.cobradorId||''); else COMP_TMP='';
     closeModal(); render(); toast('Entrega registrada');
   };

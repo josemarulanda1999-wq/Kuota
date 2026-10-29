@@ -340,11 +340,16 @@ AFTER.mapa = async () => {
   el.innerHTML = '';
   const fecha = viewState.fecha || todayStr(), cob = viewState.cob || '';
   const map = L.map(el, {zoomControl:true});
-  // mapa de OpenStreetMap; si sus servidores bloquean las imágenes, se cambia solo a CARTO (también basado en OpenStreetMap)
-  const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, attribution:'© OpenStreetMap', referrerPolicy:'strict-origin-when-cross-origin'}).addTo(map);
-  let fallos = 0, cambiado = false;
-  osm.on('tileerror', ()=>{ if(cambiado || ++fallos < 3) return; cambiado = true; map.removeLayer(osm);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {maxZoom:19, subdomains:'abcd', attribution:'© OpenStreetMap · © CARTO'}).addTo(map); });
+  // mapa de OpenStreetMap; si sus servidores bloquean este equipo (salen cuadros "Access blocked"), se cambia solo a Esri
+  const OSM_URL='https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+  const ponerEsri = ()=>{ if(map.__esri) return; map.__esri=true; map.eachLayer(l=>{ if(l instanceof L.TileLayer) map.removeLayer(l); });
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {maxZoom:19, attribution:'Mapa © Esri · datos © OpenStreetMap'}).addTo(map); try{ localStorage.setItem('kuota_mapa','esri'); }catch(e){} };
+  if((()=>{ try{ return localStorage.getItem('kuota_mapa')==='esri'; }catch(e){ return false; } })()) ponerEsri();
+  else {
+    L.tileLayer(OSM_URL, {maxZoom:19, attribution:'© OpenStreetMap', referrerPolicy:'strict-origin-when-cross-origin'}).addTo(map);
+    fetch('https://tile.openstreetmap.org/3/2/3.png', {mode:'cors', referrerPolicy:'strict-origin-when-cross-origin', cache:'no-store'})
+      .then(r=>{ if(r.status===403 || r.status===429) ponerEsri(); }).catch(()=>{});
+  }
   MAPA.map = map; MAPA.key = fecha+'|'+cob+'|'+(viewState.ruta||'');
   MAPA.capas = { cl:L.layerGroup().addTo(map), pg:L.layerGroup().addTo(map), ruta:L.layerGroup().addTo(map), eq:L.layerGroup().addTo(map) };
   const pts = [];

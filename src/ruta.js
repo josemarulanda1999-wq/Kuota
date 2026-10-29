@@ -669,3 +669,36 @@ function resumenRutasPanel(){
     <div class="cobro-nums"><div><span>En la ruta</span><b>${fmt(c.enMano)}</b></div><div><span>Utilidad</span><b style="color:var(--green)">${fmt(a.utilidad)}</b></div><div><span>vs mes ant.</span><b>${crecimiento(a.utilidad,b.utilidad)}</b></div></div>
     <div class="row"><button class="btn sm" onclick="go('cobros',{cob:'${u.id}'})">Ver ruta</button><button class="btn sm" onclick="go('clientes',{cob:'${u.id}'})">Clientes (${DB.clientes.filter(x=>x.cobradorId===u.id).length})</button></div></div>`; }).join('')}</div></div>`;
 }
+
+/* ---------- oficina: primero se escoge la ruta y adentro se ven sus clientes y cobros ---------- */
+function verPorRutas(){ return isAdmin() && cobradores().length > 0; }
+function datosRutaHoy(id, fecha){
+  const deRuta = cob => id==='_yo' ? !cob : cob===id;
+  const mios = cobrosDelDia(fecha).filter(c=>deRuta(c.p.cobradorId));
+  return { porVisitar: mios.filter(c=>!rutaVisitado(c, fecha)).length, visitados: mios.filter(c=>rutaVisitado(c, fecha)).length,
+    pendiente: mios.reduce((s,c)=>s+(rutaVisitado(c, fecha)?0:c.cobrar),0), cobrado: mios.reduce((s,c)=>s+c.pagadoHoy,0),
+    clientes: DB.clientes.filter(c=>deRuta(c.cobradorId)).length,
+    estado: id==='_yo' ? '' : cierreDe(id, fecha) ? '<span class="pill p-pag">Cerrada</span>' : aperturaDe(id, fecha) ? '<span class="pill p-ok">Abierta</span>' : '<span class="pill p-hoy">Sin abrir</span>' };
+}
+function rutasParaElegir(){
+  const l = cobradores().map(u=>({id:u.id, titulo:rutaCompleta(u), sub:u.nombre}));
+  if(DB.clientes.some(c=>!c.cobradorId || !cobradores().some(u=>u.id===c.cobradorId))) l.push({id:'_yo', titulo:'Sin ruta (oficina)', sub:'Clientes sin ruta asignada'});
+  return l;
+}
+function selectorRutas(vista, fecha){
+  fecha = fecha || viewState.fecha || todayStr();
+  return `<p class="muted" style="margin:0 0 12px">Escoge una ruta para ver sus clientes y cobros. Si buscas a alguien en especial, escribe su nombre o cédula arriba.</p>
+  <div class="cuadre-grid">${rutasParaElegir().map(r=>{ const d=datosRutaHoy(r.id, fecha); return `<div class="ruta-mini" style="cursor:pointer" onclick="go('${vista}',Object.assign({},viewState,{cob:'${r.id}',q:''}))">
+    <div class="row">${ava(r.sub||r.titulo)}<div style="min-width:0;flex:1"><b>${esc(r.titulo)}</b><div class="muted" style="font-size:12px">${esc(r.sub||'')} · ${d.clientes} cliente(s)</div></div>${d.estado}</div>
+    <div class="cobro-nums"><div><span>Por visitar</span><b>${d.porVisitar}</b></div><div><span>Pendiente</span><b style="color:${d.pendiente>0.5?'var(--red)':'inherit'}">${fmt(d.pendiente)}</b></div><div><span>Cobrado ${fecha===todayStr()?'hoy':'ese día'}</span><b style="color:var(--green)">${fmt(d.cobrado)}</b></div></div>
+    <div class="row"><span class="spacer"></span><button class="btn sm pri">Entrar a la ruta</button></div></div>`; }).join('')}</div>`;
+}
+/* panel: resumen por ruta, sin nombres de clientes */
+function tablaRutasHoy(){
+  const hoy = todayStr();
+  return `<div class="tablewrap"><table><thead><tr><th>Ruta</th><th class="num">Por visitar</th><th class="num">Pendiente</th><th class="num">Cobrado</th><th></th></tr></thead><tbody>
+  ${rutasParaElegir().map(r=>{ const d=datosRutaHoy(r.id, hoy); return `<tr class="click" onclick="go('cobros',{cob:'${r.id}'})">
+    <td><b>${esc(r.titulo)}</b><div style="margin-top:3px">${d.estado}</div></td><td class="num">${d.porVisitar} <span class="muted" style="font-size:12px">de ${d.porVisitar+d.visitados}</span></td>
+    <td class="num" style="color:${d.pendiente>0.5?'var(--red)':'inherit'}">${fmt(d.pendiente)}</td><td class="num" style="color:var(--green)">${fmt(d.cobrado)}</td>
+    <td class="right"><button class="btn sm">Entrar</button></td></tr>`; }).join('')}</tbody></table></div>`;
+}

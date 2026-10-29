@@ -511,8 +511,8 @@ VIEWS.panel = () => {
   </div>
   <div class="grid2">
     <div class="card pad">
-      <div class="row" style="margin-bottom:6px"><h2 style="margin:0">Cobros pendientes de hoy</h2><span class="spacer"></span><button class="btn sm" data-go="cobros">Ver todos</button></div>
-      ${cobros.length? `<div class="tablewrap"><table><tbody>
+      <div class="row" style="margin-bottom:6px"><h2 style="margin:0">${verPorRutas()?'Cobros de hoy por ruta':'Cobros pendientes de hoy'}</h2><span class="spacer"></span><button class="btn sm" data-go="cobros">${verPorRutas()?'Ver rutas':'Ver todos'}</button></div>
+      ${verPorRutas() ? tablaRutasHoy() : cobros.length? `<div class="tablewrap"><table><tbody>
       ${cobros.map(c=>`<tr><td><div class="who">${ava(nombreCliente(c.p.clienteId))}<div>${esc(nombreCliente(c.p.clienteId))}<div class="muted" style="font-size:12px">${c.p.periodo.toLowerCase()} · cuota ${fmt(c.p.valorCuota)}</div></div></div></td>
         <td>${pill(c.e)}</td><td class="num"><b>${fmt(c.cobrar)}</b></td>
         <td class="right">${c.cobrar>0.5?`<button class="btn sm pri" onclick="modalPago('${c.p.id}')">Cobrar</button>`:`<span class="pill p-ok">Pagó ${fmt(c.pagadoHoy)}</span>`}</td></tr>`).join('')}
@@ -564,7 +564,7 @@ function filtroCobrador(vista){
   if(!isAdmin() || !cobradores().length) return '';
   const v=viewState.cob??'';
   return `<select class="input" style="width:auto" onchange="go('${vista}',Object.assign({},viewState,{cob:this.value}))">
-    <option value="" ${v===''?'selected':''}>Todas las rutas</option><option value="_yo" ${v==='_yo'?'selected':''}>Sin asignar (míos)</option>
+    <option value="" ${v===''?'selected':''}>${verPorRutas()?'— Escoger ruta —':'Todas las rutas'}</option><option value="_yo" ${v==='_yo'?'selected':''}>Sin asignar (míos)</option>
     ${cobradores().map(u=>`<option value="${u.id}" ${v===u.id?'selected':''}>${esc(rutaCompleta(u))}</option>`).join('')}</select>`;
 }
 function pasaFiltroCob(cobradorId){
@@ -623,7 +623,7 @@ VIEWS.cobros = () => {
   ${bloqueNotasRuta()}
   ${miRutaCerrada(fecha)?'<div class="banner">Tu ruta de este día ya está cerrada. Para registrar algo más, pídele a la oficina que la reabra.</div>':''}
   ${!isAdmin()?bloqueRenovacionesCobrador():(DB.renovaciones.some(r=>r.estado==='pendiente')?`<div class="banner">Hay ${DB.renovaciones.filter(r=>r.estado==='pendiente').length} solicitud(es) de renovación esperando aprobación. <button class="btn sm" data-go="renovaciones">Revisar</button></div>`:'')}
-  ${tabs}
+  ${verPorRutas() && !viewState.cob && !q ? selectorRutas('cobros', fecha) : `${tabs}
   ${tarjetas ? (list.length? `<div class="cobros-grid">${list.map(c=>cobroCard(c,fecha)).join('')}</div>` : `<div class="card"><div class="empty">${vacio}</div></div>`) : `<div class="card">
   ${list.length? `<div class="tablewrap"><table><thead><tr><th>Cliente</th><th>Teléfono / Dirección</th><th>Estado</th><th class="num">Cuota</th><th class="num">Pendiente</th><th class="num">Saldo</th><th class="num">Pagó</th><th></th></tr></thead><tbody>
   ${list.map(c=>{const cl=clienteById(c.p.clienteId)||{};return `<tr>
@@ -633,7 +633,7 @@ VIEWS.cobros = () => {
     <td class="num">${fmt(c.e.saldo)}</td><td class="num">${c.pagadoHoy?fmt(c.pagadoHoy):'—'}</td>
     <td class="right no-print" style="white-space:nowrap">${c.cobrar>0.5?`<button class="btn sm pri" onclick="modalPago('${c.p.id}',null,'${fecha}')">Cobrar</button>`:`${c.pagadoHoy?'<span class="pill p-ok">Cobrado</span> ':''}<button class="btn sm${c.pagadoHoy?'':' pri'}" onclick="modalPago('${c.p.id}',null,'${fecha}')">Abonar</button>`} <button class="btn sm" onclick="modalDetalle('${c.p.id}')">Ver</button></td></tr>`}).join('')}
   </tbody></table></div>` : `<div class="empty">${vacio}</div>`}
-  </div>`}`;
+  </div>`}`}`;
 };
 
 function sinTildes(t){ return String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase(); }
@@ -676,7 +676,7 @@ VIEWS.prestamos = () => {
     ${filtroCobrador('prestamos')}
     ${fb('activos','Activos')}${fb('mora','En mora')}${fb('pagados','Pagados')}${fb('todos','Todos')}
   </div>
-  ${movil() ? (rows.length?`<div class="cobros-grid">${rows.map(({p,e,c})=>`<div class="card cobro" onclick="modalDetalle('${p.id}')" style="cursor:pointer">
+  ${verPorRutas() && !viewState.cob && !q ? selectorRutas('prestamos') : movil() ? (rows.length?`<div class="cobros-grid">${rows.map(({p,e,c})=>`<div class="card cobro" onclick="modalDetalle('${p.id}')" style="cursor:pointer">
       <div class="who">${ava(c.nombre)}<div style="min-width:0;flex:1"><b>${esc(c.nombre||'(sin cliente)')}</b><div class="muted" style="font-size:12.5px">${fdate(p.fecha)} · ${p.cuotas} cuotas ${p.periodo.toLowerCase()}</div></div>${pill(e)}</div>
       <div class="cobro-nums"><div><span>Prestado</span><b>${fmt(p.monto)}</b></div><div><span>Cuota</span><b>${fmt(p.valorCuota)}</b></div><div><span>Saldo</span><b>${fmt(e.saldo)}</b></div></div>
       <div><div class="progress"><i style="width:${Math.min(100,e.pagado/e.totalReal*100)}%"></i></div><div class="muted" style="font-size:11.5px;margin-top:4px">${e.cuotasPagadas} de ${p.cuotas} cuotas pagadas</div></div>${puedeRenovar(p)?`<div class="row"><span class="spacer"></span><button class="btn sm" onclick="event.stopPropagation();modalRenovacion('${p.id}')">${isAdmin()?'Renovar':'Solicitar renovación'}</button></div>`:''}</div>`).join('')}</div>`:`<div class="card"><div class="empty">${DB.prestamos.length?'No hay préstamos con ese filtro.':(isAdmin()?'Aún no hay préstamos.':'Todavía no tienes préstamos asignados.')}</div></div>`) : `<div class="card">
@@ -752,12 +752,12 @@ VIEWS.clientes = () => {
       <div class="row">${tel?`<a class="btn sm" href="tel:${esc(tel)}">Llamar</a>`:''}${btnComoLlegar(c)}<span class="spacer"></span>${(()=>{const act=ps.find(p=>puedeRenovar(p)); return act?`<button class="btn sm" onclick="modalRenovacion('${act.id}')">Renovar</button>`:'';})()}${isAdmin()?`<button class="btn sm" onclick="modalPrestamo(null,'${c.id}')">Prestar</button>`:''}<button class="btn sm" onclick="modalCliente('${c.id}')">Editar</button></div></div>`};
   const vacio = `<div class="empty">${DB.clientes.length?(soloDup?'Ningún cliente está en más de una ruta.':'Sin resultados.'):'Aún no hay clientes registrados.'}</div>`;
   return `
-  <div class="head"><div><h1>${isAdmin()?'Clientes':'Mis clientes'}</h1><p class="sub">${rows.length} clientes${agrupar?' · agrupados por ruta':''}</p></div>
+  <div class="head"><div><h1>${isAdmin()?'Clientes':'Mis clientes'}</h1><p class="sub">${verPorRutas() && !viewState.cob && !q && !soloDup ? `${DB.clientes.length} clientes en ${cobradores().length} ruta(s)` : `${rows.length} clientes${viewState.cob?' · '+esc(viewState.cob==='_yo'?'sin ruta':nombreRuta(viewState.cob)):''}`}</p></div>
   <div class="row">${isAdmin()?`<button class="btn" onclick="exportCSV('clientes')">Exportar a Excel</button>`:''}<button class="btn pri" onclick="modalCliente()">+ Nuevo cliente</button></div></div>
   ${nDup && !soloDup ? `<div class="banner"><b>${nDup} cliente(s) aparecen en más de una ruta</b> (misma cédula o créditos en otra ruta).<span class="spacer"></span><button class="btn sm" onclick="go('clientes',Object.assign({},viewState,{dup:1,cob:''}))">Ver cuáles</button></div>`:''}
   <div class="toolbar"><input class="input search" id="qCli" placeholder="Buscar nombre, cédula o teléfono" value="${esc(viewState.q||'')}">${filtroCobrador('clientes')}
     ${isAdmin()?`<button class="btn sm ${soloDup?'pri':''}" onclick="go('clientes',Object.assign({},viewState,{dup:${soloDup?0:1}}))">En varias rutas${nDup?` (${nDup})`:''}</button>`:''}</div>
-  ${movil() ? (rows.length ? grupos.map(g=>`${g.id!==null?`<h2 style="margin:18px 0 8px;font-size:16px">${esc(tituloG(g))} <span class="muted" style="font-size:13px;font-weight:500">· ${g.rows.length} · ${fmt(g.rows.reduce((s,c)=>s+saldoCliente(c),0))}</span></h2>`:''}<div class="cobros-grid">${g.rows.map(tarjeta).join('')}</div>`).join('') : `<div class="card">${vacio}</div>`) : `<div class="card">
+  ${verPorRutas() && !viewState.cob && !q && !soloDup ? selectorRutas('clientes') : movil() ? (rows.length ? grupos.map(g=>`${g.id!==null?`<h2 style="margin:18px 0 8px;font-size:16px">${esc(tituloG(g))} <span class="muted" style="font-size:13px;font-weight:500">· ${g.rows.length} · ${fmt(g.rows.reduce((s,c)=>s+saldoCliente(c),0))}</span></h2>`:''}<div class="cobros-grid">${g.rows.map(tarjeta).join('')}</div>`).join('') : `<div class="card">${vacio}</div>`) : `<div class="card">
   ${rows.length? `<div class="tablewrap"><table><thead><tr><th>Nombre</th><th># Identificación</th><th>Teléfono 1</th><th>Teléfono 2</th><th>Dirección</th><th>Ciudad</th>${isAdmin()?'<th>Ruta</th>':''}<th class="num">Préstamos</th><th class="num">Saldo</th><th></th></tr></thead><tbody>
   ${grupos.map(g=>cabG(g,cols)+g.rows.map(fila).join('')).join('')}
   </tbody></table></div>` : vacio}

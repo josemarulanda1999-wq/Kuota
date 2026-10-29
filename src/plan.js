@@ -119,11 +119,11 @@ try{
   const nativo = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
   if(!nativo && !document.querySelector('meta[http-equiv="Content-Security-Policy"]')){
     const m=document.createElement('meta'); m.httpEquiv='Content-Security-Policy';
-    m.content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://tile.openstreetmap.org; "
+    m.content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://tile.openstreetmap.org https://*.basemaps.cartocdn.com; "
       +"font-src 'self' data:; connect-src 'self' data: blob: https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://*.firebaseapp.com; "
       +"frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; worker-src 'self' blob:; manifest-src 'self'";
     document.head.appendChild(m);
-    const r=document.createElement('meta'); r.name='referrer'; r.content='same-origin'; document.head.appendChild(r);
+    const r=document.createElement('meta'); r.name='referrer'; r.content='strict-origin-when-cross-origin'; document.head.appendChild(r);
   }
 }catch(e){}
 

@@ -129,7 +129,7 @@ try{
 
 
 /* ---------- valores de plata: se separan los miles mientras se escriben (ej. 1.500.000) ---------- */
-const CAMPOS_PLATA_EXTRA = ['pSeg','uCap','rSal','rMax','rGas','kVal'];
+const CAMPOS_PLATA_EXTRA = ['pSeg','uCap','rSal','rMax','rGas','kVal','gVal2'];
 function formatearPlata(el){
   const m = (typeof MON==='function') ? MON() : {loc:'es-CO', dec:0};
   const dsep = (1.5).toLocaleString(m.loc).charAt(1), tsep = (1000).toLocaleString(m.loc).replace(/\d/g,'') || (dsep===','?'.':',');

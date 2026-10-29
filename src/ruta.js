@@ -140,8 +140,22 @@ function puedeDarDia(){ return isAdmin() || !!rutaCfg(ME.uid).puedeDominical; }
 function rutaVisitado(c, fecha){
   return c.pagadoHoy > 0.5 || c.cobrar <= 0.5 || !!visitaDe(c.p.id, fecha) || !!diaDado(c.p.id, fecha);
 }
+// para cerrar la ruta hay que visitar a los que les toca cuota ese día (los que solo deben mora van aparte)
 function faltanPorVisitar(uid, fecha){
-  return cobrosDelDia(fecha).filter(c=>c.p.cobradorId===uid && !rutaVisitado(c, fecha));
+  return cobrosDelDia(fecha).filter(c=>c.p.cobradorId===uid && !rutaVisitado(c, fecha) && c.hoyCobrar>0.5);
+}
+/* cuánto puede seguir prestando la ruta: el efectivo que tiene en la mano, sin pasarse del capital asignado */
+function disponibleRuta(uid){
+  const efectivo = Math.max(0, cuadreCobrador(uid, todayStr()).saldoFinal || 0);
+  const k = capitalRuta(uid), cfg = rutaCfg(uid);
+  const capital = k.tiene ? Math.max(0, k.disponible) : null;
+  return { efectivo, capital, tope: Number(cfg.maxPrestamo)||0, puede: !!cfg.puedePrestar,
+    disponible: capital===null ? efectivo : Math.min(efectivo, capital) };
+}
+function bloqueDisponibleRuta(){
+  const d = disponibleRuta(ME.uid);
+  const det = [`Efectivo en tu mano ${fmt(d.efectivo)}`, d.capital!==null?`capital disponible ${fmt(d.capital)}`:'', d.tope?`tope por crédito ${fmt(d.tope)}`:''].filter(Boolean).join(' · ');
+  return `<div class="kpi hl"><div class="l">Disponible para prestar</div><div class="v">${fmt(d.disponible)}</div><div class="n">${det}${d.puede?'':'<br>Tus créditos van como solicitud a la oficina'}</div></div>`;
 }
 /* la ruta puede corregir los pagos que ella misma registró hoy, mientras no haya cerrado el día */
 function puedeEditarPago(x){
@@ -450,8 +464,11 @@ function datosRecibo(pagoId){
   const x = DB.pagos.find(y=>y.id===pagoId); if(!x) return null;
   const p = DB.prestamos.find(y=>y.id===x.prestamoId)||{}, c = clienteById(p.clienteId)||{};
   const orden = pagosDe(p.id).slice().sort((a,b)=>a.fecha.localeCompare(b.fecha) || (a.creado||0)-(b.creado||0));
-  let antes = 0; for(const y of orden){ if(y.id===x.id) break; antes += y.monto; }
-  const vc = Number(p.valorCuota)||0, n = Number(p.cuotas)||0, base = vc*n, desp = antes + x.monto;
+  // un pago mixto (efectivo + transferencia) son dos pagos guardados a la misma hora: el recibo los muestra juntos
+  const grupo = x.creado ? orden.filter(y=>y.creado===x.creado && (y.registradoPor||'')===(x.registradoPor||'') && y.fecha===x.fecha && y.tipo===x.tipo) : [x];
+  const ids = new Set(grupo.map(y=>y.id)), montoG = grupo.reduce((s,y)=>s+y.monto,0);
+  let antes = 0; for(const y of orden){ if(ids.has(y.id)) break; antes += y.monto; }
+  const vc = Number(p.valorCuota)||0, n = Number(p.cuotas)||0, base = vc*n, desp = antes + montoG;
   let cuotaTxt = '';
   if(vc>0 && n>0){
     const desde = Math.min(n, Math.floor(antes/vc + 1e-6) + 1), hasta = Math.min(n, Math.max(desde, Math.ceil(desp/vc - 1e-6)));
@@ -462,7 +479,8 @@ function datosRecibo(pagoId){
   const e = estadoPrestamo(p);
   return { x, p, c, negocio: nombreNegocio(), numero: String(x.id).slice(-6).toUpperCase(),
     fecha: fdate(x.fecha), hora: x.creado ? new Date(x.creado).toLocaleTimeString('es-CO',{hour:'numeric',minute:'2-digit'}) : '',
-    monto: x.monto, medio: x.medio==='transferencia'?'Transferencia':'Efectivo', cuotaTxt, valorCuota: vc,
+    monto: montoG, medio: grupo.length>1 ? grupo.map(y=>(y.medio==='transferencia'?'Transferencia ':'Efectivo ')+fmt(y.monto)).join(' + ') : x.medio==='transferencia'?'Transferencia':'Efectivo',
+    compId: (grupo.find(y=>y.comprobante)||{}).id || '', cuotaTxt, valorCuota: vc,
     cuotasPagadas: Math.min(n, Math.floor(desp/vc + 1e-6) || 0), cuotas: n,
     saldo: Math.max(0, base - desp), multa: e.multaPend||0, recibio: nombreUsuario(x.registradoPor), mensaje: DB.config.mensajeRecibo||'' };
 }
@@ -485,7 +503,7 @@ function modalRecibo(pagoId){
     <label class="chk full" id="rcGuardW" style="display:none"><input type="checkbox" id="rcGuard" checked> Guardar estos datos en la ficha del cliente</label>
   </div>
   <div class="actions"><button class="btn" onclick="closeModal()">Listo</button>
-  ${d.x.comprobante?`<button class="btn" onclick="verComprobante('${pagoId}')">Ver comprobante</button>`:''}
+  ${d.compId?`<button class="btn" onclick="verComprobante('${d.compId}')">Ver comprobante</button>`:''}
   <button class="btn" onclick="descargarRecibo('${pagoId}')">${isNative()||movil()?'Enviar recibo en foto':'Descargar recibo'}</button>
   <button class="btn" onclick="compartirRecibo('${pagoId}')">Compartir</button></div>`);
   const $=k=>document.getElementById(k);
@@ -759,8 +777,8 @@ function verPorRutas(){ return isAdmin() && cobradores().length > 0; }
 function datosRutaHoy(id, fecha){
   const deRuta = cob => id==='_yo' ? !cob : cob===id;
   const mios = cobrosDelDia(fecha).filter(c=>deRuta(c.p.cobradorId));
-  return { porVisitar: mios.filter(c=>!rutaVisitado(c, fecha)).length, visitados: mios.filter(c=>rutaVisitado(c, fecha)).length,
-    pendiente: mios.reduce((s,c)=>s+(rutaVisitado(c, fecha)?0:c.cobrar),0), cobrado: mios.reduce((s,c)=>s+c.pagadoHoy,0),
+  return { porVisitar: mios.filter(c=>!rutaVisitado(c, fecha) && c.hoyCobrar>0.5).length, visitados: mios.filter(c=>rutaVisitado(c, fecha)).length,
+    pendiente: mios.reduce((s,c)=>s+(rutaVisitado(c, fecha)?0:(c.hoyCobrar||0)),0), mora: mios.reduce((s,c)=>s+(c.mora||0),0), cobrado: mios.reduce((s,c)=>s+c.pagadoHoy,0),
     clientes: DB.clientes.filter(c=>deRuta(c.cobradorId)).length,
     estado: id==='_yo' ? '' : cierreDe(id, fecha) ? '<span class="pill p-pag">Cerrada</span>' : aperturaDe(id, fecha) ? '<span class="pill p-ok">Abierta</span>' : '<span class="pill p-hoy">Sin abrir</span>' };
 }

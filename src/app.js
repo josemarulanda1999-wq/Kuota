@@ -422,7 +422,8 @@ function cobrosDelDia(hoy=todayStr()){
     const pagadoHoy = e.pagos.filter(x=>x.fecha===hoy && efectivo(x)).reduce((s,x)=>s+x.monto,0);
     if(e.estado==='Pagado' && pagadoHoy<0.5) continue;      // el que terminó de pagar hoy sigue en la lista del día (en visitados)
     if(e.atraso>0.5 || e.venceHoy || pagadoHoy>0 || (typeof diaDado==='function' && diaDado(p.id, hoy))){
-      out.push({p,e,pagadoHoy,cobrar: e.atraso});
+      // cobrar = todo lo atrasado; hoyCobrar = solo la cuota de este día; mora = lo de días anteriores (aparte)
+      out.push({p,e,pagadoHoy,cobrar: e.atraso, hoyCobrar: Math.max(0, e.atraso - e.atrasoMora), mora: e.atrasoMora});
     }
   }
   return out.sort((a,b)=>b.e.atraso-a.e.atraso);
@@ -459,7 +460,7 @@ function menu(){
   return { main:[['cobros','Mi ruta'],['clientes','Clientes'],['prestamos','Préstamos'],['cuadre','Cuadre'],['calculadora','Calcular']], mas:[] };
 }
 function renderNav(){
-  const n = cobrosDelDia().filter(c=>c.cobrar>0.5).length;
+  const n = cobrosDelDia().filter(c=>c.hoyCobrar>0.5 && !(typeof rutaVisitado==='function' && rutaVisitado(c, todayStr()))).length;
   const nRen = isAdmin() ? DB.renovaciones.filter(r=>r.estado==='pendiente').length + DB.aprobaciones.filter(a=>a.estado==='pendiente').length : 0;
   const pend = isCeo() ? DB.users.filter(u=>u.estado==='pendiente').length : 0;
   let M = menu();
@@ -622,7 +623,7 @@ function cobroCard(c, fecha){
     <div class="who" onclick="modalDetalle('${c.p.id}')" style="cursor:pointer">${ava(cl.nombre)}<div style="min-width:0;flex:1"><b>${esc(cl.nombre||'(sin cliente)')}</b><div class="muted" style="font-size:12.5px">${esc(cl.direccion||'Sin dirección')}</div></div>${pill(c.e)}</div>
     <div class="cobro-nums">
       <div><span>Cuota</span><b>${fmt(c.p.valorCuota)}</b></div>
-      <div><span>Pendiente</span><b style="color:${c.cobrar>0.5?'var(--red)':'inherit'}">${fmt(c.cobrar)}</b>${(()=>{ const d=c.cobrar>0.5?detallePendiente(c.p,c.e,fecha):null; return d&&d.n>1?`<em style="font-style:normal;font-size:11.5px;display:block">${d.n} cuotas${d.sinAbrir.length?` · ${d.sinAbrir.length} de día${d.sinAbrir.length>1?'s':''} sin abrir`:''}</em>`:''; })()}</div>
+      <div><span>Cuota de hoy</span><b>${fmt(c.hoyCobrar||0)}</b>${c.mora>0.5?`<em style="font-style:normal;font-size:11.5px;display:block;color:var(--red)">+ mora ${fmt(c.mora)}</em>`:''}</div>
       <div><span>Debe en total</span><b>${fmt(c.e.saldoCuotas)}</b>${c.e.multaPend>0.5?`<em style="font-style:normal;font-size:11.5px;color:var(--amber)">+ multa ${fmt(c.e.multaPend)}</em>`:''}</div>
     </div>
     <div class="row">
@@ -642,26 +643,32 @@ VIEWS.cobros = () => {
   const ordenC = c => Number((clienteById(c.p.clienteId)||{}).orden)||1e9;
   const dia = cobrosDelDia(fecha).filter(c=>pasaFiltroCob(c.p.cobradorId)).sort((a,b)=>ordenC(a)-ordenC(b) || b.e.atraso-a.e.atraso);
   const q = sinTildes(viewState.q||'').trim();
-  const tab = viewState.tab==='hechos' ? 'hechos' : 'pend';
-  const porVisitar = dia.filter(c=>!rutaVisitado(c, fecha)), hechos = dia.filter(c=>rutaVisitado(c, fecha));
-  const list = q ? buscarCobro(q, fecha) : (tab==='hechos' ? hechos : porVisitar);
+  const tab = ['hechos','mora'].includes(viewState.tab) ? viewState.tab : 'pend';
+  const porVisitar = dia.filter(c=>!rutaVisitado(c, fecha) && c.hoyCobrar>0.5);       // les toca cuota hoy
+  const soloMora = dia.filter(c=>!rutaVisitado(c, fecha) && c.hoyCobrar<=0.5);        // no les toca hoy, solo deben mora
+  const hechos = dia.filter(c=>rutaVisitado(c, fecha));
+  const list = q ? buscarCobro(q, fecha) : (tab==='hechos' ? hechos : tab==='mora' ? soloMora : porVisitar);
   const visitados = hechos.length;
   const tarjetas = !isAdmin() || movil();
-  const totalCobrar = dia.reduce((s,c)=>s+c.cobrar,0);
+  const totalCobrar = dia.filter(c=>!rutaVisitado(c, fecha)).reduce((s,c)=>s+(c.hoyCobrar||0),0);   // solo cuotas del día que faltan
+  const totalMora = dia.reduce((s,c)=>s+(rutaVisitado(c, fecha) && c.pagadoHoy>0.5 ? 0 : (c.mora||0)),0);
   const totalPagado = dia.reduce((s,c)=>s+c.pagadoHoy,0);
   const vacio = q ? 'Ningún crédito activo coincide con esa búsqueda.'
     : !dia.length ? 'Nada que cobrar en esta fecha.'
     : tab==='hechos' ? 'Todavía no hay clientes visitados ni pagos en esta fecha.'
+    : tab==='mora' ? 'No hay clientes que solo deban mora sin visitar.'
     : (!isAdmin() && miRutaAbierta() && !miRutaCerrada(fecha) && fecha===todayStr()) ? '¡Listo! Visitaste a todos los clientes. Ya puedes cerrar la ruta del día.' : 'No queda nadie por visitar en esta fecha.';
   const tabBtn = (k, t, n) => `<button class="${tab===k?'on':''}" onclick="go('cobros',Object.assign({},viewState,{tab:'${k}'}))">${t} · ${n}</button>`;
-  const tabs = q ? '' : `<div class="seg" style="margin:0 0 14px">${tabBtn('pend','Por cobrar',porVisitar.length)}${tabBtn('hechos','Visitados y pagados',hechos.length)}</div>`;
+  const tabs = q ? '' : `<div class="seg" style="margin:0 0 14px;flex-wrap:wrap">${tabBtn('pend','Por cobrar hoy',porVisitar.length)}${soloMora.length||tab==='mora'?tabBtn('mora','En mora',soloMora.length):''}${tabBtn('hechos','Visitados y pagados',hechos.length)}</div>`;
   return `
   <div class="head"><div><h1>${isAdmin()?'Cobros del día':'Mi ruta'}</h1><p class="sub">Cuotas que vencen y préstamos atrasados. Marca el pago apenas cobres.</p></div>
   <div class="row">${isAdmin()?'':`${puedePrestarRuta()?`<button class="btn pri" onclick="modalPrestamo()">+ Crédito nuevo</button>`:''}<button class="btn ${puedePrestarRuta()?'':'pri'}" onclick="elegirRenovacion()">Solicitar renovación</button>`}${isAdmin()?'':`<button class="btn" onclick="go('prestamos',{dia:'${fecha}'})">Lo que presté ${fecha===todayStr()?'hoy':'ese día'}</button>`}${isAdmin()?'':'<button class="btn" onclick="modalEnrutar()">Orden de visita</button><button class="btn" data-go="avisos">Avisar a clientes</button>'}${filtroCobrador('cobros')}<input type="date" class="input" style="width:auto" value="${fecha}" onchange="go('cobros',Object.assign({},viewState,{fecha:this.value}))">${isNative()?'':'<button class="btn no-print" onclick="window.print()">Imprimir ruta</button>'}</div></div>
   ${bloqueAperturaRuta(fecha)}
   <div class="kpis">
-    <div class="kpi sky"><div class="l">Visitados</div><div class="v">${visitados} de ${dia.length}</div><div class="progress" style="margin-top:8px"><i style="width:${dia.length?visitados/dia.length*100:0}%"></i></div></div>
-    <div class="kpi cream"><div class="l">Pendiente por cobrar</div><div class="v">${fmt(totalCobrar)}</div></div>
+    ${!isAdmin()?bloqueDisponibleRuta():''}
+    <div class="kpi sky"><div class="l">Visitados</div><div class="v">${visitados} de ${porVisitar.length+visitados}</div><div class="progress" style="margin-top:8px"><i style="width:${porVisitar.length+visitados?visitados/(porVisitar.length+visitados)*100:0}%"></i></div></div>
+    <div class="kpi cream"><div class="l">Cuotas por cobrar hoy</div><div class="v">${fmt(totalCobrar)}</div><div class="n">Solo las cuotas de este día</div></div>
+    <div class="kpi"><div class="l">En mora (aparte)</div><div class="v" style="color:${totalMora>0.5?'var(--red)':'inherit'}">${fmt(totalMora)}</div><div class="n">De días anteriores · no suma al día</div></div>
     <div class="kpi hl"><div class="l">Cobrado ese día</div><div class="v">${fmt(totalPagado)}</div></div>
   </div>
   <div class="toolbar"><input class="input search" id="qCob" placeholder="Buscar cliente por nombre o cédula para cobrar o abonar" value="${esc(viewState.q||'')}">${q?`<span class="muted" style="font-size:13px">${list.length} crédito(s) activo(s) · puedes abonar aunque hoy no le toque cuota</span><button class="btn sm" onclick="go('cobros',Object.assign({},viewState,{q:''}))">Limpiar</button>`:''}</div>
@@ -1363,7 +1370,10 @@ function modalPago(prestamoId, pagoId, fecha){
     <div class="muted full" id="gNTxt" style="font-size:12.5px;margin-top:-6px;min-height:16px"></div>
     <div class="f full" style="display:block"><span style="display:block">¿Cómo pagó?</span><div class="seg" id="gMedio">
       <button type="button" data-m="efectivo" class="${(pago?pago.medio:'')!=='transferencia'?'on':''}">Efectivo</button>
-      <button type="button" data-m="transferencia" class="${(pago?pago.medio:'')==='transferencia'?'on':''}">Transferencia</button></div></div>
+      <button type="button" data-m="transferencia" class="${(pago?pago.medio:'')==='transferencia'?'on':''}">Transferencia</button>${pago?'':'<button type="button" data-m="mixto">Efectivo + transferencia</button>'}</div></div>
+    <div class="f full" id="gMixW" style="display:none"><div class="row" style="gap:12px;align-items:flex-end;flex-wrap:wrap">
+      <label class="f" style="flex:1;min-width:150px">¿Cuánto por transferencia?<input class="input" id="gTrf" inputmode="numeric" placeholder="Ej: 10.000"></label>
+      <div class="f" style="flex:1;min-width:150px"><span>En efectivo</span><b id="gEfe" style="font-size:18px;padding:8px 0">—</b></div></div></div>
     <div class="f full" id="gCompW" style="display:${(pago?pago.medio:'')==='transferencia'?'':'none'}"><span>Comprobante de la transferencia</span>
       <div class="row"><label class="btn sm">Cámara<input type="file" accept="image/*" capture="environment" hidden onchange="cargarComprobante(this)"></label>
       <label class="btn sm">Galería<input type="file" accept="image/*" hidden onchange="cargarComprobante(this)"></label><span id="gCompOk" class="muted" style="font-size:12.5px">${pago&&pago.comprobante?'Ya tiene comprobante':'Sin adjuntar'}</span></div></div>
@@ -1419,7 +1429,14 @@ function modalPago(prestamoId, pagoId, fecha){
   let medio = (pago&&pago.medio==='transferencia') ? 'transferencia' : 'efectivo';
   document.querySelectorAll('#gMedio button').forEach(b=>b.onclick=()=>{ medio=b.dataset.m;
     document.querySelectorAll('#gMedio button').forEach(x=>x.classList.toggle('on', x===b));
-    document.getElementById('gCompW').style.display = medio==='transferencia' ? '' : 'none'; });
+    document.getElementById('gCompW').style.display = medio!=='efectivo' ? '' : 'none';
+    document.getElementById('gMixW').style.display = medio==='mixto' ? '' : 'none'; pintaMixto(); });
+  // pago mixto: una parte por transferencia y el resto en efectivo
+  const trf = document.getElementById('gTrf');
+  const pintaMixto = ()=>{ const t=num(trf.value), m=num(val.value), e=document.getElementById('gEfe');
+    e.textContent = t>0 && t<m ? fmt(m-t) : '—'; e.style.color = t>=m && t>0 ? 'var(--red)' : ''; };
+  trf.addEventListener('input', pintaMixto); trf.addEventListener('blur',()=>{ const n=num(trf.value); if(n) trf.value=fmtIn(n); });
+  val.addEventListener('input', pintaMixto);
   document.getElementById('gSave').onclick=async ()=>{
     const pid=document.getElementById('gPre').value, monto=num(val.value), f=document.getElementById('gFec').value||todayStr();
     if(!pid) return toast('Selecciona el préstamo');
@@ -1430,7 +1447,9 @@ function modalPago(prestamoId, pagoId, fecha){
     const porCuotas = porContador && Math.round(num(nc.value))>=1 && Math.abs(monto - Math.min(Math.round(num(nc.value))*p.valorCuota, saldo))<0.5;
     if(!pago && !porCuotas && monto > p.valorCuota*1.5 + 0.5 && monto <= saldo+0.5 && !await confirmar(`Vas a registrar ${fmt(monto)}, que equivale a ${(Math.round(monto/p.valorCuota*10)/10).toLocaleString('es-CO')} cuotas de ${fmt(p.valorCuota)}.\n\n¿Es correcto?`, {ok:'Sí, registrar'})) return;
     const nota=document.getElementById('gNot').value.trim();
-    if(medio==='transferencia' && !COMP_TMP && !(pago&&pago.comprobante) && !await confirmar('No adjuntaste el comprobante de la transferencia. ¿Guardar así?', {ok:'Guardar sin comprobante'})) return;
+    const montoTrf = medio==='mixto' ? num(trf.value) : 0;
+    if(medio==='mixto' && !(montoTrf>0 && montoTrf<monto)) return toast('Escribe cuánto pagó por transferencia (menos que el total)');
+    if(medio!=='efectivo' && !COMP_TMP && !(pago&&pago.comprobante) && !await confirmar('No adjuntaste el comprobante de la transferencia. ¿Guardar así?', {ok:'Guardar sin comprobante'})) return;
     const conComp = medio==='transferencia' && (!!COMP_TMP || !!(pago&&pago.comprobante));
     if(pago && rutaEdita){
       if(Math.abs(monto-pago.monto)<0.5 && medio===(pago.medio||'efectivo') && nota===(pago.nota||'') && !COMP_TMP){ closeModal(); return; }
@@ -1445,6 +1464,14 @@ function modalPago(prestamoId, pagoId, fecha){
     else {
       const bt=document.getElementById('gSave'); bt.disabled=true; bt.textContent='Registrando…';
       const gps = await gpsParaPago();
+      if(medio==='mixto'){
+        // se guardan dos pagos con la misma hora: uno por transferencia y otro en efectivo (el recibo los junta)
+        const t0 = Date.now(), base = {prestamoId:pid,fecha:f,nota,cobradorId:p.cobradorId||'',registradoPor:ME.uid,creado:t0};
+        const idT = dbAdd('pagos',Object.assign({}, base, {monto:montoTrf, medio:'transferencia', comprobante:!!COMP_TMP}, gps));
+        if(COMP_TMP) guardarComprobante(idT, pid, p.cobradorId||'');
+        const idE = dbAdd('pagos',Object.assign({}, base, {monto:Math.round((monto-montoTrf)*100)/100, medio:'efectivo', comprobante:false}, gps));
+        closeModal(); render(); viewState._reopen=0; modalRecibo(idE); return;
+      }
       const nuevo = dbAdd('pagos',Object.assign({prestamoId:pid,fecha:f,monto,nota,cobradorId:p.cobradorId||'',registradoPor:ME.uid,medio,comprobante:conComp}, gps));
       if(COMP_TMP) guardarComprobante(nuevo, pid, p.cobradorId||'');
       closeModal(); render(); viewState._reopen=0; modalRecibo(nuevo); return;

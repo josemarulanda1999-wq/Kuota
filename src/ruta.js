@@ -807,6 +807,7 @@ function tablaRutasHoy(){
 
 /* ---------- cambiar el día de pago de un semanal (oficina o la ruta) ---------- */
 function modalDiaPago(id){
+  if(!isAdmin() && rutaBloqueada()) return;   // la ruta solo registra con el día abierto
   const p = DB.prestamos.find(x=>x.id===id); if(!p || p.periodo!=='SEMANAL') return;
   if(!isAdmin() && p.cobradorId!==ME.uid) return;
   const actual = primeraDe(p), dowAct = parseD(actual).getDay();

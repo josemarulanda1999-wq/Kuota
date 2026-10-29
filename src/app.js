@@ -1171,6 +1171,7 @@ function clienteOptions(sel){
 }
 
 function modalCliente(id, onSaved){
+  if(!id && !isAdmin() && rutaBloqueada()) return;   // clientes nuevos solo con la ruta abierta
   const c = id? clienteById(id) : {nombre:'',cedula:'',tel1:'',tel2:'',direccion:'',ciudad:'',obs:'',cobradorId:''};
   const cobSel = isAdmin() ? `<label class="f full">Ruta<select class="input" id="mCob"><option value="">Sin ruta (lo manejo yo)</option>${cobradores().map(u=>`<option value="${u.id}" ${u.id===c.cobradorId?'selected':''}>${esc(rutaCompleta(u))}</option>`).join('')}</select></label>` : '';
   openModal(`<h3>${id?'Editar cliente':'Nuevo cliente'}</h3>
@@ -1733,6 +1734,7 @@ function puedeRenovar(p){
   return true;
 }
 function modalRenovacion(prestamoId, renovacionId){
+  if(!isAdmin() && rutaBloqueada()) return;   // la ruta solo registra con el día abierto
   const ren = renovacionId ? DB.renovaciones.find(r=>r.id===renovacionId) : null;
   const p = DB.prestamos.find(x=>x.id===(ren?ren.prestamoId:prestamoId)); if(!p) return;
   const e = estadoPrestamo(p), cl = clienteById(p.clienteId)||{};
@@ -1857,6 +1859,7 @@ function ejecutarRenovacion(p, saldo, d, ren, entrega){
   COMP_TMP = '';
 }
 function elegirRenovacion(){
+  if(!isAdmin() && rutaBloqueada()) return;   // la ruta solo registra con el día abierto
   const ps=DB.prestamos.filter(p=>puedeRenovar(p)).sort((a,b)=>nombreCliente(a.clienteId).localeCompare(nombreCliente(b.clienteId)));
   if(!ps.length) return toast('No tienes préstamos activos para renovar');
   openModal(`<h3>Solicitar renovación</h3><p class="muted" style="margin-top:-8px">Escoge el cliente que quiere renovar.</p>
@@ -1866,6 +1869,7 @@ function elegirRenovacion(){
   <div class="actions"><button class="btn" onclick="closeModal()">Cancelar</button></div>`);
 }
 function marcarEntregada(id){
+  if(!isAdmin() && rutaBloqueada()) return;   // la ruta solo registra con el día abierto
   const r=DB.renovaciones.find(x=>x.id===id); if(!r || r.estado!=='aprobada') return;
   openModal(`<h3>Entregar renovación · ${esc(nombreCliente(r.clienteId))}</h3>
   <p class="muted" style="margin-top:-8px">Valor a entregar: <b>${fmt(r.excedente)}</b></p>

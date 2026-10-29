@@ -1224,8 +1224,14 @@ function modalPago(prestamoId, pagoId, fecha){
     box.innerHTML=`<div><div class="l">Cuota</div><div class="v">${fmt(p.valorCuota)}</div></div>
       <div><div class="l">Pendiente hasta hoy</div><div class="v" style="color:${e.atraso?'var(--red)':'inherit'}">${fmt(e.atraso)}</div></div>
       <div><div class="l">Saldo</div><div class="v">${fmt(e.saldo + (pago?pago.monto:0))}</div></div>
-      <div><div class="l">Cuotas pagadas</div><div class="v">${e.cuotasPagadas}/${p.cuotas}</div></div>`;
-    const val=document.getElementById('gVal'); if(!pago && !val.value) val.value=fmtIn(Math.min(Math.max(p.valorCuota, e.atraso), e.saldo));
+      <div><div class="l">Cuotas pagadas</div><div class="v">${e.cuotasPagadas}/${p.cuotas}</div></div>
+      ${pago?'':`<div style="grid-column:1/-1" class="row"><span class="muted" style="font-size:12.5px">Llenar con:</span>
+        <button type="button" class="btn sm" data-v="${Math.min(p.valorCuota, e.saldo)}">1 cuota · ${fmt(Math.min(p.valorCuota, e.saldo))}</button>
+        ${e.atraso>p.valorCuota+0.5?`<button type="button" class="btn sm" data-v="${Math.min(e.atraso, e.saldo)}">Todo lo atrasado · ${fmt(Math.min(e.atraso, e.saldo))}</button>`:''}
+        ${e.saldo>Math.max(p.valorCuota, e.atraso)+0.5?`<button type="button" class="btn sm" data-v="${e.saldo}">Saldo total · ${fmt(e.saldo)}</button>`:''}</div>`}`;
+    box.querySelectorAll('button[data-v]').forEach(b=>b.onclick=()=>{ const v=document.getElementById('gVal'); v.value=fmtIn(Number(b.dataset.v)); v.focus(); });
+    // por defecto se sugiere UNA cuota (no todo lo atrasado), para no registrar de más por error
+    const val=document.getElementById('gVal'); if(!pago && !val.value) val.value=fmtIn(Math.min(p.valorCuota, e.saldo));
   };
   document.getElementById('gPre').addEventListener('change',()=>{ if(!pago) document.getElementById('gVal').value=''; info(); });
   const val=document.getElementById('gVal'); val.addEventListener('blur',()=>{ const n=num(val.value); if(n) val.value=fmtIn(n); });
@@ -1242,6 +1248,7 @@ function modalPago(prestamoId, pagoId, fecha){
     const p=DB.prestamos.find(x=>x.id===pid), e=estadoPrestamo(p);
     const saldo = e.saldo + (pago&&pago.prestamoId===pid?pago.monto:0);
     if(monto > saldo+0.5 && !await confirmar(`El pago (${fmt(monto)}) es mayor que el saldo (${fmt(saldo)}). ¿Guardar de todas formas?`)) return;
+    if(!pago && monto > p.valorCuota*1.5 + 0.5 && monto <= saldo+0.5 && !await confirmar(`Vas a registrar ${fmt(monto)}, que equivale a ${(Math.round(monto/p.valorCuota*10)/10).toLocaleString('es-CO')} cuotas de ${fmt(p.valorCuota)}.\n\n¿Es correcto?`, {ok:'Sí, registrar'})) return;
     const nota=document.getElementById('gNot').value.trim();
     if(medio==='transferencia' && !COMP_TMP && !(pago&&pago.comprobante) && !await confirmar('No adjuntaste el comprobante de la transferencia. ¿Guardar así?', {ok:'Guardar sin comprobante'})) return;
     const conComp = medio==='transferencia' && (!!COMP_TMP || !!(pago&&pago.comprobante));

@@ -127,3 +127,26 @@ try{
   }
 }catch(e){}
 
+
+/* ---------- valores de plata: se separan los miles mientras se escriben (ej. 1.500.000) ---------- */
+const CAMPOS_PLATA_EXTRA = ['pSeg','uCap','rSal','rMax','rGas','kVal'];
+function formatearPlata(el){
+  const m = (typeof MON==='function') ? MON() : {loc:'es-CO', dec:0};
+  const dsep = (1.5).toLocaleString(m.loc).charAt(1), tsep = (1000).toLocaleString(m.loc).replace(/\d/g,'') || (dsep===','?'.':',');
+  const raw = el.value, caret = el.selectionStart==null ? raw.length : el.selectionStart;
+  const sig = s => (s.match(new RegExp('[0-9' + (m.dec ? '\\' + dsep : '') + ']', 'g')) || []).length;
+  const antes = sig(raw.slice(0, caret));
+  let ent = raw, dec = null;
+  if(m.dec && raw.includes(dsep)){ const i = raw.indexOf(dsep); ent = raw.slice(0, i); dec = raw.slice(i+1).replace(/\D/g,'').slice(0, m.dec); }
+  ent = ent.replace(/\D/g,'').replace(/^0+(?=\d)/,'');
+  const nuevo = ent.replace(/\B(?=(\d{3})+(?!\d))/g, tsep) + (dec!==null ? dsep + dec : '');
+  if(nuevo === raw) return;
+  el.value = nuevo;
+  let k = 0, pos = 0; while(pos < nuevo.length && k < antes){ if(/[0-9]/.test(nuevo[pos]) || (m.dec && nuevo[pos]===dsep)) k++; pos++; }
+  try{ el.setSelectionRange(pos, pos); }catch(e){}
+}
+document.addEventListener('input', e=>{
+  const el = e.target;
+  if(!el || el.tagName!=='INPUT' || !el.classList.contains('input')) return;
+  if(el.getAttribute('inputmode')==='numeric' || CAMPOS_PLATA_EXTRA.includes(el.id) || el.hasAttribute('data-plata')) formatearPlata(el);
+}, true);

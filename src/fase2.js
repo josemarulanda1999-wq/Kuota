@@ -155,21 +155,32 @@ function bloqueAjustesFase2(){
       <label class="f full">Días festivos sin cobro (préstamos diarios). Uno por línea, AAAA-MM-DD
         <textarea class="input" id="sFest" rows="4">${esc((c.festivos||[]).join('\n'))}</textarea></label>
       <div class="f full"><button type="button" class="btn sm" onclick="document.getElementById('sFest').value=FESTIVOS_CO.join('\\n')">Cargar festivos de Colombia 2026-2027</button></div>
-      <label class="chk full"><input type="checkbox" id="sMulA" ${m.activa?'checked':''}> Cobrar multa cuando el cliente no paga</label>
-      <label class="f">Cada cuántos "no pagó"<input class="input" id="sMulN" inputmode="numeric" value="${esc(m.cada||3)}"></label>
-      <label class="f">La multa es<select class="input" id="sMulT"><option value="cuota" ${m.tipo!=='fijo'?'selected':''}>Una cuota más</option><option value="fijo" ${m.tipo==='fijo'?'selected':''}>Un valor fijo</option></select></label>
-      <label class="f">Valor fijo<input class="input" id="sMulV" inputmode="decimal" value="${m.valor?fmtIn(m.valor):''}" placeholder="Si es valor fijo"></label>
+      <label class="chk full"><input type="checkbox" id="sMulA" ${m.activa?'checked':''}> Cobrar multa por atraso</label>
+      <label class="f full">La multa es<select class="input" id="sMulT" onchange="verTipoMulta()">
+        <option value="dia" ${m.tipo==='dia'?'selected':''}>Un valor por cada día de atraso, según el monto del crédito</option>
+        <option value="cuota" ${m.tipo!=='fijo'&&m.tipo!=='dia'?'selected':''}>Una cuota más, cada cierto número de "no pagó"</option>
+        <option value="fijo" ${m.tipo==='fijo'?'selected':''}>Un valor fijo, cada cierto número de "no pagó"</option></select></label>
+      <div class="f full mul-dia" style="display:${m.tipo==='dia'?'grid':'none'};grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px">
+        <label class="f">Créditos de más de<input class="input" id="sMulU" inputmode="numeric" value="${fmtIn(m.umbral||500000)}"></label>
+        <label class="f">pagan por día<input class="input" id="sMulH" inputmode="numeric" value="${fmtIn(m.alto??20000)}"></label>
+        <label class="f">Los demás pagan por día<input class="input" id="sMulB" inputmode="numeric" value="${fmtIn(m.bajo??10000)}"></label>
+      </div>
+      <label class="f mul-vis" style="display:${m.tipo==='dia'?'none':''}">Cada cuántos "no pagó"<input class="input" id="sMulN" inputmode="numeric" value="${esc(m.cada||3)}"></label>
+      <label class="f mul-vis" style="display:${m.tipo==='dia'?'none':''}">Valor fijo<input class="input" id="sMulV" inputmode="numeric" value="${m.valor?fmtIn(m.valor):''}" placeholder="Si es valor fijo"></label>
       <label class="f">Aplicar desde<input type="date" class="input" id="sMulD" value="${esc(m.desde||todayStr())}"></label>
       <label class="f">Seguro sugerido por crédito (%)<input class="input" id="sSeg" inputmode="decimal" value="${esc(c.seguroPct||0)}"></label>
     </div>
     <div class="actions row" style="margin-top:16px"><button class="btn pri" onclick="guardarAjustesFase2()">Guardar</button></div>
-    <p class="muted" style="font-size:12px;margin-top:10px">Los festivos corren las fechas de cobro de los préstamos diarios. La multa se suma al saldo del crédito automáticamente.</p>
+    <p class="muted" style="font-size:12px;margin-top:10px">Los festivos corren las fechas de cobro de los préstamos diarios. Las multas van en su casilla aparte: no suman a la cartera ni a la caja hasta que el cliente las paga. Con multa por día, se cuenta cada día que el cliente amanece atrasado (sin domingos en créditos que no cobran domingo, ni festivos, ni días dados), desde la fecha "Aplicar desde".</p>
   </div>`;
 }
+function verTipoMulta(){ const dia=document.getElementById('sMulT').value==='dia';
+  document.querySelectorAll('.mul-dia').forEach(e=>e.style.display=dia?'grid':'none'); document.querySelectorAll('.mul-vis').forEach(e=>e.style.display=dia?'none':''); }
 function guardarAjustesFase2(){
   const v = id => document.getElementById(id).value;
   DB.config.festivos = v('sFest').split(/\s+/).map(x=>x.trim()).filter(x=>/^\d{4}-\d{2}-\d{2}$/.test(x)).slice(0,120);
-  DB.config.multa = {activa:document.getElementById('sMulA').checked, cada:Math.max(1,Math.round(num(v('sMulN')))||3), tipo:v('sMulT'), valor:num(v('sMulV')), desde:v('sMulD')||todayStr()};
+  DB.config.multa = {activa:document.getElementById('sMulA').checked, cada:Math.max(1,Math.round(num(v('sMulN')))||3), tipo:['dia','cuota','fijo'].includes(v('sMulT'))?v('sMulT'):'cuota', valor:num(v('sMulV')), desde:v('sMulD')||todayStr(),
+    umbral:num(v('sMulU'))||500000, alto:num(v('sMulH')), bajo:num(v('sMulB'))};
   DB.config.seguroPct = Math.max(0, Math.min(20, num(v('sSeg'))));
   cfgSave(); auditar('ajustes', 'config', 'general', 'Festivos, multas o seguro'); render(); toast('Ajustes guardados');
 }

@@ -261,8 +261,39 @@ function siguienteMismoDia(pViejo, periodo, hoy=todayStr()){
 const DIAS_SEM=['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
 const diaSem = f => DIAS_SEM[parseD(f).getDay()];
 /* multa por no pago: cada N visitas "no pagó" se suma una cuota (o un valor fijo) al saldo */
+/* multa por día de atraso: cada día que el cliente amanece atrasado se cobra un valor fijo según el monto del crédito
+   (ej. créditos de más de 500.000 → 20.000 por día; de 500.000 o menos → 10.000 por día) */
+const _multaDia = new Map();
+function multaPorDia(p, m){
+  const hoy = todayStr(), todos = pagosDe(p.id);
+  // lo pagado en el sistema anterior (importado) ya estaba pagado antes: cuenta desde el principio
+  const pagos = todos.filter(x=>x.tipo!=='importado'), previo = todos.filter(x=>x.tipo==='importado').reduce((s,x)=>s+x.monto,0);
+  const key = [hoy, todos.length, todos.reduce((s,x)=>s+x.monto,0), p.fecha, p.cuotas, p.valorCuota, p.primeraCuota||'', m.desde||'', m.umbral, m.alto, m.bajo, (DB.config.festivos||[]).length, (DB.visitas||[]).length, (DB.aperturas||[]).length, DB.config.sinAbrir||''].join('|');
+  const c = _multaDia.get(p.id); if(c && c.key===key) return c.val;
+  const unidad = (Number(p.monto)||0) > (Number(m.umbral)||500000) ? (Number(m.alto)||0) : (Number(m.bajo)||0);
+  const cron = cronograma(p), vc = Number(p.valorCuota)||0, base = vc*(Number(p.cuotas)||0);
+  const fest = new Set((DB.config && DB.config.festivos) || []), libres = diasLibres(p.id, p.cobradorId) || new Set();
+  let dias = 0;
+  if(unidad>0 && cron.length && vc>0){
+    const d = parseD(cron[0].fecha); d.setDate(d.getDate()+1);
+    let ic = 0, ip = 0, pagado = previo;
+    for(let k=0; k<2000; k++){
+      const f = ymd(d); if(f >= hoy) break;
+      while(ic < cron.length && cron[ic].fecha < f) ic++;            // cuotas vencidas antes de este día
+      while(ip < pagos.length && pagos[ip].fecha <= f){ pagado += pagos[ip].monto; ip++; }
+      const esperado = Math.min(base, ic*vc);
+      const cuenta = (!m.desde || f >= m.desde) && !(p.excluirDomingos && d.getDay()===0) && !fest.has(f) && !libres.has(f);
+      if(cuenta && esperado - pagado > 1) dias++;
+      if(pagado >= base - 0.5) break;
+      d.setDate(d.getDate()+1);
+    }
+  }
+  const val = {valor: dias*unidad, n: dias, veces: dias, porDia: unidad, tipo:'dia'};
+  _multaDia.set(p.id, {key, val}); return val;
+}
 function multaDe(p){
   const m = (DB.config && DB.config.multa) || {};
+  if(m.activa && m.tipo==='dia') return multaPorDia(p, m);
   if(!m.activa || !(Number(m.cada)>0)) return {valor:0, n:0, veces:0};
   const n = DB.visitas.filter(v=>v.prestamoId===p.id && v.resultado!=='dominical' && (!m.desde || v.fecha>=m.desde)).length;
   const veces = Math.floor(n / Number(m.cada));
@@ -1297,7 +1328,7 @@ function modalDetalle(id, tab='cuotas'){
     <div><div class="l">Total a pagar</div><div class="v">${fmt(e.totalReal - e.multa.valor)}</div></div>
     <div><div class="l">Pagado</div><div class="v" style="color:var(--green)">${fmt(e.pagado)}</div></div>
     <div><div class="l">Saldo del crédito</div><div class="v">${fmt(e.saldoCuotas)}</div>${e.multa.valor?`<div class="muted" style="font-size:12px">Sin contar multas</div>`:''}</div>
-    ${e.multa.valor?`<div><div class="l">Multas por cobrar</div><div class="v" style="color:var(--amber)">${fmt(e.multaPend)}</div><div class="muted" style="font-size:12px">${e.multa.veces} multa(s) por ${e.multa.n} no pagos${e.multaCobrada?' · ya cobradas '+fmt(e.multaCobrada):''}</div></div>`:''}
+    ${e.multa.valor?`<div><div class="l">Multas por cobrar</div><div class="v" style="color:var(--amber)">${fmt(e.multaPend)}</div><div class="muted" style="font-size:12px">${e.multa.tipo==='dia'?`${e.multa.n} día(s) de atraso × ${fmt(e.multa.porDia)}`:`${e.multa.veces} multa(s) por ${e.multa.n} no pagos`}${e.multaCobrada?' · ya cobradas '+fmt(e.multaCobrada):''}</div></div>`:''}
     <div><div class="l">En mora</div><div class="v" style="color:${e.atrasoMora?'var(--red)':'inherit'}">${fmt(e.atrasoMora)}${e.diasMora?` · ${e.diasMora} días`:''}</div></div>
     <div><div class="l">Próxima cuota</div><div class="v">${e.proxima?fdate(e.proxima.fecha):'—'}</div></div>
   </div>

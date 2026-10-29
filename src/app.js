@@ -1896,7 +1896,7 @@ VIEWS.cuadre = () => {
       <div class="cr-fila mas"><span>+ Base recibida de la oficina</span><b>${fmt(c.baseDia)}</b></div>
       <div class="cr-fila mas"><span>+ Cobrado en efectivo (${c.nPagosDia})</span><b>${fmt(c.cobradoDia)}</b></div>
       ${c.ingresosDia?`<div class="cr-fila mas"><span>+ Otros ingresos</span><b>${fmt(c.ingresosDia)}</b></div>`:''}
-      <div class="cr-fila menos"><span>− Préstamos y renovaciones entregados</span><b>${fmt(salidas)}</b></div>
+      <div class="cr-fila menos"><span>− Préstamos y renovaciones entregados${btnCreditosDia(ME.uid, fecha)}</span><b>${fmt(salidas)}</b></div>
       <div class="cr-fila menos"><span>− Gastos de la ruta</span><b>${fmt(c.gastosDia)}</b></div>
       <div class="cr-fila menos"><span>− Entregado a la oficina</span><b>${fmt(c.entregadoDia)}</b></div>
       <div class="cr-fila total"><span>Debes tener en efectivo</span><b>${fmt(c.saldoFinal)}</b></div>
@@ -1926,7 +1926,7 @@ VIEWS.cuadre = () => {
     <div class="cr-fila mas"><span>+ Base</span><b>${fmt(c.baseDia)}</b></div>
     <div class="cr-fila mas"><span>+ Cobrado en efectivo (${c.nPagosDia})</span><b>${fmt(c.cobradoDia)}</b></div>
     ${c.ingresosDia?`<div class="cr-fila mas"><span>+ Otros ingresos</span><b>${fmt(c.ingresosDia)}</b></div>`:''}
-    <div class="cr-fila menos"><span>− Prestado / renovaciones</span><b>${fmt(c.prestadoDia + c.desembolsadoDia)}</b></div>
+    <div class="cr-fila menos"><span>− Prestado / renovaciones${btnCreditosDia(u.id, fecha)}</span><b>${fmt(c.prestadoDia + c.desembolsadoDia)}</b></div>
     <div class="cr-fila menos"><span>− Gastos de la ruta</span><b>${fmt(c.gastosDia)}</b></div>
     <div class="cr-fila menos"><span>− Entregó a la oficina</span><b>${fmt(c.entregadoDia)}</b></div>
     <div class="cr-fila total"><span>Debe tener en efectivo</span><b style="color:${c.saldoFinal>0.5?'var(--amber)':'inherit'}">${fmt(c.saldoFinal)}</b></div>
@@ -1939,6 +1939,35 @@ VIEWS.cuadre = () => {
   ${(()=>{const es=DB.entregas.filter(x=>x.fecha===fecha); return es.length?`<div class="card pad" style="margin:16px 0"><h2>Bases y entregas de ese día</h2><div class="tablewrap"><table><tbody>${es.map(x=>`<tr><td>${x.tipo==='base'?'<span class="pill p-pag">Base</span>':'<span class="pill p-ok">Entrega</span>'}</td><td>${esc(nombreRuta(x.cobradorId))}</td><td>${esc(x.nota||'')}</td><td class="num">${fmt(x.valor)}</td><td class="muted">${esc(nombreUsuario(x.creadoPor))}</td><td class="right">${isCeo()?`<button class="btn sm danger" onclick="borrarEntrega('${x.id}')">Borrar</button>`:''}</td></tr>`).join('')}</tbody></table></div></div>`:'<div style="height:16px"></div>';})()}
   ${tablaPagosDia(todosPagos,true)}`;
 };
+/* ---------- créditos y renovaciones que la ruta entregó ese día (detalle del cuadre) ---------- */
+function creditosDia(uid, fecha){
+  const fRen = r=>r.entregadoEn ? ymd(new Date(r.entregadoEn)) : (r.fechaRenovacion||'');
+  const nuevos = DB.prestamos.filter(p=>p.fuente==='ruta' && p.cobradorId===uid && !p.renovacionDe && p.fecha===fecha);
+  const renov = DB.renovaciones.filter(r=>r.estado==='entregada' && r.entregadoPor===uid && fRen(r)===fecha);
+  return {nuevos, renov};
+}
+function btnCreditosDia(uid, fecha){
+  const {nuevos, renov} = creditosDia(uid, fecha), n = nuevos.length + renov.length;
+  return n ? ` <span class="muted">(${n})</span> <button class="btn sm ghost" style="padding:2px 10px" onclick="modalCreditosDia('${uid}','${fecha}')">Ver</button>` : '';
+}
+function modalCreditosDia(uid, fecha){
+  const {nuevos, renov} = creditosDia(uid, fecha);
+  const totN = nuevos.reduce((s,p)=>s+p.monto,0), totR = renov.filter(r=>r.medioEntrega!=='transferencia').reduce((s,r)=>s+(Number(r.excedente)||0),0);
+  const hora = t => t ? new Date(t).toLocaleTimeString('es-CO',{hour:'numeric',minute:'2-digit'}) : '';
+  openModal(`<div class="row" style="margin-bottom:6px"><h3 style="margin:0">Créditos de ${esc(nombreRuta(uid))} · ${fdate(fecha)}</h3><span class="spacer"></span><button class="btn sm ghost" onclick="closeModal()">✕</button></div>
+  <p class="muted" style="margin:0 0 12px">Lo que la ruta prestó y renovó con su plata ese día. Toca uno para ver el crédito.</p>
+  <h2 style="font-size:16px;margin:4px 0 8px">Créditos nuevos <span class="muted" style="font-weight:500">· ${nuevos.length} · ${fmt(totN)}</span></h2>
+  ${nuevos.length?`<div class="tablewrap"><table><tbody>${nuevos.map(p=>`<tr class="click" onclick="closeModal();modalDetalle('${p.id}')">
+    <td><div class="who">${ava(nombreCliente(p.clienteId))}<div><b>${esc(nombreCliente(p.clienteId))}</b><div class="muted" style="font-size:12px">${hora(p.creado)} · ${p.cuotas} cuotas ${p.periodo.toLowerCase()} de ${fmt(p.valorCuota)}${textoDiaPago(p)}</div></div></div></td>
+    <td class="num"><b>${fmt(p.monto)}</b></td></tr>`).join('')}</tbody></table></div>`:'<p class="muted" style="margin:0 0 8px">No hizo créditos nuevos ese día.</p>'}
+  <h2 style="font-size:16px;margin:16px 0 8px">Renovaciones entregadas <span class="muted" style="font-weight:500">· ${renov.length}</span></h2>
+  ${renov.length?`<div class="tablewrap"><table><thead><tr><th>Cliente</th><th class="num">Nuevo crédito</th><th class="num">Debía</th><th class="num">Entregó</th></tr></thead><tbody>${renov.map(r=>`<tr class="click" onclick="closeModal();modalDetalle('${r.nuevoPrestamoId||r.prestamoId}')">
+    <td><div class="who">${ava(nombreCliente(r.clienteId))}<div><b>${esc(nombreCliente(r.clienteId))}</b><div style="margin-top:3px">${r.medioEntrega==='transferencia'?`<span class="pill p-pag">Transferencia</span>${r.comprobanteEntrega?` <button class="btn sm ghost" onclick="event.stopPropagation();verComprobante('${idCompRenov(r.id)}')">Ver comprobante</button>`:''}`:'<span class="pill p-ok">Efectivo</span>'} <span class="muted" style="font-size:12px">${hora(r.entregadoEn)}</span></div></div></div></td>
+    <td class="num">${fmt(r.monto)}</td><td class="num">${fmt(r.saldoCancelado||0)}</td><td class="num"><b>${fmt(r.excedente||0)}</b></td></tr>`).join('')}</tbody></table></div>`:'<p class="muted" style="margin:0">No entregó renovaciones ese día.</p>'}
+  <div class="calcbox" style="margin-top:14px"><div><div class="l">Salió del efectivo de la ruta</div><div class="v">${fmt(totN + totR)}</div></div>
+    ${renov.some(r=>r.medioEntrega==='transferencia')?`<div><div class="l">Por transferencia (no sale del efectivo)</div><div class="v">${fmt(renov.filter(r=>r.medioEntrega==='transferencia').reduce((s,r)=>s+(Number(r.excedente)||0),0))}</div></div>`:''}</div>
+  <div class="actions"><button class="btn" onclick="closeModal()">Cerrar</button></div>`, true);
+}
 function tablaPagosDia(pagos, conCobrador){
   if(!pagos.length) return `<div class="card"><div class="empty">No hay pagos registrados ese día.</div></div>`;
   return `<div class="card pad"><h2>Pagos del día</h2><div class="tablewrap"><table><thead><tr><th>Cliente</th>${conCobrador?'<th>Registró</th>':''}<th>Cómo pagó</th><th>Nota</th><th class="num">Valor</th></tr></thead><tbody>

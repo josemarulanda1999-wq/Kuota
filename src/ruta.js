@@ -199,6 +199,55 @@ function resumenCierre(uid, fecha){
   return { cobrado:c.cobradoDia, transferencias:c.transfDia||0, pagos:c.nPagosDia, base:c.baseDia, gastos:c.gastosDia, ingresos:c.ingresosDia, prestado:c.prestadoDia + c.desembolsadoDia,
            entregado:c.entregadoDia, saldoFinal:c.saldoFinal, clientes:lista.length, noPagos:visitas.length };
 }
+/* ---------- detalle del cierre: quién pagó, quién quedó pendiente y el recorrido del día ---------- */
+function listasDia(uid, fecha){
+  const mios = new Set(DB.prestamos.filter(p=>p.cobradorId===uid).map(p=>p.id));
+  const pagaron = DB.pagos.filter(x=>x.fecha===fecha && efectivo(x) && (mios.has(x.prestamoId) || x.cobradorId===uid))
+    .map(x=>{ const p=DB.prestamos.find(y=>y.id===x.prestamoId)||{}; return {c:nombreCliente(p.clienteId).slice(0,60), m:Math.round(x.monto*100)/100, t:x.medio==='transferencia'?'T':'E', h:x.creado?new Date(x.creado).toLocaleTimeString('es-CO',{hour:'numeric',minute:'2-digit'}):''}; })
+    .slice(0,300);
+  const pendientes = cobrosDelDia(fecha).filter(c=>c.p.cobradorId===uid && c.pagadoHoy<0.5 && c.cobrar>0.5)
+    .map(c=>{ const v=visitaDe(c.p.id, fecha), dd=diaDado(c.p.id, fecha); return {c:nombreCliente(c.p.clienteId).slice(0,60), d:Math.round(c.cobrar*100)/100, r:(dd?'Día dado: '+dd.motivo:v?'No pagó: '+v.motivo:'Sin visita').slice(0,60)}; })
+    .slice(0,300);
+  return {pagaron, pendientes};
+}
+function distanciaKm(ll){ let d=0; for(let i=1;i<ll.length;i++){ const [a,b]=ll[i-1],[c,e]=ll[i]; const R=6371, dl=(c-a)*Math.PI/180, dn=(e-b)*Math.PI/180;
+  const h=Math.sin(dl/2)**2+Math.cos(a*Math.PI/180)*Math.cos(c*Math.PI/180)*Math.sin(dn/2)**2; const k=2*R*Math.asin(Math.sqrt(h)); if(k<5) d+=k; } return Math.round(d*10)/10; }
+async function resumenRecorrido(uid, fecha){
+  try{
+    const r = await Promise.race([S.getRecorrido(uid, fecha), new Promise(res=>setTimeout(()=>res(null), 6000))]);
+    const pts = (r && Array.isArray(r.puntos) ? r.puntos : []).filter(q=>q && typeof q.la==='number' && typeof q.lo==='number').sort((a,b)=>(a.t||0)-(b.t||0));
+    if(!pts.length) return {rPuntos:0};
+    const hora = t => t ? new Date(t).toLocaleTimeString('es-CO',{hour:'numeric',minute:'2-digit'}) : '';
+    return {rPuntos:pts.length, rKm:distanciaKm(pts.map(q=>[q.la,q.lo])), rDesde:hora(pts[0].t), rHasta:hora(pts[pts.length-1].t)};
+  }catch(e){ return {rPuntos:0}; }
+}
+async function resumenCierreCompleto(uid, fecha){
+  return Object.assign(resumenCierre(uid, fecha), listasDia(uid, fecha), await resumenRecorrido(uid, fecha));
+}
+async function modalCierre(uid, fecha){
+  const ci = cierreDe(uid, fecha);
+  let r = ci && ci.resumen && Array.isArray(ci.resumen.pagaron) ? ci.resumen : null;
+  if(!r){ r = Object.assign(resumenCierre(uid, fecha), listasDia(uid, fecha)); Object.assign(r, await resumenRecorrido(uid, fecha)); }
+  const tot = (l,k) => (l||[]).reduce((s,x)=>s+(Number(x[k])||0),0);
+  const pag = r.pagaron||[], pen = r.pendientes||[];
+  openModal(`<div class="row" style="margin-bottom:6px"><h3 style="margin:0">${ci?'Cierre':'Día'} de ${esc(nombreRuta(uid))} · ${fdate(fecha)}</h3><span class="spacer"></span><button class="btn sm ghost" onclick="closeModal()">✕</button></div>
+    <p class="muted" style="margin:0 0 12px">${ci?`Cerrada a las ${new Date(ci.cerradoEn).toLocaleTimeString('es-CO',{hour:'numeric',minute:'2-digit'})}`:'La ruta todavía no ha cerrado este día: estos datos son en vivo.'}</p>
+    <div class="calcbox" style="margin-bottom:12px">
+      <div><div class="l">Cobrado en efectivo</div><div class="v">${fmt(r.cobrado||0)}</div></div>
+      <div><div class="l">Transferencias</div><div class="v">${fmt(r.transferencias||0)}</div></div>
+      <div><div class="l">Gastos</div><div class="v">${fmt(r.gastos||0)}</div></div>
+      <div><div class="l">Debe tener en efectivo</div><div class="v">${fmt(r.saldoFinal||0)}</div></div>
+    </div>
+    <div class="card pad" style="margin-bottom:12px;background:var(--panel-2)"><div class="row"><b>Recorrido del día</b><span class="spacer"></span>${r.rPuntos?`<span class="muted">${r.rKm||0} km · ${esc(r.rDesde||'')} a ${esc(r.rHasta||'')} · ${r.rPuntos} puntos</span>`:'<span class="muted">Sin recorrido GPS ese día</span>'}
+      ${r.rPuntos&&isAdmin()?`<button class="btn sm" onclick="closeModal();go('mapa',{ruta:'${uid}',fecha:'${fecha}'})">Ver en el mapa</button>`:''}</div></div>
+    <div class="grid2" style="gap:12px">
+      <div class="card pad" style="background:var(--panel-2)"><div class="row" style="margin-bottom:8px"><b>Pagaron</b><span class="pill p-ok">${pag.length}</span><span class="spacer"></span><b>${fmt(tot(pag,'m'))}</b></div>
+        ${pag.length?`<div class="tablewrap" style="max-height:300px"><table><tbody>${pag.map(x=>`<tr><td>${esc(x.c)}</td><td class="muted" style="font-size:12px">${esc(x.h||'')}${x.t==='T'?' · transf.':''}</td><td class="num">${fmt(x.m)}</td></tr>`).join('')}</tbody></table></div>`:'<p class="muted" style="margin:0">Nadie pagó este día.</p>'}</div>
+      <div class="card pad" style="background:var(--panel-2)"><div class="row" style="margin-bottom:8px"><b>Quedaron pendientes</b><span class="pill p-mora">${pen.length}</span><span class="spacer"></span><b style="color:var(--red)">${fmt(tot(pen,'d'))}</b></div>
+        ${pen.length?`<div class="tablewrap" style="max-height:300px"><table><tbody>${pen.map(x=>`<tr><td>${esc(x.c)}<div class="muted" style="font-size:12px">${esc(x.r||'')}</div></td><td class="num">${fmt(x.d)}</td></tr>`).join('')}</tbody></table></div>`:'<p class="muted" style="margin:0">Todos pagaron. 🎉</p>'}</div>
+    </div>
+    <div class="actions"><button class="btn" onclick="closeModal()">Cerrar</button></div>`, true);
+}
 async function cerrarMiRuta(){
   const fecha = todayStr();
   if(cierreDe(ME.uid, fecha)) return avisar('Tu ruta de hoy ya está cerrada.');
@@ -206,15 +255,16 @@ async function cerrarMiRuta(){
   const r = resumenCierre(ME.uid, fecha);
   const sinVisitar = cobrosDelDia(fecha).filter(x=>x.p.cobradorId===ME.uid && x.pagadoHoy<=0 && !visitaDe(x.p.id, fecha)).length;
   if(!await confirmar(`Cerrar la ruta de hoy\n\nCobrado en efectivo: ${fmt(r.cobrado)} (${r.pagos} pagos)\nPor transferencia: ${fmt(r.transferencias)}\nGastos: ${fmt(r.gastos)}\nPrestado: ${fmt(r.prestado)}\nDebes tener en efectivo: ${fmt(r.saldoFinal)}${sinVisitar?`\n\nOjo: ${sinVisitar} cliente(s) sin pago ni visita registrada.`:''}\n\nDespués de cerrar no podrás registrar más cobros hoy.`, {ok:'Cerrar ruta'})) return;
-  S.set('cierres', idCierre(ME.uid, fecha), {cobradorId:ME.uid, fecha, cerradoEn:Date.now(), resumen:r}).catch(falloNube);
-  DB.cierres.push({id:idCierre(ME.uid, fecha), cobradorId:ME.uid, fecha, cerradoEn:Date.now(), resumen:r});
+  const rc = await resumenCierreCompleto(ME.uid, fecha);       // guarda quién pagó, quién quedó pendiente y el recorrido del día
+  S.set('cierres', idCierre(ME.uid, fecha), {cobradorId:ME.uid, fecha, cerradoEn:Date.now(), resumen:rc}).catch(falloNube);
+  DB.cierres.push({id:idCierre(ME.uid, fecha), cobradorId:ME.uid, fecha, cerradoEn:Date.now(), resumen:rc});
   if(typeof GPS!=='undefined' && GPS.activo) detenerJornada(true);
   render(); toast('Ruta cerrada');
 }
 async function cerrarRutaOficina(uid, fecha){
   if(cierreDe(uid, fecha)) return;
   if(!await confirmar(`¿Cerrar ${nombreRuta(uid)} del ${fdate(fecha)}? La ruta ya no podrá registrar movimientos ese día.`, {ok:'Cerrar ruta'})) return;
-  const r = resumenCierre(uid, fecha);
+  const r = await resumenCierreCompleto(uid, fecha);
   S.set('cierres', idCierre(uid, fecha), {cobradorId:uid, fecha, cerradoEn:Date.now(), resumen:r}).catch(falloNube);
   DB.cierres.push({id:idCierre(uid, fecha), cobradorId:uid, fecha, cerradoEn:Date.now(), resumen:r});
   render(); toast('Ruta cerrada');

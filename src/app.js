@@ -533,7 +533,7 @@ VIEWS.panel = () => {
     <div class="card balance">
       <div class="l">Disponible para nuevos créditos</div>
       <div class="v" style="${r.caja<0?'color:var(--red)':''}">${fmt(r.caja)}</div>
-      <div class="n">Plata real en mano: capital + lo cobrado + ingresos − lo prestado − gastos</div>
+      <div class="n">Plata real en mano: capital + lo cobrado + ingresos − lo prestado − gastos${cobradores().length?'<br>Es la suma de la caja de la oficina y la de cada ruta (abajo).':''}</div>
       <div class="acciones">
         <button class="accion main" onclick="modalPrestamo()"><i>${ic.plus}</i>Prestar</button>
         <button class="accion" onclick="modalPago()"><i>${ic.cobrar}</i>Cobrar</button>
@@ -577,6 +577,7 @@ VIEWS.panel = () => {
       </div>
     </div>
   </div>
+  ${tablaCajasRutas()}
   ${resumenRutasPanel()}
   <div class="card pad" style="margin-top:16px">
     <div class="row" style="margin-bottom:6px"><h2 style="margin:0">Últimos movimientos</h2><span class="spacer"></span><button class="btn sm" data-go="movimientos">Ver todos</button></div>
@@ -811,17 +812,18 @@ AFTER.clientes = () => {
 };
 
 VIEWS.salidas = () => {
-  const rows = [...DB.salidas].sort((a,b)=>b.fecha.localeCompare(a.fecha));
+  const fc = viewState.caja||'';
+  const rows = [...DB.salidas].filter(x=>!fc || deCaja(x.cobradorId, fc)).sort((a,b)=>b.fecha.localeCompare(a.fecha));
   const total = rows.reduce((s,x)=>s+x.valor,0);
   const mes = todayStr().slice(0,7);
   const totalMes = rows.filter(x=>x.fecha.startsWith(mes)).reduce((s,x)=>s+x.valor,0);
   return `
   <div class="head"><div><h1>Salidas de dinero</h1><p class="sub">Gastos y retiros que se descuentan de la caja.</p></div>
-  <div class="row"><button class="btn" onclick="exportCSV('salidas')">Exportar a Excel</button><button class="btn pri" onclick="modalSalida()">+ Registrar salida</button></div></div>
+  <div class="row">${cobradores().length?`<select class="input" style="width:auto" onchange="go('salidas',{caja:this.value})"><option value="">Todas las cajas</option><option value="_ofi" ${fc==='_ofi'?'selected':''}>Oficina</option>${cobradores().map(u=>`<option value="${u.id}" ${fc===u.id?'selected':''}>${esc(rutaCompleta(u))}</option>`).join('')}</select>`:''}<button class="btn" onclick="exportCSV('salidas')">Exportar a Excel</button><button class="btn pri" onclick="modalSalida()">+ Registrar salida</button></div></div>
   <div class="kpis"><div class="kpi cream"><div class="l">Total salidas</div><div class="v">${fmt(total)}</div></div><div class="kpi sky"><div class="l">Este mes</div><div class="v">${fmt(totalMes)}</div></div></div>
   <div class="card">
-  ${rows.length? `<div class="tablewrap"><table><thead><tr><th>Fecha</th><th>Concepto</th><th class="num">Valor</th><th>Registró</th><th></th></tr></thead><tbody>
-  ${rows.map(s=>`<tr><td>${fdate(s.fecha)}</td><td>${esc(s.concepto)}</td><td class="num">${fmt(s.valor)}</td><td class="muted">${esc(nombreUsuario(s.creadoPor))}</td><td class="right">${isCeo()?`<button class="btn sm" onclick="modalSalida('${s.id}')">Editar</button>`:''}</td></tr>`).join('')}
+  ${rows.length? `<div class="tablewrap"><table><thead><tr><th>Fecha</th><th>Concepto</th>${cobradores().length?'<th>Caja</th>':''}<th class="num">Valor</th><th>Registró</th><th></th></tr></thead><tbody>
+  ${rows.map(s=>`<tr><td>${fdate(s.fecha)}</td><td>${esc(s.concepto)}</td>${cobradores().length?`<td>${esc(nombreCaja(s.cobradorId))}</td>`:''}<td class="num">${fmt(s.valor)}</td><td class="muted">${esc(nombreUsuario(s.creadoPor))}</td><td class="right">${isCeo()?`<button class="btn sm" onclick="modalSalida('${s.id}')">Editar</button>`:''}</td></tr>`).join('')}
   </tbody></table></div>`:`<div class="empty">No hay salidas registradas.</div>`}
   </div>`;
 };
@@ -945,12 +947,12 @@ function movimientos(){
     const tot=p.valorCuota*p.cuotas, fr= tot>0?(tot-p.monto)/tot:0, int=x.monto*fr;
     L.push({key:'g'+x.id,id:x.id,prestamoId:p.id,fecha:x.fecha,orden:2,creado:x.creado||0,tipo:x.tipo==='renovacion'?'renov':'pago',concepto:(x.tipo==='renovacion'?'Renovación de ':'Pago de ')+nombreCliente(p.clienteId),detalle:`Capital ${fmt(x.monto-int)} + interés ${fmt(int)}${x.nota?' — '+x.nota:''}`,ent:x.monto,sal:0,interes:int,por:x.registradoPor||x.creadoPor});
   }
-  for(const x of DB.salidas) L.push({key:'s'+x.id,id:x.id,fecha:x.fecha,orden:4,creado:x.creado||0,tipo:'gasto',concepto:x.concepto,detalle:'Salida de dinero',ent:0,sal:x.valor,por:x.creadoPor});
+  for(const x of DB.salidas) L.push({key:'s'+x.id,id:x.id,fecha:x.fecha,orden:4,creado:x.creado||0,tipo:'gasto',concepto:x.concepto+(esRutaViva(x.cobradorId)?' · '+nombreRuta(x.cobradorId):''),detalle:'Salida de dinero',ent:0,sal:x.valor,por:x.creadoPor});
   for(const x of DB.movruta){
     if(x.tipo==='gasto') L.push({key:'r'+x.id,id:x.id,fecha:x.fecha,orden:4,creado:x.creado||0,tipo:'gasto',concepto:x.concepto+' · '+nombreRuta(x.cobradorId),detalle:'Gasto de la ruta'+(x.nota?' — '+x.nota:''),ent:0,sal:x.valor,por:x.creadoPor});
     else L.push({key:'r'+x.id,id:x.id,fecha:x.fecha,orden:2,creado:x.creado||0,tipo:'ingreso',concepto:x.concepto+' · '+nombreRuta(x.cobradorId),detalle:'Ingreso de la ruta'+(x.nota?' — '+x.nota:''),ent:x.valor,sal:0,por:x.creadoPor});
   }
-  for(const x of DB.ingresos) L.push({key:'i'+x.id,id:x.id,fecha:x.fecha,orden:2,creado:x.creado||0,tipo:'ingreso',concepto:x.concepto,detalle:'Ingreso extra',ent:x.valor,sal:0,por:x.creadoPor});
+  for(const x of DB.ingresos) L.push({key:'i'+x.id,id:x.id,fecha:x.fecha,orden:2,creado:x.creado||0,tipo:'ingreso',concepto:x.concepto+(esRutaViva(x.cobradorId)?' · '+nombreRuta(x.cobradorId):''),detalle:'Ingreso extra',ent:x.valor,sal:0,por:x.creadoPor});
   L.sort((a,b)=>a.fecha.localeCompare(b.fecha)||a.orden-b.orden||a.creado-b.creado);
   let s=0; for(const m of L){ s+=m.ent-m.sal; m.saldo=s; }
   return L;
@@ -1077,10 +1079,12 @@ function modalMovimiento(tipo='ingreso', id){
     <label class="f">Fecha<input type="date" class="input" id="mvFec" value="${rec?rec.fecha:todayStr()}"></label>
     <label class="f">Valor<input class="input" id="mvVal" inputmode="numeric" value="${rec?fmtIn(Math.abs(rec.valor)):''}"></label>
     <label class="f full">Concepto<input class="input" id="mvCon" value="${esc(rec?rec.concepto:'')}" placeholder="Ej: multa por mora, aporte de socio, papelería"></label>
+    ${cobradores().length?`<div class="full" id="mvCajaW" style="display:${tipo==='ingreso'||tipo==='gasto'?'':'none'}">${selectCaja('mvCaja', rec ? rec.cobradorId : cajaPorDefecto())}</div>`:''}
   </div>
   <div class="actions">${id?`<button class="btn danger" style="margin-right:auto" id="mvDel">Borrar</button>`:''}<button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="mvSave">Guardar</button></div>`);
   const sel=document.getElementById('mvTip');
   sel.addEventListener('change',()=>{
+    const cw=document.getElementById('mvCajaW'); if(cw) cw.style.display = sel.value==='ingreso'||sel.value==='gasto' ? '' : 'none';
     if(sel.value==='prestamo') return modalPrestamo();
     if(sel.value==='pago') return modalPago();
   });
@@ -1093,9 +1097,10 @@ function modalMovimiento(tipo='ingreso', id){
   document.getElementById('mvSave').onclick=()=>{
     const t=sel.value, v=num(val.value), f=document.getElementById('mvFec').value||todayStr(), c=document.getElementById('mvCon').value.trim();
     if(v<=0) return toast('Escribe el valor');
-    if(t==='gasto'){ if(!c) return toast('Escribe el concepto'); dbAdd('salidas',{fecha:f,concepto:c,valor:v}); }
+    const cj=document.getElementById('mvCaja'), caja = cj ? {cobradorId:cj.value} : {};
+    if(t==='gasto'){ if(!c) return toast('Escribe el concepto'); dbAdd('salidas',{fecha:f,concepto:c,valor:v,...caja}); }
     else if(t==='ingreso'){ if(!c) return toast('Escribe el concepto');
-      if(rec) dbUpd('ingresos',rec.id,{fecha:f,concepto:c,valor:v}); else dbAdd('ingresos',{fecha:f,concepto:c,valor:v}); }
+      if(rec) dbUpd('ingresos',rec.id,{fecha:f,concepto:c,valor:v,...caja}); else dbAdd('ingresos',{fecha:f,concepto:c,valor:v,...caja}); }
     else { const sign=t==='aporte'?1:-1; const data={fecha:f,concepto:c||(sign>0?'Aporte':'Retiro'),valor:v*sign};
       if(rec) dbUpd('capital',rec.id,data); else dbAdd('capital',data); }
     closeModal(); render(); toast('Movimiento guardado');
@@ -1461,6 +1466,7 @@ function modalSalida(id){
     <label class="f">Fecha<input type="date" class="input" id="sFec" value="${s.fecha}"></label>
     <label class="f">Valor<input class="input" id="sVal" inputmode="numeric" value="${s.valor?fmtIn(s.valor):''}"></label>
     <label class="f full">Concepto<input class="input" id="sCon" value="${esc(s.concepto)}" placeholder="Ej: gasolina, papelería, pago cobrador"></label>
+    ${cobradores().length?selectCaja('sCaja', id ? s.cobradorId : cajaPorDefecto()):''}
   </div>
   <div class="actions">${id?`<button class="btn danger" style="margin-right:auto" onclick="borrarSalida('${id}')">Borrar</button>`:''}<button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="sSave">Guardar</button></div>`);
   document.getElementById('sSave').onclick=()=>{
@@ -1468,6 +1474,7 @@ function modalSalida(id){
     if(v<=0) return toast('Escribe el valor');
     if(!con) return toast('Escribe el concepto');
     const data={fecha:document.getElementById('sFec').value||todayStr(),concepto:con,valor:v};
+    const cj=document.getElementById('sCaja'); if(cj) data.cobradorId=cj.value;
     if(id) dbUpd('salidas',id,data); else dbAdd('salidas',data);
     closeModal(); render(); toast('Salida guardada');
   };

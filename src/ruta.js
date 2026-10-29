@@ -612,8 +612,10 @@ function metricasRuta(uid, desde, hasta){
   const pagos = DB.pagos.filter(x=>ids.has(x.prestamoId) && efectivo(x) && enR(x.fecha));
   let cobrado=0, intereses=0, transf=0;
   for(const x of pagos){ const p=prest.find(y=>y.id===x.prestamoId); cobrado+=x.monto; intereses+=x.monto*fraccionInteres(p); if(x.medio==='transferencia') transf+=x.monto; }
-  const gastos = DB.movruta.filter(m=>m.cobradorId===uid && m.tipo==='gasto' && enR(m.fecha)).reduce((s,m)=>s+m.valor,0);
-  const ingresos = DB.movruta.filter(m=>m.cobradorId===uid && m.tipo==='ingreso' && enR(m.fecha)).reduce((s,m)=>s+m.valor,0);
+  const gastos = DB.movruta.filter(m=>m.cobradorId===uid && m.tipo==='gasto' && enR(m.fecha)).reduce((s,m)=>s+m.valor,0)
+    + DB.salidas.filter(m=>m.cobradorId===uid && enR(m.fecha)).reduce((s,m)=>s+m.valor,0);       // gastos que la oficina le cargó a la ruta
+  const ingresos = DB.movruta.filter(m=>m.cobradorId===uid && m.tipo==='ingreso' && enR(m.fecha)).reduce((s,m)=>s+m.valor,0)
+    + DB.ingresos.filter(m=>m.cobradorId===uid && enR(m.fecha)).reduce((s,m)=>s+m.valor,0);
   const nuevos = prest.filter(p=>enR(p.fecha) && !p.importado && !p.renovacionDe);
   return { cobrado, transf, intereses, gastos, ingresos, utilidad: intereses + ingresos - gastos, prestado: nuevos.reduce((s,p)=>s+p.monto,0), nNuevos: nuevos.length };
 }
@@ -660,12 +662,12 @@ VIEWS.analisis = () => {
     <div class="kpi sky"><div class="l">Cobrado ${R.txt}</div><div class="v">${fmt(T('a','cobrado'))}</div><div class="n">${crecimiento(T('a','cobrado'), T('b','cobrado'))} · transferencias ${fmt(T('a','transf'))}</div></div>
   </div>
   ${rutas.length ? `
-  <div class="card" style="margin-bottom:16px"><div class="tablewrap"><table><thead><tr><th>Ruta</th><th class="num">Capital asignado</th><th class="num">Disponible</th><th class="num">Plata en la ruta</th><th class="num">Cartera</th><th class="num">Clientes</th><th class="num">En mora</th><th class="num">Cobrado</th><th class="num">Prestado</th><th class="num">Gastos</th><th class="num">Utilidad</th><th>vs antes</th></tr></thead><tbody>
+  <div class="card" style="margin-bottom:16px"><div class="tablewrap"><table><thead><tr><th>Ruta</th><th class="num">Capital asignado</th><th class="num">Disponible</th><th class="num">Plata en la ruta</th><th class="num">Caja disponible</th><th class="num">Cartera</th><th class="num">Clientes</th><th class="num">En mora</th><th class="num">Cobrado</th><th class="num">Prestado</th><th class="num">Gastos</th><th class="num">Utilidad</th><th>vs antes</th></tr></thead><tbody>
   ${filas.sort((x,y)=>y.a.utilidad-x.a.utilidad).map(({u,a,b,c})=>`<tr>
     <td><div class="who">${ava(u.nombre)}<div><b>${esc(rutaDe(u))}</b><div class="muted" style="font-size:12px">${esc(u.nombre)}</div>
       <div class="row" style="gap:6px;margin-top:6px"><button class="btn sm" onclick="go('cobros',{cob:'${u.id}'})">Ver ruta</button><button class="btn sm" onclick="go('clientes',{cob:'${u.id}'})">Clientes</button></div></div></div></td>
     ${(()=>{ const k=capitalRuta(u.id); return `<td class="num">${k.tiene?fmt(k.asignado)+capImpNota(k):'—'}</td><td class="num" style="color:${k.disponible<0?'var(--red)':'inherit'}">${k.tiene?fmt(k.disponible):'—'}</td>`; })()}
-    <td class="num"><b>${fmt(c.enMano)}</b></td><td class="num">${fmt(c.cartera)}${c.multas>0.5?`<div class="muted" style="font-size:11.5px;color:var(--amber)">+ multas ${fmt(c.multas)}</div>`:''}</td><td class="num">${c.activos}</td>
+    <td class="num"><b>${fmt(c.enMano)}</b></td>${(()=>{ const kj=cajaRuta(u.id).caja; return `<td class="num" style="color:${kj<0?'var(--red)':'inherit'}">${fmt(kj)}</td>`; })()}<td class="num">${fmt(c.cartera)}${c.multas>0.5?`<div class="muted" style="font-size:11.5px;color:var(--amber)">+ multas ${fmt(c.multas)}</div>`:''}</td><td class="num">${c.activos}</td>
     <td class="num" style="color:${c.enMora?'var(--red)':'inherit'}">${c.enMora} · ${fmt(c.mora)}</td>
     <td class="num">${fmt(a.cobrado)}</td><td class="num">${fmt(a.prestado)} <span class="muted">(${a.nNuevos})</span></td><td class="num">${fmt(a.gastos)}</td>
     <td class="num"><b style="color:var(--green)">${fmt(a.utilidad)}</b></td><td>${crecimiento(a.utilidad, b.utilidad)}</td></tr>`).join('')}
@@ -748,4 +750,62 @@ function modalDiaPago(id){
     dbUpd('prestamos', p.id, {primeraCuota:np});
     closeModal(); render(); toast(`Listo: ahora paga ${losDias(dow)}`); modalDetalle(p.id);
   };
+}
+
+/* ---------- caja de cada ruta: su propia plata, sus ingresos y sus gastos ----------
+   Caja de una ruta  = capital asignado − lo prestado + lo cobrado + ingresos − gastos
+   Caja de la oficina = capital del negocio − capital entregado a las rutas − lo prestado + lo cobrado + ingresos − gastos (lo que no es de ninguna ruta)
+   La suma de todas las cajas da el "Disponible" del panel. */
+const esRutaViva = id => !!id && cobradores().some(u=>u.id===id);
+const deCaja = (cob, id) => id==='_ofi' ? !esRutaViva(cob) : cob===id;
+function cajasDisponibles(){ return [...cobradores().map(u=>({id:u.id, titulo:rutaDe(u), sub:u.nombre})), {id:'_ofi', titulo:'Oficina', sub:'Lo que no es de ninguna ruta'}]; }
+function cajaRuta(id){
+  const capRutas = DB.caprutas.filter(x=>esRutaViva(x.cobradorId)).reduce((s,x)=>s+(Number(x.valor)||0),0);
+  const capital = id==='_ofi'
+    ? (Number(DB.config.capitalInicial)||0) + DB.capital.reduce((s,x)=>s+(Number(x.valor)||0),0) - capRutas
+    : DB.caprutas.filter(x=>x.cobradorId===id).reduce((s,x)=>s+(Number(x.valor)||0),0);
+  const f = flujoRuta(id);
+  return Object.assign(f, { capital, caja: capital - f.prestado + f.recaudo + f.ingresos - f.gastos });
+}
+// lo que entró y salió de esa caja (en un rango de fechas, o todo si no se da)
+function flujoRuta(id, desde, hasta){
+  const enR = f => !desde || (f && f>=desde && f<=hasta);
+  const mios = new Set(DB.prestamos.filter(p=>deCaja(p.cobradorId, id)).map(p=>p.id));
+  const prestado = DB.prestamos.filter(p=>mios.has(p.id) && !p.importado && enR(p.fecha)).reduce((s,p)=>s+p.monto,0);
+  const pagos = DB.pagos.filter(x=>mios.has(x.prestamoId) && x.tipo!=='importado' && enR(x.fecha));
+  const recaudo = pagos.reduce((s,x)=>s+x.monto,0);                                // incluye los cruces de renovación (cuadran con lo prestado)
+  const cobrado = pagos.filter(efectivo).reduce((s,x)=>s+x.monto,0);               // plata que de verdad entró
+  const ingresos = DB.ingresos.filter(x=>deCaja(x.cobradorId, id) && enR(x.fecha)).reduce((s,x)=>s+x.valor,0)
+    + DB.movruta.filter(x=>x.tipo==='ingreso' && deCaja(x.cobradorId, id) && enR(x.fecha)).reduce((s,x)=>s+x.valor,0);
+  const gastos = DB.salidas.filter(x=>deCaja(x.cobradorId, id) && enR(x.fecha)).reduce((s,x)=>s+x.valor,0)
+    + DB.movruta.filter(x=>x.tipo==='gasto' && deCaja(x.cobradorId, id) && enR(x.fecha)).reduce((s,x)=>s+x.valor,0);
+  // en una renovación solo sale en efectivo la diferencia: lo que se cruzó con la deuda vieja no es plata entregada
+  return { prestado, recaudo, cobrado, ingresos, gastos, entra: cobrado + ingresos, entregado: Math.max(0, prestado - (recaudo - cobrado)) };
+}
+/* selector de caja para gastos e ingresos de la oficina */
+function selectCaja(idSel, actual){
+  const v = esRutaViva(actual) ? actual : '';
+  return `<label class="f full">¿De qué caja?<select class="input" id="${idSel}"><option value="" ${v===''?'selected':''}>Oficina (general)</option>${cobradores().map(u=>`<option value="${u.id}" ${v===u.id?'selected':''}>${esc(rutaCompleta(u))}</option>`).join('')}</select></label>`;
+}
+const cajaPorDefecto = () => (viewState && viewState.cob && viewState.cob!=='_yo') ? viewState.cob : '';
+const nombreCaja = id => esRutaViva(id) ? nombreRuta(id) : 'Oficina';
+/* panel: caja de cada ruta y quién entra / gasta más este mes */
+function tablaCajasRutas(){
+  if(!cobradores().length) return '';
+  const R = rangoPeriodo('mes');
+  const filas = cajasDisponibles().map(c=>({c, k:cajaRuta(c.id), m:flujoRuta(c.id, ...R.act)}))
+    .filter(f=>f.c.id!=='_ofi' || Math.abs(f.k.caja)>0.5 || f.m.entra || f.m.gastos);
+  const soloRutas = filas.filter(f=>f.c.id!=='_ofi');
+  const maxG = Math.max(0, ...soloRutas.map(f=>f.m.gastos)), maxE = Math.max(0, ...soloRutas.map(f=>f.m.entra));
+  const total = filas.reduce((s,f)=>s+f.k.caja,0);
+  return `<div class="card pad" style="margin-top:16px"><div class="row" style="margin-bottom:6px"><h2 style="margin:0">Caja de cada ruta</h2><span class="spacer"></span><span class="muted" style="font-size:12.5px">Movimiento de este mes</span>${isCeo()?`<button class="btn sm" onclick="modalSalida()">+ Gasto</button><button class="btn sm" onclick="modalMovimiento('ingreso')">+ Ingreso</button>`:''}</div>
+  <div class="tablewrap"><table><thead><tr><th>Caja</th><th class="num">Disponible</th><th class="num">Entró (cobros + ingresos)</th><th class="num">Gastos</th><th class="num">Prestado</th><th class="num">Neto del mes</th></tr></thead><tbody>
+  ${filas.map(({c,k,m})=>{ const neto = m.entra - m.gastos - m.entregado;
+    const tags = c.id==='_ofi' ? '' : (m.entra>0.5 && m.entra===maxE && soloRutas.length>1 ? ' <span class="pill p-ok">Más entra</span>' : '') + (m.gastos>0.5 && m.gastos===maxG && soloRutas.length>1 ? ' <span class="pill p-mora">Más gasta</span>' : '');
+    return `<tr${c.id!=='_ofi'?` class="click" onclick="go('cobros',{cob:'${c.id}'})"`:''}><td><b>${esc(c.titulo)}</b>${tags}<div class="muted" style="font-size:12px">${esc(c.sub||'')}</div></td>
+    <td class="num"><b style="color:${k.caja<0?'var(--red)':'inherit'}">${fmt(k.caja)}</b></td><td class="num" style="color:var(--green)">${fmt(m.entra)}</td><td class="num" style="color:${m.gastos>0.5?'var(--red)':'inherit'}">${fmt(m.gastos)}</td>
+    <td class="num">${fmt(m.entregado)}</td><td class="num" style="color:${neto<0?'var(--red)':'var(--green)'}">${neto<0?'− ':''}${fmt(Math.abs(neto))}</td></tr>`; }).join('')}
+  <tr><td><b>Total</b></td><td class="num"><b>${fmt(total)}</b></td><td colspan="4"></td></tr>
+  </tbody></table></div>
+  <p class="muted" style="font-size:12px;margin:8px 0 0">Disponible = capital asignado − lo prestado + lo cobrado + ingresos − gastos de esa caja. Al registrar un gasto o ingreso escoges de qué caja es.</p></div>`;
 }

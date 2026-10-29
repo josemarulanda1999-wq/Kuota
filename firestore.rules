@@ -92,7 +92,8 @@ service cloud.firestore {
     function okRenov(d) {
       return d.keys().hasOnly(['prestamoId', 'clienteId', 'cobradorId', 'estado', 'saldoAlSolicitar', 'monto', 'tasa', 'meses', 'periodo',
                                'excluirDomingos', 'nota', 'nuevoPrestamoId', 'saldoCancelado', 'excedente', 'revisadoPor', 'revisadoEn',
-                               'fechaRenovacion', 'entregadoPor', 'entregadoEn', 'cuotas', 'modoInteres', 'primeraCuota', 'creado', 'creadoPor'])
+                               'fechaRenovacion', 'entregadoPor', 'entregadoEn', 'cuotas', 'modoInteres', 'primeraCuota', 'medioEntrega', 'comprobanteEntrega', 'creado', 'creadoPor'])
+        && (!('medioEntrega' in d) || d.medioEntrega in ['efectivo', 'transferencia']) && (!('comprobanteEntrega' in d) || d.comprobanteEntrega is bool)
         && (!('primeraCuota' in d) || d.primeraCuota == '' || fechaOk(d.primeraCuota))
         && idOk(d.prestamoId) && idOk(d.clienteId) && idOVacio(d.cobradorId)
         && numOk(d.monto, 1, 10000000000) && numOk(d.tasa, 0, 100) && numOk(d.meses, 0.001, 1000) && periodoOk(d.periodo)
@@ -229,7 +230,9 @@ service cloud.firestore {
           // Admin o cobrador dueño: marcar que ya entregó el efectivo de una renovación aprobada
           || ((soloAdmin(eid) || (isCob(eid) && own())) && resource.data.estado == 'aprobada' && request.resource.data.estado == 'entregada'
               && request.resource.data.entregadoPor == uid()
-              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estado', 'entregadoPor', 'entregadoEn']));
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estado', 'entregadoPor', 'entregadoEn', 'medioEntrega', 'comprobanteEntrega'])
+              && (!('medioEntrega' in request.resource.data) || request.resource.data.medioEntrega in ['efectivo', 'transferencia'])
+              && (!('comprobanteEntrega' in request.resource.data) || request.resource.data.comprobanteEntrega is bool));
         allow delete: if isSuper() || isCeo(eid);
       }
       // GPS: cada persona publica solo su propia ubicación; el CEO y el Admin las ven

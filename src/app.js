@@ -1691,11 +1691,13 @@ function modalRenovacion(prestamoId, renovacionId){
       <div id="rEsc" style="display:none;margin-top:10px">${htmlDiaSemanal('rS')}</div>
       <div class="muted" id="rDiaTxt" style="font-size:12.5px;margin-top:6px"></div></div>
     <label class="f full">Nota<input class="input" id="rNot" value="${esc(base.nota||'')}" placeholder="Opcional"></label>
+    ${directo ? htmlMedioEntrega() : ''}
   </div>
   <div class="calcbox" id="rCalc" style="margin-top:14px"></div>
   ${aprobar?'':`<p class="muted" style="font-size:12.5px">${directo?'El préstamo actual queda pagado con el nuevo y se registra la entrega del efectivo.':'El Admin o el CEO revisa la solicitud. Cuando la apruebe te aparece en tu ruta para que entregues el efectivo.'}</p>`}
   <div class="actions">${aprobar?`<button class="btn danger" style="margin-right:auto" id="rNo">Rechazar</button>`:''}<button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="rOk">${aprobar?'Aprobar renovación':directo?'Renovar':'Enviar solicitud'}</button></div>`);
   const $=k=>document.getElementById(k);
+  const medioEnt = directo ? activarMedioEntrega() : null;
   let pintaDia = ()=>{};
   const priEsc = activarDiaSemanal('rS', todayStr(), base.periodo==='SEMANAL' ? base.primeraCuota : '', ()=>pintaDia());
   const primera = ()=>{
@@ -1739,12 +1741,35 @@ function modalRenovacion(prestamoId, renovacionId){
       dbAdd('renovaciones',{prestamoId:p.id,clienteId:p.clienteId,cobradorId:p.cobradorId||ME.uid,estado:'pendiente',saldoAlSolicitar:e.saldo,...datos});
       closeModal(); render(); toast('Solicitud de renovación enviada'); return;
     }
-    if(!await confirmar(`Renovar el crédito de ${cl.nombre}:\n\n• Se cancela lo que debe: ${fmt(e.saldo)}\n• Nuevo préstamo: ${fmt(monto)}\n• Entregar en efectivo: ${fmt(exc)}\n\n¿Continuar?`)) return;
-    ejecutarRenovacion(p, e.saldo, datos, ren);
+    const entrega = medioEnt && exc>0.5 ? await datosEntrega(medioEnt()) : null;
+    if(medioEnt && exc>0.5 && !entrega) return;
+    if(!await confirmar(`Renovar el crédito de ${cl.nombre}:\n\n• Se cancela lo que debe: ${fmt(e.saldo)}\n• Nuevo préstamo: ${fmt(monto)}\n• Entregar ${entrega&&entrega.medioEntrega==='transferencia'?'por transferencia':'en efectivo'}: ${fmt(exc)}\n\n¿Continuar?`)) return;
+    ejecutarRenovacion(p, e.saldo, datos, ren, entrega);
     closeModal(); render(); toast(ren?'Renovación aprobada':'Crédito renovado');
   };
 }
-function ejecutarRenovacion(p, saldo, d, ren){
+/* cómo se entrega la plata de una renovación: efectivo o transferencia (con comprobante) */
+function htmlMedioEntrega(){
+  return `<div class="f full" style="display:block"><span style="display:block">¿Cómo se entrega la plata?</span><div class="seg" id="eMedio">
+      <button type="button" data-m="efectivo" class="on">Efectivo</button><button type="button" data-m="transferencia">Transferencia</button></div></div>
+    <div class="f full" id="eCompW" style="display:none"><span>Comprobante de la transferencia</span>
+      <div class="row"><label class="btn sm">Cámara<input type="file" accept="image/*" capture="environment" hidden onchange="cargarComprobante(this)"></label>
+      <label class="btn sm">Galería<input type="file" accept="image/*" hidden onchange="cargarComprobante(this)"></label><span id="gCompOk" class="muted" style="font-size:12.5px">Sin adjuntar</span></div></div>`;
+}
+function activarMedioEntrega(){
+  let medio = 'efectivo'; COMP_TMP = '';
+  document.querySelectorAll('#eMedio button').forEach(b=>b.onclick=()=>{ medio=b.dataset.m;
+    document.querySelectorAll('#eMedio button').forEach(x=>x.classList.toggle('on', x===b));
+    document.getElementById('eCompW').style.display = medio==='transferencia' ? '' : 'none'; });
+  return ()=>medio;
+}
+// datos de la entrega para guardar en la renovación; pregunta si falta el comprobante
+async function datosEntrega(medio){
+  if(medio==='transferencia' && !COMP_TMP && !await confirmar('No adjuntaste el comprobante de la transferencia. ¿Guardar así?', {ok:'Guardar sin comprobante'})) return null;
+  return { medioEntrega: medio, comprobanteEntrega: medio==='transferencia' && !!COMP_TMP };
+}
+const idCompRenov = renId => 'R' + renId;   // el comprobante de la entrega se guarda con este id
+function ejecutarRenovacion(p, saldo, d, ren, entrega){
   const hoy=todayStr(), c=d.cuotas ? calcularCuotas(d.monto,d.tasa,d.cuotas,d.periodo,d.modoInteres||'mensual') : calcular(d.monto,d.tasa,d.meses,d.periodo);
   if(saldo>=1) dbAdd('pagos',{prestamoId:p.id,fecha:hoy,monto:saldo,tipo:'renovacion',nota:'Cancelado con renovación',cobradorId:p.cobradorId||'',registradoPor:ME.uid});
   const nuevoId=dbAdd('prestamos',{clienteId:p.clienteId,fecha:hoy,monto:d.monto,tasa:d.tasa,meses:c.meses||d.meses,periodo:d.periodo,modoInteres:d.modoInteres||'mensual',excluirDomingos:d.excluirDomingos,
@@ -1755,7 +1780,11 @@ function ejecutarRenovacion(p, saldo, d, ren){
   const entregaCobrador = ren && ren.cobradorId;
   const info={estado:entregaCobrador?'aprobada':'entregada',nuevoPrestamoId:nuevoId,saldoCancelado:saldo,excedente:exc,revisadoPor:ME.uid,revisadoEn:Date.now(),fechaRenovacion:hoy,...d};
   if(ren) dbUpd('renovaciones',ren.id,info);
-  else dbAdd('renovaciones',{prestamoId:p.id,clienteId:p.clienteId,cobradorId:'',...info,entregadoPor:ME.uid,entregadoEn:Date.now()});
+  else {
+    const rid = dbAdd('renovaciones',{prestamoId:p.id,clienteId:p.clienteId,cobradorId:'',...info,...(entrega||{}),entregadoPor:ME.uid,entregadoEn:Date.now()});
+    if(entrega && entrega.comprobanteEntrega) guardarComprobante(idCompRenov(rid), nuevoId, p.cobradorId||'');
+  }
+  COMP_TMP = '';
 }
 function elegirRenovacion(){
   const ps=DB.prestamos.filter(p=>puedeRenovar(p)).sort((a,b)=>nombreCliente(a.clienteId).localeCompare(nombreCliente(b.clienteId)));
@@ -1766,10 +1795,19 @@ function elegirRenovacion(){
     <div class="cobro-nums" style="background:var(--panel)"><div><span>Cuota</span><b>${fmt(p.valorCuota)}</b></div><div><span>Ya pagó</span><b>${fmt(e.pagado)}</b></div><div><span>Debe en total</span><b style="color:var(--red)">${fmt(e.saldo)}</b></div></div></div>`;}).join('')}</div>
   <div class="actions"><button class="btn" onclick="closeModal()">Cancelar</button></div>`);
 }
-async function marcarEntregada(id){
-  const r=DB.renovaciones.find(x=>x.id===id); if(!r) return;
-  if(!await confirmar(`¿Ya le entregaste ${fmt(r.excedente)} a ${nombreCliente(r.clienteId)}?`)) return;
-  dbUpd('renovaciones',id,{estado:'entregada',entregadoPor:ME.uid,entregadoEn:Date.now()}); render(); toast('Entrega registrada');
+function marcarEntregada(id){
+  const r=DB.renovaciones.find(x=>x.id===id); if(!r || r.estado!=='aprobada') return;
+  openModal(`<h3>Entregar renovación · ${esc(nombreCliente(r.clienteId))}</h3>
+  <p class="muted" style="margin-top:-8px">Valor a entregar: <b>${fmt(r.excedente)}</b></p>
+  <div class="form">${htmlMedioEntrega()}</div>
+  <div class="actions"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="eOk">Ya entregué ${fmt(r.excedente)}</button></div>`);
+  const medio = activarMedioEntrega();
+  document.getElementById('eOk').onclick = async ()=>{
+    const ent = await datosEntrega(medio()); if(!ent) return;
+    dbUpd('renovaciones',id,{estado:'entregada',entregadoPor:ME.uid,entregadoEn:Date.now(),...ent});
+    if(ent.comprobanteEntrega) guardarComprobante(idCompRenov(id), r.nuevoPrestamoId||r.prestamoId, r.cobradorId||''); else COMP_TMP='';
+    closeModal(); render(); toast('Entrega registrada');
+  };
 }
 function tarjetaRenov(r){
   const cl=clienteById(r.clienteId)||{};
@@ -1780,7 +1818,8 @@ function tarjetaRenov(r){
     <div class="cobro-nums"><div><span>Nuevo préstamo</span><b>${fmt(r.monto)}</b></div><div><span>Debe</span><b>${fmt(debe)}</b></div><div><span>Entregar</span><b style="color:var(--green)">${fmt(r.monto-(debe||0))}</b></div></div>
     <div class="row"><span class="spacer"></span>
       ${r.estado==='pendiente'&&isAdmin()?`<button class="btn pri" onclick="modalRenovacion(null,'${r.id}')">Revisar</button>`:''}
-      ${r.estado==='aprobada'&&(r.cobradorId===ME.uid||isAdmin())?`<button class="btn pri" onclick="marcarEntregada('${r.id}')">Ya entregué ${fmt(r.excedente)}</button>`:''}
+      ${r.estado==='aprobada'&&(r.cobradorId===ME.uid||isAdmin())?`<button class="btn pri" onclick="marcarEntregada('${r.id}')">Entregar ${fmt(r.excedente)}</button>`:''}
+      ${r.estado==='entregada'&&r.excedente>0.5?(r.medioEntrega==='transferencia'?`<span class="pill p-pag">Transferencia</span>${r.comprobanteEntrega?` <button class="btn sm ghost" onclick="verComprobante('${idCompRenov(r.id)}')">Ver comprobante</button>`:' <span class="muted" style="font-size:12px">sin comprobante</span>'}`:'<span class="pill p-ok">Efectivo</span>'):''}
     </div></div>`;
 }
 VIEWS.renovaciones = () => {
@@ -1813,7 +1852,7 @@ function cuadreCobrador(uidC, fecha){
   const pagos = todosPagos.filter(enEfectivo), transf = todosPagos.filter(porTransferencia);
   const todasE = DB.entregas.filter(x=>x.cobradorId===uidC);
   const entregas = todasE.filter(x=>x.tipo!=='base'), bases = todasE.filter(x=>x.tipo==='base');
-  const renov = DB.renovaciones.filter(r=>r.estado==='entregada' && r.entregadoPor===uidC);
+  const renov = DB.renovaciones.filter(r=>r.estado==='entregada' && r.entregadoPor===uidC && r.medioEntrega!=='transferencia');   // por transferencia no sale del efectivo
   const prest = DB.prestamos.filter(p=>p.fuente==='ruta' && p.cobradorId===uidC && !p.renovacionDe);
   const mr = DB.movruta.filter(x=>x.cobradorId===uidC), gastos = mr.filter(x=>x.tipo==='gasto'), ingresos = mr.filter(x=>x.tipo==='ingreso');
   const saldo = cond => tot(bases.filter(x=>cond(x.fecha))) + tot(pagos.filter(x=>cond(x.fecha))) - tot(entregas.filter(x=>cond(x.fecha)))

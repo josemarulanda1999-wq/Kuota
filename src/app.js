@@ -589,19 +589,27 @@ function cobroCard(c, fecha){
       ${c.cobrar>0.5&&!c.pagadoHoy&&!visitaDe(c.p.id, fecha)?`<button class="btn sm" onclick="modalNoPago('${c.p.id}','${fecha}')">No pagó</button>`:''}
       ${c.cobrar>0.5&&!c.pagadoHoy&&!diaDado(c.p.id, fecha)&&c.e.venceHoy&&puedeDarDia()?`<button class="btn sm" onclick="modalDarDia('${c.p.id}','${fecha}')">Dar día</button>`:''}
       ${c.cobrar>0.5?`<button class="btn pri" onclick="modalPago('${c.p.id}',null,'${fecha}')">Cobrar</button>`:(c.e.saldo>0.5?`<button class="btn pri" onclick="modalPago('${c.p.id}',null,'${fecha}')">Abonar</button>`:'')}
-    </div></div>`;
+    </div>${(()=>{ const ed = c.e.pagos.filter(x=>x.fecha===fecha && efectivo(x) && puedeEditarPago(x));
+      return ed.length ? `<div class="row" style="gap:6px;border-top:1px dashed var(--line,rgba(127,127,127,.25));padding-top:8px"><span class="muted" style="font-size:12.5px">Pagos de hoy:</span>${ed.map(x=>`<button class="btn sm ghost" onclick="modalPago(null,'${x.id}')">✎ ${fmt(x.monto)}${x.creado?' · '+new Date(x.creado).toLocaleTimeString('es-CO',{hour:'numeric',minute:'2-digit'}):''}</button>`).join('')}</div>` : ''; })()}</div>`;
 }
 VIEWS.cobros = () => {
   const fecha = viewState.fecha || todayStr();
   const ordenC = c => Number((clienteById(c.p.clienteId)||{}).orden)||1e9;
   const dia = cobrosDelDia(fecha).filter(c=>pasaFiltroCob(c.p.cobradorId)).sort((a,b)=>ordenC(a)-ordenC(b) || b.e.atraso-a.e.atraso);
   const q = sinTildes(viewState.q||'').trim();
-  const list = q ? buscarCobro(q, fecha) : dia;
-  const visitados = dia.filter(c=>c.pagadoHoy>0 || visitaDe(c.p.id, fecha)).length;
+  const tab = viewState.tab==='hechos' ? 'hechos' : 'pend';
+  const porVisitar = dia.filter(c=>!rutaVisitado(c, fecha)), hechos = dia.filter(c=>rutaVisitado(c, fecha));
+  const list = q ? buscarCobro(q, fecha) : (tab==='hechos' ? hechos : porVisitar);
+  const visitados = hechos.length;
   const tarjetas = !isAdmin() || movil();
   const totalCobrar = dia.reduce((s,c)=>s+c.cobrar,0);
   const totalPagado = dia.reduce((s,c)=>s+c.pagadoHoy,0);
-  const vacio = q ? 'Ningún crédito activo coincide con esa búsqueda.' : 'Nada que cobrar en esta fecha.';
+  const vacio = q ? 'Ningún crédito activo coincide con esa búsqueda.'
+    : !dia.length ? 'Nada que cobrar en esta fecha.'
+    : tab==='hechos' ? 'Todavía no hay clientes visitados ni pagos en esta fecha.'
+    : (!isAdmin() && miRutaAbierta() && !miRutaCerrada(fecha) && fecha===todayStr()) ? '¡Listo! Visitaste a todos los clientes. Ya puedes cerrar la ruta del día.' : 'No queda nadie por visitar en esta fecha.';
+  const tabBtn = (k, t, n) => `<button class="${tab===k?'on':''}" onclick="go('cobros',Object.assign({},viewState,{tab:'${k}'}))">${t} · ${n}</button>`;
+  const tabs = q ? '' : `<div class="seg" style="margin:0 0 14px">${tabBtn('pend','Por cobrar',porVisitar.length)}${tabBtn('hechos','Visitados y pagados',hechos.length)}</div>`;
   return `
   <div class="head"><div><h1>${isAdmin()?'Cobros del día':'Mi ruta'}</h1><p class="sub">Cuotas que vencen y préstamos atrasados. Marca el pago apenas cobres.</p></div>
   <div class="row">${isAdmin()?'':`${puedePrestarRuta()?`<button class="btn pri" onclick="modalPrestamo()">+ Crédito nuevo</button>`:''}<button class="btn ${puedePrestarRuta()?'':'pri'}" onclick="elegirRenovacion()">Solicitar renovación</button>`}${isAdmin()?'':'<button class="btn" onclick="modalEnrutar()">Orden de visita</button><button class="btn" data-go="avisos">Avisar a clientes</button>'}${filtroCobrador('cobros')}<input type="date" class="input" style="width:auto" value="${fecha}" onchange="go('cobros',Object.assign({},viewState,{fecha:this.value}))">${isNative()?'':'<button class="btn no-print" onclick="window.print()">Imprimir ruta</button>'}</div></div>
@@ -615,6 +623,7 @@ VIEWS.cobros = () => {
   ${bloqueNotasRuta()}
   ${miRutaCerrada(fecha)?'<div class="banner">Tu ruta de este día ya está cerrada. Para registrar algo más, pídele a la oficina que la reabra.</div>':''}
   ${!isAdmin()?bloqueRenovacionesCobrador():(DB.renovaciones.some(r=>r.estado==='pendiente')?`<div class="banner">Hay ${DB.renovaciones.filter(r=>r.estado==='pendiente').length} solicitud(es) de renovación esperando aprobación. <button class="btn sm" data-go="renovaciones">Revisar</button></div>`:'')}
+  ${tabs}
   ${tarjetas ? (list.length? `<div class="cobros-grid">${list.map(c=>cobroCard(c,fecha)).join('')}</div>` : `<div class="card"><div class="empty">${vacio}</div></div>`) : `<div class="card">
   ${list.length? `<div class="tablewrap"><table><thead><tr><th>Cliente</th><th>Teléfono / Dirección</th><th>Estado</th><th class="num">Cuota</th><th class="num">Pendiente</th><th class="num">Saldo</th><th class="num">Pagó</th><th></th></tr></thead><tbody>
   ${list.map(c=>{const cl=clienteById(c.p.clienteId)||{};return `<tr>
@@ -1229,13 +1238,16 @@ async function borrarPrestamo(id){
 function modalPago(prestamoId, pagoId, fecha){
   const pago = pagoId ? DB.pagos.find(x=>x.id===pagoId) : null;
   if(!pago && !isAdmin() && rutaBloqueada()) return;
+  if(pago && !puedeEditarPago(pago)) return avisar(isAdmin() ? 'Solo el dueño puede editar pagos.' : 'Solo puedes corregir los pagos que tú registraste hoy, antes de cerrar la ruta.');
+  const rutaEdita = !!pago && !isCeo();       // la ruta corrige valor, medio y nota; no cambia el préstamo ni la fecha
   if(!isAdmin()) fecha = todayStr();          // la ruta solo registra pagos del día
   const activos = DB.prestamos.filter(p=>estadoPrestamo(p).estado!=='Pagado' || p.id===prestamoId);
   const sel = pago? pago.prestamoId : (prestamoId||'');
   openModal(`<h3>${pago?'Editar pago':'Registrar pago'}</h3>
   <div class="form">
-    <label class="f full">Préstamo<select class="input" id="gPre"><option value="">— Selecciona —</option>${activos.sort((a,b)=>nombreCliente(a.clienteId).localeCompare(nombreCliente(b.clienteId))).map(p=>`<option value="${p.id}" ${p.id===sel?'selected':''}>${esc(nombreCliente(p.clienteId))} · ${fmt(p.monto)} · ${p.periodo.toLowerCase()}</option>`).join('')}</select></label>
-    <label class="f">Fecha del pago<input type="date" class="input" id="gFec" value="${pago?pago.fecha:(fecha||todayStr())}" ${isAdmin()?'':'disabled'}></label>
+    <label class="f full">Préstamo<select class="input" id="gPre" ${rutaEdita?'disabled':''}><option value="">— Selecciona —</option>${activos.sort((a,b)=>nombreCliente(a.clienteId).localeCompare(nombreCliente(b.clienteId))).map(p=>`<option value="${p.id}" ${p.id===sel?'selected':''}>${esc(nombreCliente(p.clienteId))} · ${fmt(p.monto)} · ${p.periodo.toLowerCase()}</option>`).join('')}</select></label>
+    <label class="f">Fecha del pago<input type="date" class="input" id="gFec" value="${pago?pago.fecha:(fecha||todayStr())}" ${isCeo()||(isAdmin()&&!pago)?'':'disabled'}></label>
+    ${rutaEdita?`<p class="muted full" style="margin:0;font-size:12.5px">Pago registrado a las ${pago.creado?new Date(pago.creado).toLocaleTimeString('es-CO',{hour:'numeric',minute:'2-digit'}):'—'} por ${fmt(pago.monto)}. Corrige el valor si el cliente pagó más (por ejemplo, una cuota adelantada).</p>`:''}
     <label class="f">Valor pagado<input class="input" id="gVal" inputmode="numeric" value="${pago?fmtIn(pago.monto):''}"></label>
     <div class="f full" style="display:block"><span style="display:block">¿Cómo pagó?</span><div class="seg" id="gMedio">
       <button type="button" data-m="efectivo" class="${(pago?pago.medio:'')!=='transferencia'?'on':''}">Efectivo</button>
@@ -1256,7 +1268,9 @@ function modalPago(prestamoId, pagoId, fecha){
       <div><div class="l">Pendiente hasta hoy</div><div class="v" style="color:${e.atraso?'var(--red)':'inherit'}">${fmt(e.atraso)}</div></div>
       <div><div class="l">Saldo</div><div class="v">${fmt(e.saldo + (pago?pago.monto:0))}</div></div>
       <div><div class="l">Cuotas pagadas</div><div class="v">${e.cuotasPagadas}/${p.cuotas}</div></div>
-      ${pago?'':`<div style="grid-column:1/-1" class="row"><span class="muted" style="font-size:12.5px">Llenar con:</span>
+      ${pago?`<div style="grid-column:1/-1" class="row"><span class="muted" style="font-size:12.5px">Corregir a:</span>
+        <button type="button" class="btn sm" data-v="${pago.monto + p.valorCuota}">+1 cuota adelantada · ${fmt(pago.monto + p.valorCuota)}</button>
+        ${pago.monto>p.valorCuota+0.5?`<button type="button" class="btn sm" data-v="${pago.monto - p.valorCuota}">−1 cuota · ${fmt(pago.monto - p.valorCuota)}</button>`:''}</div>`:`<div style="grid-column:1/-1" class="row"><span class="muted" style="font-size:12.5px">Llenar con:</span>
         <button type="button" class="btn sm" data-v="${Math.min(p.valorCuota, e.saldo)}">1 cuota · ${fmt(Math.min(p.valorCuota, e.saldo))}</button>
         ${e.atraso>p.valorCuota+0.5?`<button type="button" class="btn sm" data-v="${Math.min(e.atraso, e.saldo)}">Todo lo atrasado · ${fmt(Math.min(e.atraso, e.saldo))}</button>`:''}
         ${e.saldo>Math.max(p.valorCuota, e.atraso)+0.5?`<button type="button" class="btn sm" data-v="${e.saldo}">Saldo total · ${fmt(e.saldo)}</button>`:''}</div>`}`;
@@ -1283,6 +1297,14 @@ function modalPago(prestamoId, pagoId, fecha){
     const nota=document.getElementById('gNot').value.trim();
     if(medio==='transferencia' && !COMP_TMP && !(pago&&pago.comprobante) && !await confirmar('No adjuntaste el comprobante de la transferencia. ¿Guardar así?', {ok:'Guardar sin comprobante'})) return;
     const conComp = medio==='transferencia' && (!!COMP_TMP || !!(pago&&pago.comprobante));
+    if(pago && rutaEdita){
+      if(Math.abs(monto-pago.monto)<0.5 && medio===(pago.medio||'efectivo') && nota===(pago.nota||'') && !COMP_TMP){ closeModal(); return; }
+      dbUpd('pagos',pago.id,{monto,nota,medio,comprobante:conComp,editadoPor:ME.uid,editadoEn:Date.now()});
+      if(COMP_TMP && !pago.comprobante) guardarComprobante(pago.id, pago.prestamoId, pago.cobradorId||''); else COMP_TMP='';
+      closeModal(); render(); toast('Pago corregido');
+      if(viewState._reopen){ viewState._reopen=0; modalDetalle(pago.prestamoId); } else modalRecibo(pago.id);
+      return;
+    }
     if(pago){ dbUpd('pagos',pago.id,{prestamoId:pid,fecha:f,monto,nota,cobradorId:p.cobradorId||'',medio,comprobante:conComp});
       if(COMP_TMP) guardarComprobante(pago.id, pid, p.cobradorId||''); }
     else {
@@ -1314,7 +1336,7 @@ function modalDetalle(id, tab='cuotas'){
     let st = cubierta?'<span class="cuota-ok">Pagada</span>': parcial? '<span style="color:var(--amber)">Abono parcial</span>' : venc?'<span class="cuota-venc">Vencida</span>':'<span class="muted">Pendiente</span>';
     return `<tr><td>${q.n}</td><td>${fdate(q.fecha)}${q.fecha===hoy?' <span class="pill p-hoy">hoy</span>':''}</td><td class="num">${fmt(p.valorCuota)}</td><td class="num">${fmt(p.monto/p.cuotas)}</td><td class="num">${fmt(p.valorCuota - p.monto/p.cuotas)}</td><td>${st}</td></tr>`;
   }).join('');
-  const pagosHtml = e.pagos.length? e.pagos.map(x=>`<tr><td>${fdate(x.fecha)}</td><td class="num">${fmt(x.monto)}</td><td>${esc(x.nota||'')}<div style="margin-top:3px">${etiquetaMedio(x)}</div></td><td class="muted" style="font-size:12px">${esc(nombreUsuario(x.registradoPor))}</td>${isAdmin()?`<td style="white-space:nowrap">${celdaGPSPago(x)}</td>`:''}<td class="right no-print" style="white-space:nowrap">${x.tipo!=='importado'&&x.tipo!=='renovacion'?`<button class="btn sm" onclick="modalRecibo('${x.id}')">Recibo</button> `:''}${isCeo()?`<button class="btn sm" onclick="viewState._reopen=1;modalPago(null,'${x.id}')">Editar</button>`:''}</td></tr>`).join('') : `<tr><td colspan="6" class="muted">Sin pagos todavía.</td></tr>`;
+  const pagosHtml = e.pagos.length? e.pagos.map(x=>`<tr><td>${fdate(x.fecha)}</td><td class="num">${fmt(x.monto)}</td><td>${esc(x.nota||'')}<div style="margin-top:3px">${etiquetaMedio(x)}</div></td><td class="muted" style="font-size:12px">${esc(nombreUsuario(x.registradoPor))}</td>${isAdmin()?`<td style="white-space:nowrap">${celdaGPSPago(x)}</td>`:''}<td class="right no-print" style="white-space:nowrap">${x.tipo!=='importado'&&x.tipo!=='renovacion'?`<button class="btn sm" onclick="modalRecibo('${x.id}')">Recibo</button> `:''}${puedeEditarPago(x)?`<button class="btn sm" onclick="viewState._reopen=1;modalPago(null,'${x.id}')">Editar</button>`:''}</td></tr>`).join('') : `<tr><td colspan="6" class="muted">Sin pagos todavía.</td></tr>`;
   openModal(`
   <div class="row" style="margin-bottom:6px">${ava(c.nombre)}<h3 style="margin:0">${esc(c.nombre||'(sin cliente)')}</h3>${pill(e)}<span class="spacer"></span>
     ${isNative()?'':'<button class="btn sm" onclick="window.print()">Imprimir</button>'}${isCeo()?`<button class="btn sm" onclick="modalPrestamo('${p.id}')">Editar</button>`:''}${isCeo()&&e.estado!=='Pagado'?`<button class="btn sm ${p.castigado?'':'danger'}" onclick="castigarPrestamo('${p.id}',${p.castigado?'true':'false'})">${p.castigado?'Reactivar':'Castigar'}</button>`:''}${puedeRenovar(p)?`<button class="btn sm" onclick="modalRenovacion('${p.id}')">${isAdmin()?'Renovar':'Solicitar renovación'}</button>`:''}${e.estado!=='Pagado'&&puedeDarDia()?`<button class="btn sm" onclick="modalDarDia('${p.id}')">Dar día</button>`:''}<button class="btn sm pri" onclick="viewState._reopen=1;modalPago('${p.id}')">Registrar pago</button><button class="btn sm ghost" onclick="closeModal()">✕</button></div>

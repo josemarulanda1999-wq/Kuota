@@ -70,7 +70,8 @@ function bloqueAperturaRuta(fecha){
   if(!a) return `<div class="card pad abrir-ruta" style="margin-bottom:16px;text-align:center">
     <h2 style="margin:0 0 6px">Tu ruta de hoy está sin abrir</h2><p class="muted" style="margin:0 0 14px">Ábrela para empezar a cobrar. Al final del día la cierras.</p>
     <button class="btn pri" style="font-size:17px;padding:14px 28px" onclick="abrirMiRuta()">Abrir ruta de hoy</button></div>${avisoSin}`;
-  return `<div class="banner" style="background:var(--green-soft);color:inherit"><span class="pill p-ok">Ruta abierta</span> desde las ${new Date(a.abiertaEn).toLocaleTimeString('es-CO',{hour:'numeric',minute:'2-digit'})}<span class="spacer"></span><button class="btn sm pri" onclick="cerrarMiRuta()">Cerrar ruta del día</button></div>${avisoSin}`;
+  const faltan = faltanPorVisitar(ME.uid, fecha).length;
+  return `<div class="banner" style="background:var(--green-soft);color:inherit"><span class="pill p-ok">Ruta abierta</span> desde las ${new Date(a.abiertaEn).toLocaleTimeString('es-CO',{hour:'numeric',minute:'2-digit'})}<span class="spacer"></span>${faltan?`<span class="muted" style="font-size:12.5px">Faltan ${faltan} por visitar</span>`:''}<button class="btn sm ${faltan?'':'pri'}" onclick="cerrarMiRuta()">Cerrar ruta del día</button></div>${avisoSin}`;
 }
 
 /* ---------- visitas: no pagó / aplazado ---------- */
@@ -110,6 +111,21 @@ function chipVisita(p, fecha){
 const MOTIVOS_DIA = ['Fuerza mayor','Calamidad familiar','Enfermedad','Día festivo del cliente','Otro'];
 const diaDado = (prestamoId, fecha) => DB.visitas.find(v=>v.prestamoId===prestamoId && v.fecha===fecha && v.resultado==='dominical');
 function puedeDarDia(){ return isAdmin() || !!rutaCfg(ME.uid).puedeDominical; }
+
+/* ---------- visitados: ya pagó, quedó como "no pagó", se le dio el día o ya no debe nada ese día ---------- */
+function rutaVisitado(c, fecha){
+  return c.pagadoHoy > 0.5 || c.cobrar <= 0.5 || !!visitaDe(c.p.id, fecha) || !!diaDado(c.p.id, fecha);
+}
+function faltanPorVisitar(uid, fecha){
+  return cobrosDelDia(fecha).filter(c=>c.p.cobradorId===uid && !rutaVisitado(c, fecha));
+}
+/* la ruta puede corregir los pagos que ella misma registró hoy, mientras no haya cerrado el día */
+function puedeEditarPago(x){
+  if(!x || !ME) return false;
+  if(isCeo()) return true;
+  if(isAdmin()) return false;
+  return !x.tipo && x.registradoPor===ME.uid && x.fecha===todayStr() && !miRutaCerrada(x.fecha);
+}
 function modalDarDia(prestamoId, fecha){
   if(!puedeDarDia()) return toast('La oficina no le ha dado permiso a tu ruta para dar días');
   if(!isAdmin() && rutaBloqueada()) return;
@@ -252,9 +268,15 @@ async function cerrarMiRuta(){
   const fecha = todayStr();
   if(cierreDe(ME.uid, fecha)) return avisar('Tu ruta de hoy ya está cerrada.');
   if(!aperturaDe(ME.uid, fecha)) return avisar('Tu ruta de hoy no está abierta todavía.');
+  // no se puede cerrar mientras queden clientes sin pago ni visita registrada
+  const faltan = faltanPorVisitar(ME.uid, fecha);
+  if(faltan.length){
+    const nombres = faltan.slice(0,15).map(c=>'• '+nombreCliente(c.p.clienteId)).join('\n') + (faltan.length>15?`\n… y ${faltan.length-15} más`:'');
+    if(view!=='cobros' || viewState.tab==='hechos') go('cobros', {tab:'pend'});
+    return avisar(`Todavía no puedes cerrar la ruta: ${faltan.length===1?'te falta 1 cliente':`te faltan ${faltan.length} clientes`} por visitar.\n\n${nombres}\n\nA cada uno regístrale el pago o márcalo como "No pagó".`);
+  }
   const r = resumenCierre(ME.uid, fecha);
-  const sinVisitar = cobrosDelDia(fecha).filter(x=>x.p.cobradorId===ME.uid && x.pagadoHoy<=0 && !visitaDe(x.p.id, fecha)).length;
-  if(!await confirmar(`Cerrar la ruta de hoy\n\nCobrado en efectivo: ${fmt(r.cobrado)} (${r.pagos} pagos)\nPor transferencia: ${fmt(r.transferencias)}\nGastos: ${fmt(r.gastos)}\nPrestado: ${fmt(r.prestado)}\nDebes tener en efectivo: ${fmt(r.saldoFinal)}${sinVisitar?`\n\nOjo: ${sinVisitar} cliente(s) sin pago ni visita registrada.`:''}\n\nDespués de cerrar no podrás registrar más cobros hoy.`, {ok:'Cerrar ruta'})) return;
+  if(!await confirmar(`Cerrar la ruta de hoy\n\nCobrado en efectivo: ${fmt(r.cobrado)} (${r.pagos} pagos)\nPor transferencia: ${fmt(r.transferencias)}\nGastos: ${fmt(r.gastos)}\nPrestado: ${fmt(r.prestado)}\nDebes tener en efectivo: ${fmt(r.saldoFinal)}\n\nDespués de cerrar no podrás registrar más cobros hoy.`, {ok:'Cerrar ruta'})) return;
   const rc = await resumenCierreCompleto(ME.uid, fecha);       // guarda quién pagó, quién quedó pendiente y el recorrido del día
   S.set('cierres', idCierre(ME.uid, fecha), {cobradorId:ME.uid, fecha, cerradoEn:Date.now(), resumen:rc}).catch(falloNube);
   DB.cierres.push({id:idCierre(ME.uid, fecha), cobradorId:ME.uid, fecha, cerradoEn:Date.now(), resumen:rc});

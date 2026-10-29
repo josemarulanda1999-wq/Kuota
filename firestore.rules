@@ -77,7 +77,8 @@ service cloud.firestore {
         && optNum(d, 'creado', 0, 99999999999999);
     }
     function okPago(d) {
-      return d.keys().hasOnly(['prestamoId', 'fecha', 'monto', 'nota', 'tipo', 'cobradorId', 'registradoPor', 'lat', 'lng', 'prec', 'sinGps', 'medio', 'comprobante', 'creado', 'creadoPor'])
+      return d.keys().hasOnly(['prestamoId', 'fecha', 'monto', 'nota', 'tipo', 'cobradorId', 'registradoPor', 'lat', 'lng', 'prec', 'sinGps', 'medio', 'comprobante', 'creado', 'creadoPor', 'editadoPor', 'editadoEn'])
+        && optTxt(d, 'editadoPor', 40) && optNum(d, 'editadoEn', 0, 99999999999999)
         && (!('medio' in d) || d.medio in ['efectivo', 'transferencia']) && (!('comprobante' in d) || d.comprobante is bool)
         && coordsOk(d) && optNum(d, 'prec', 0, 100000) && (!('sinGps' in d) || d.sinGps is bool)
         && idOk(d.prestamoId) && fechaOk(d.fecha) && numOk(d.monto, 1, 10000000000) && optTxt(d, 'nota', 300)
@@ -189,7 +190,12 @@ service cloud.firestore {
               && ((soloAdmin(eid) && (!('tipo' in request.resource.data) || request.resource.data.tipo == 'renovacion')
                    && !exists(/databases/$(database)/documents/empresas/$(eid)/cierres/$(request.resource.data.cobradorId + '_' + request.resource.data.fecha)))
                   || (isCob(eid) && ownNew() && !('tipo' in request.resource.data) && fechaCerca(request.resource.data.fecha) && abierta(eid, request.resource.data.fecha))));
-        allow update: if isSuper() || isCeo(eid) || (soloAdmin(eid) && soloCambiaRuta() && idOVacio(request.resource.data.cobradorId));
+        allow update: if isSuper() || isCeo(eid) || (soloAdmin(eid) && soloCambiaRuta() && idOVacio(request.resource.data.cobradorId))
+          // la ruta corrige un pago que ella misma registró (p. ej. una cuota adelantada el mismo día), mientras su día siga abierto
+          || (isCob(eid) && own() && resource.data.get('registradoPor', '') == uid() && !('tipo' in resource.data)
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['monto', 'nota', 'medio', 'comprobante', 'editadoPor', 'editadoEn'])
+              && request.resource.data.editadoPor == uid() && okPago(request.resource.data)
+              && fechaCerca(resource.data.fecha) && abierta(eid, resource.data.fecha));
         allow delete: if isSuper() || isCeo(eid);
       }
       match /entregas/{id} {

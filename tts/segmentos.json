@@ -73,6 +73,145 @@
    "Para que se haga sola, en copia automática escoge: todos los días, o cada semana.",
    "Así, cada vez que abras Kuota y toque, la copia se descarga sola. Y aquí ves cuándo fue la última.",
    "¡Listo! Tu información siempre respaldada."
+  ],
+  "prestamo": [
+   "Te muestro cómo hacerle un préstamo a un cliente en Kuota.",
+   "Toca el botón Nuevo préstamo, arriba en el panel.",
+   "Escoge el cliente. Si todavía no existe, lo puedes crear desde aquí mismo.",
+   "Escribe el valor del préstamo.",
+   "Escoge la forma de pago: diario, semanal, quincenal o mensual. Y el número de cuotas.",
+   "Pon el porcentaje de interés. Kuota te calcula al instante el valor de cada cuota, y el total a pagar.",
+   "Si quieres, toma la foto del cliente y de la cédula.",
+   "Y le das Guardar. ¡Listo! El préstamo ya queda en la ruta del cliente.",
+   "¡Así de fácil!"
+  ],
+  "cobrar": [
+   "Te muestro cómo registrar un pago y mandarle el recibo al cliente.",
+   "En Mi ruta, busca el cliente, y toca Cobrar.",
+   "El valor ya viene con una cuota. Si paga más, usas estos botones: una cuota, todo lo atrasado, o el saldo.",
+   "Escoge si pagó en efectivo, o por transferencia. Si fue transferencia, adjuntas la foto del comprobante.",
+   "Toca Guardar pago.",
+   "Y te aparece el recibo, listo para enviarlo por WhatsApp, por correo, o como foto.",
+   "¡Así de fácil! Tu cliente queda con su recibo al instante."
+  ],
+  "abonar": [
+   "¿Un cliente quiere abonar, aunque hoy no le toque? Te muestro cómo.",
+   "En Mi ruta, busca al cliente aquí arriba, por nombre o por cédula.",
+   "Te aparece su crédito. Toca Cobrar o Abonar.",
+   "Escribe el valor que abona, y le das Guardar pago.",
+   "¡Listo! El abono queda registrado, y le puedes mandar el recibo."
+  ],
+  "no_pago": [
+   "Te muestro qué hacer cuando un cliente no te paga.",
+   "Si visitas al cliente y no te paga, toca No pagó.",
+   "Escoge el motivo, y cuándo vuelves a pasar.",
+   "Guardas, y queda registrado para la oficina.",
+   "Si el cliente tuvo un caso de fuerza mayor, toca Dar día. Esa cuota pasa para mañana, y no genera mora.",
+   "¡Listo! Así la oficina siempre sabe qué pasó con cada cliente."
+  ],
+  "renovar": [
+   "Te muestro cómo renovar el crédito de un cliente.",
+   "Entra a Préstamos, y abre el crédito del cliente.",
+   "Toca Renovar.",
+   "Escribe el valor del nuevo préstamo. Kuota descuenta lo que el cliente debe, y te dice cuánto entregarle en efectivo.",
+   "Escoge si sigue pagando el mismo día de siempre, o si cuenta desde hoy.",
+   "Y tocas Renovar. El crédito anterior queda pagado, y empieza el nuevo.",
+   "¡Así de fácil!"
+  ],
+  "aprobaciones": [
+   "Cuando una ruta pide un crédito que pasa su tope, o pide una renovación, tú lo apruebas. Te muestro cómo.",
+   "Entra a Aprobaciones.",
+   "Revisa el crédito que pidió la ruta, y toca Aprobar crédito.",
+   "Para las renovaciones, toca Revisar, mira los valores, y apruebas.",
+   "¡Listo! La ruta ve al instante que ya puede entregar la plata."
+  ],
+  "panel": [
+   "Te explico qué muestra cada casilla del panel de Kuota.",
+   "La casilla grande es la plata disponible para nuevos créditos.",
+   "Aquí ves la plata en la calle: lo prestado, más los intereses por cobrar.",
+   "Lo cobrado hoy, ayer, y en la semana.",
+   "Los gastos del mes, y las multas, que van aparte.",
+   "La utilidad que ya cobraste, y la plata que está en mora.",
+   "Y abajo, los cobros pendientes de hoy, y cómo va cada ruta.",
+   "¡Así tienes todo tu negocio en una sola pantalla!"
+  ],
+  "gastos": [
+   "Te muestro cómo registrar los gastos y los ingresos del negocio.",
+   "Para un gasto, toca Egreso, en el panel.",
+   "Escribe el valor y el concepto, por ejemplo papelería, y guardas.",
+   "Si entra plata extra, usas Ingreso, de la misma forma.",
+   "Y en Caja ves todos los movimientos, con el saldo.",
+   "¡Listo! Así sabes siempre en qué se va la plata."
+  ],
+  "cierre": [
+   "Te muestro cómo ver el día de una ruta: quién pagó, y quién quedó pendiente.",
+   "Entra a Caja, y luego a Cuadre de rutas.",
+   "En cada ruta ves si está abierta, cerrada, o sin abrir.",
+   "Toca Ver el día, o Ver cierre, si la ruta ya cerró.",
+   "Aquí ves quién pagó, quién quedó pendiente y por qué, y el recorrido de la ruta en el mapa.",
+   "¡Así controlas cada ruta, todos los días!"
+  ],
+  "ruta_config": [
+   "Te muestro cómo configurar cada ruta: su capital, sus permisos, y cómo suspenderla.",
+   "Entra a Usuarios, y toca Editar en la ruta.",
+   "Para asignarle plata a la ruta, toca Añadir capital, escribe el valor, y lo añades.",
+   "Aquí le das permisos: si puede prestar en la calle, el tope por crédito, y si puede dar días.",
+   "Si un cobrador no debe trabajar, toca Suspender acceso. No se pierde ningún dato.",
+   "Y guardas los cambios.",
+   "¡Listo! Cada ruta trabaja con sus propias reglas."
+  ],
+  "avisos": [
+   "Te muestro cómo mandarle avisos a tus clientes por WhatsApp, con un solo toque.",
+   "Entra a Avisos a clientes.",
+   "Arriba escoges: los que pagan hoy, los que están en mora, o los que terminaron de pagar.",
+   "Cada cliente ya tiene su mensaje listo. Tocas WhatsApp, y se abre el chat con el mensaje escrito.",
+   "Los mensajes los puedes cambiar en Ajustes.",
+   "¡Así tus clientes nunca se olvidan de pagar!"
+  ],
+  "multas": [
+   "Te muestro cómo cobrar una multa por cada día de atraso.",
+   "Entra a Ajustes, a la parte de multas.",
+   "Activa: cobrar multa por atraso.",
+   "Escoge: un valor por cada día de atraso.",
+   "Pon los montos. Por ejemplo, los créditos de más de quinientos mil pagan veinte mil por día, y los demás, diez mil.",
+   "Escoge desde qué fecha empieza a contar, y le das Guardar.",
+   "Las multas van aparte: no suman a la cartera, hasta que el cliente las paga. ¡Listo!"
+  ],
+  "logo": [
+   "Te muestro cómo poner el nombre y el logo de tu negocio en los recibos.",
+   "Entra a Ajustes.",
+   "En nombre del negocio, escribe cómo quieres que salga en los recibos.",
+   "Toca Subir logo, y escoges la imagen.",
+   "¡Listo! Tu logo ya sale en los recibos y en el menú."
+  ],
+  "importar": [
+   "¿Vienes de otro sistema, o de Excel? Te muestro cómo pasar tus clientes y créditos a Kuota.",
+   "Entra a Ajustes, y baja a: importar clientes y créditos desde Excel.",
+   "Descarga la plantilla, y llénala en Excel con tus clientes.",
+   "Guárdala como CSV, y toca Subir archivo.",
+   "Kuota te muestra un resumen: cuántos clientes y créditos, y lo que ya pagaron. Si todo está bien, tocas Importar.",
+   "¡Listo! Toda tu cartera queda en Kuota en un minuto."
+  ],
+  "castigar": [
+   "Si un cliente definitivamente no va a pagar, puedes castigar el crédito. Te muestro cómo.",
+   "Entra a Préstamos, y abre el crédito.",
+   "Toca Castigar, y confirmas.",
+   "El crédito sale de la cartera y de la ruta, pero queda en el historial. Si el cliente vuelve a pagar, lo reactivas.",
+   "¡Así tu cartera siempre muestra la plata real!"
+  ],
+  "credito_ruta": [
+   "Te muestro cómo hacer un crédito nuevo desde la calle.",
+   "Si tu ruta tiene permiso de prestar, toca Crédito nuevo.",
+   "Escoge el cliente, el valor, y las cuotas.",
+   "Toca Guardar. Si el valor pasa tu tope, se envía a la oficina para que lo apruebe.",
+   "¡Listo! El crédito queda en tu ruta."
+  ],
+  "gasto_ruta": [
+   "Te muestro cómo registrar un gasto de la ruta, por ejemplo la gasolina.",
+   "Entra a Cuadre.",
+   "Toca Gasto.",
+   "Escoge el concepto, escribe el valor, y guardas.",
+   "El gasto se descuenta de lo que debes entregar. ¡Así tus cuentas siempre cuadran!"
   ]
  }
 }

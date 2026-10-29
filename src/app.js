@@ -788,11 +788,11 @@ VIEWS.clientes = () => {
   const fila = c=>{const ps=DB.prestamos.filter(p=>p.clienteId===c.id);const saldo=saldoCliente(c);return `<tr>
     <td><div class="who">${ava(c.nombre)}<div><b>${esc(c.nombre)}</b>${c.obs?`<div class="muted" style="font-size:12px">${esc(c.obs)}</div>`:''}${chipOtrasRutas(c)?`<div style="margin-top:3px">${chipOtrasRutas(c)}</div>`:''}</div></div></td><td>${esc(c.cedula)}</td><td>${esc(c.tel1)}</td><td>${esc(c.tel2)}</td>
     <td>${esc(c.direccion)}</td><td>${esc(c.ciudad)}</td>${isAdmin()?`<td>${esc(nombreRuta(c.cobradorId))}</td>`:''}<td class="num">${ps.length}</td><td class="num">${fmt(saldo)}</td>
-    <td class="right" style="white-space:nowrap">${isAdmin()?`<button class="btn sm" onclick="modalPrestamo(null,'${c.id}')">Prestar</button>`:''} <button class="btn sm" onclick="modalCliente('${c.id}')">Editar</button></td></tr>`};
+    <td class="right" style="white-space:nowrap"><button class="btn sm" onclick="modalPrestamo(null,'${c.id}')">Prestar</button> <button class="btn sm" onclick="modalCliente('${c.id}')">Editar</button></td></tr>`};
   const tarjeta = c=>{const ps=DB.prestamos.filter(p=>p.clienteId===c.id);const saldo=saldoCliente(c);const tel=(c.tel1||'').replace(/[^\d+]/g,'');return `<div class="card cobro">
       <div class="who">${ava(c.nombre)}<div style="min-width:0;flex:1"><b>${esc(c.nombre)}</b><div class="muted" style="font-size:12.5px">${esc(c.direccion||c.tel1||'')}</div>${chipOtrasRutas(c)}</div></div>
       <div class="cobro-nums"><div><span>Préstamos</span><b>${ps.length}</b></div><div><span>Saldo</span><b>${fmt(saldo)}</b></div><div><span>${isAdmin()?'Ruta':'Cédula'}</span><b style="font-size:13px">${esc(isAdmin()?nombreRuta(c.cobradorId):(c.cedula||'—'))}</b></div></div>
-      <div class="row">${tel?`<a class="btn sm" href="tel:${esc(tel)}">Llamar</a>`:''}${btnComoLlegar(c)}<span class="spacer"></span>${(()=>{const act=ps.find(p=>puedeRenovar(p)); return act?`<button class="btn sm" onclick="modalRenovacion('${act.id}')">Renovar</button>`:'';})()}${isAdmin()?`<button class="btn sm" onclick="modalPrestamo(null,'${c.id}')">Prestar</button>`:''}<button class="btn sm" onclick="modalCliente('${c.id}')">Editar</button></div></div>`};
+      <div class="row">${tel?`<a class="btn sm" href="tel:${esc(tel)}">Llamar</a>`:''}${btnComoLlegar(c)}<span class="spacer"></span>${(()=>{const act=ps.find(p=>puedeRenovar(p)); return act?`<button class="btn sm" onclick="modalRenovacion('${act.id}')">Renovar</button>`:'';})()}<button class="btn sm" onclick="modalPrestamo(null,'${c.id}')">Prestar</button><button class="btn sm" onclick="modalCliente('${c.id}')">Editar</button></div></div>`};
   const vacio = `<div class="empty">${DB.clientes.length?(soloDup?'Ningún cliente está en más de una ruta.':'Sin resultados.'):'Aún no hay clientes registrados.'}</div>`;
   return `
   <div class="head"><div><h1>${isAdmin()?'Clientes':'Mis clientes'}</h1><p class="sub">${verPorRutas() && !viewState.cob && !q && !soloDup ? `${DB.clientes.length} clientes en ${cobradores().length} ruta(s)` : `${rows.length} clientes${viewState.cob?' · '+esc(viewState.cob==='_yo'?'sin ruta':nombreRuta(viewState.cob)):''}`}</p></div>
@@ -1174,6 +1174,7 @@ function reasignarCliente(clienteId, cob){
 }
 
 function modalPrestamo(id, clienteId, preset){
+  if(!id && !isAdmin() && rutaBloqueada()) return;     // la ruta presta solo con el día abierto
   const p = id ? DB.prestamos.find(x=>x.id===id) : Object.assign({clienteId:clienteId||'',fecha:todayStr(),monto:'',tasa:DB.config.tasaDefecto,meses:1,periodo:'DIARIO',excluirDomingos:DB.config.excluirDomingos,nota:''}, preset||{});
   const tienePagos = id && pagosDe(id).length>0;
   if(!(preset && preset._fotos)) FOTOS_TMP = {};
@@ -1273,14 +1274,14 @@ function modalPrestamo(id, clienteId, preset){
       cobP = ME.uid; data.fuente = 'ruta'; data.fecha = todayStr();
       const max = Number(rutaCfg(ME.uid).maxPrestamo)||0;
       const capOk = await revisarCapitalAlPrestar(ME.uid, monto);
-      if(!max || monto > max || capOk==='solicitud'){
+      if(!puedePrestarRuta() || !max || monto > max || capOk==='solicitud'){   // sin permiso de prestar: queda como solicitud para la oficina
         const pid = S.newId('prestamos');
         if(hayFotos(FOTOS_TMP)) guardarFotos(pid, cli, FOTOS_TMP).catch(falloNube);
         FOTOS_TMP = {};
         dbAdd('aprobaciones', {tipo:'prestamo', cobradorId:ME.uid, clienteId:cli, monto, tasa, meses, cuotas:c.cuotas, modoInteres:modo, periodo, excluirDomingos:data.excluirDomingos, nota:data.nota, fecha:todayStr(), estado:'pendiente', prestamoId:pid,
           ...(data.primeraCuota ? {primeraCuota:data.primeraCuota} : {})});
         closeModal(); render();
-        return avisar(capOk==='solicitud' ? `Tu ruta no tiene capital disponible para este crédito (quedan ${fmt(Math.max(0,capitalRuta(ME.uid).disponible))}). Quedó como solicitud para que la oficina lo apruebe o le añada capital.`
+        return avisar(!puedePrestarRuta() ? 'Tu ruta no tiene permiso para prestar directo. Quedó como solicitud: la oficina la debe aprobar antes de entregar la plata.' : capOk==='solicitud' ? `Tu ruta no tiene capital disponible para este crédito (quedan ${fmt(Math.max(0,capitalRuta(ME.uid).disponible))}). Quedó como solicitud para que la oficina lo apruebe o le añada capital.`
           : max ? `El crédito pasa el tope de tu ruta (${fmt(max)}). Quedó como solicitud y la oficina lo debe aprobar antes de entregar la plata.` : 'Quedó como solicitud. La oficina la debe aprobar antes de entregar la plata.');
       }
     }

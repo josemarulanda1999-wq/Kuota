@@ -9,6 +9,33 @@ on:
 permissions: {}
 
 jobs:
+  # publica firestore.rules en Firebase en cada cambio (así no hay que copiarlas a mano)
+  reglas:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+      - name: Publicar reglas de Firestore
+        env:
+          FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -z "$FIREBASE_SA" ]; then
+            echo "::warning::Falta el secreto FIREBASE_SERVICE_ACCOUNT: las reglas NO se publicaron. Cópialas a mano en Firebase o agrega el secreto."
+            exit 0
+          fi
+          printf '%s' "$FIREBASE_SA" > "$RUNNER_TEMP/sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
+          PROYECTO=$(sed -n 's/.*projectId: *"\([^"]*\)".*/\1/p' src/firebase-config.js)
+          npx --yes firebase-tools@13 deploy --only firestore:rules --project "$PROYECTO" --non-interactive || { rm -f "$RUNNER_TEMP/sa.json"; exit 1; }
+          rm -f "$RUNNER_TEMP/sa.json"
+          echo "Reglas publicadas en $PROYECTO"
+
   build:
     runs-on: ubuntu-latest
     permissions:

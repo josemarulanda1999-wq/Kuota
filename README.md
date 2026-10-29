@@ -8,6 +8,7 @@ App para llevar el control de créditos con **un administrador y varios cobrador
 ## Cómo se instala
 
 1. **Firebase:** pega la configuración de tu proyecto en `src/firebase-config.js` y copia el contenido de `firestore.rules` en *Firestore Database → Reglas → Publicar*.
+   Para que las reglas se publiquen solas en cada cambio, agrega en GitHub el secreto `FIREBASE_SERVICE_ACCOUNT` (la llave JSON de una cuenta de servicio de Firebase con permiso para publicar reglas).
 2. **GitHub:** cada vez que se sube un cambio a `main`, GitHub Actions compila todo solo (unos 6 minutos):
    - El **APK** queda en la sección **Releases** del repositorio (`Kuota.apk`).
    - La **versión para PC** se publica en GitHub Pages. Actívalo una vez en *Settings → Pages → Source: GitHub Actions*.

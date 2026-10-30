@@ -344,7 +344,7 @@ function multaDe(p){
 }
 function pagosDe(id){ return DB.pagos.filter(x=>x.prestamoId===id).sort((a,b)=>a.fecha.localeCompare(b.fecha)); }
 function estadoPrestamo(p, hoy=todayStr()){
-  const pagos = hoy < todayStr() ? pagosDe(p.id).filter(x=>x.fecha<=hoy) : pagosDe(p.id);   // un día pasado se ve como estaba ese día
+  const pagos = pagosDe(p.id);
   const pagado = pagos.reduce((s,x)=>s+x.monto,0);
   const base = p.valorCuota * p.cuotas;
   const multa = multaDe(p);
@@ -639,7 +639,7 @@ function cobroCard(c, fecha){
       return ed.length ? `<div class="row" style="gap:6px;border-top:1px dashed var(--line,rgba(127,127,127,.25));padding-top:8px"><span class="muted" style="font-size:12.5px">Pagos de hoy:</span>${ed.map(x=>`<button class="btn sm ghost" onclick="modalPago(null,'${x.id}')">✎ ${fmt(x.monto)}${x.creado?' · '+new Date(x.creado).toLocaleTimeString('es-CO',{hour:'numeric',minute:'2-digit'}):''}</button>`).join('')}</div>` : ''; })()}</div>`;
 }
 VIEWS.cobros = () => {
-  const fecha = viewState.fecha || (isAdmin() ? todayStr() : diaRuta());
+  const fecha = viewState.fecha || todayStr();
   const ordenC = c => Number((clienteById(c.p.clienteId)||{}).orden)||1e9;
   const dia = cobrosDelDia(fecha).filter(c=>pasaFiltroCob(c.p.cobradorId)).sort((a,b)=>ordenC(a)-ordenC(b) || b.e.atraso-a.e.atraso);
   const q = sinTildes(viewState.q||'').trim();
@@ -1172,7 +1172,6 @@ function clienteOptions(sel){
 
 function modalCliente(id, onSaved){
   if(!id && !isAdmin() && rutaBloqueada()) return;   // clientes nuevos solo con la ruta abierta
-  if(!isAdmin() && soloDiaActual()) return;
   const c = id? clienteById(id) : {nombre:'',cedula:'',tel1:'',tel2:'',direccion:'',ciudad:'',obs:'',cobradorId:''};
   const cobSel = isAdmin() ? `<label class="f full">Ruta<select class="input" id="mCob"><option value="">Sin ruta (lo manejo yo)</option>${cobradores().map(u=>`<option value="${u.id}" ${u.id===c.cobradorId?'selected':''}>${esc(rutaCompleta(u))}</option>`).join('')}</select></label>` : '';
   openModal(`<h3>${id?'Editar cliente':'Nuevo cliente'}</h3>
@@ -1280,7 +1279,6 @@ function modalHistorialCliente(clienteId){
 }
 function modalPrestamo(id, clienteId, preset){
   if(!id && !isAdmin() && rutaBloqueada()) return;     // la ruta presta solo con el día abierto
-  if(!isAdmin() && soloDiaActual()) return;
   const p = id ? DB.prestamos.find(x=>x.id===id) : Object.assign({clienteId:clienteId||'',fecha:todayStr(),monto:'',tasa:DB.config.tasaDefecto,meses:1,periodo:'DIARIO',excluirDomingos:DB.config.excluirDomingos,nota:''}, preset||{});
   const tienePagos = id && pagosDe(id).length>0;
   if(!(preset && preset._fotos)) FOTOS_TMP = {};
@@ -1425,7 +1423,7 @@ function modalPago(prestamoId, pagoId, fecha){
   if(!pago && !isAdmin() && rutaBloqueada()) return;
   if(pago && !puedeEditarPago(pago)) return avisar(isAdmin() ? 'Solo el dueño puede editar pagos.' : 'Solo puedes corregir los pagos que tú registraste hoy, antes de cerrar la ruta.');
   const rutaEdita = !!pago && !isCeo();       // la ruta corrige valor, medio y nota; no cambia el préstamo ni la fecha
-  if(!isAdmin()) fecha = diaRuta();           // la ruta registra en el día que tiene abierto (hoy o un día pendiente)
+  if(!isAdmin()) fecha = todayStr();          // la ruta solo registra pagos del día
   const activos = DB.prestamos.filter(p=>estadoPrestamo(p).estado!=='Pagado' || p.id===prestamoId);
   const sel = pago? pago.prestamoId : (prestamoId||'');
   openModal(`<h3>${pago?'Editar pago':'Registrar pago'}</h3>
@@ -1506,7 +1504,7 @@ function modalPago(prestamoId, pagoId, fecha){
   trf.addEventListener('input', pintaMixto); trf.addEventListener('blur',()=>{ const n=num(trf.value); if(n) trf.value=fmtIn(n); });
   val.addEventListener('input', pintaMixto);
   document.getElementById('gSave').onclick=async ()=>{
-    const pid=document.getElementById('gPre').value, monto=num(val.value), f=isAdmin() ? (document.getElementById('gFec').value||todayStr()) : (pago ? pago.fecha : diaRuta());
+    const pid=document.getElementById('gPre').value, monto=num(val.value), f=document.getElementById('gFec').value||todayStr();
     if(!pid) return toast('Selecciona el préstamo');
     if(monto<=0) return toast('Escribe el valor pagado');
     const p=DB.prestamos.find(x=>x.id===pid), e=estadoPrestamo(p);
@@ -1802,7 +1800,6 @@ function puedeRenovar(p){
 }
 function modalRenovacion(prestamoId, renovacionId){
   if(!isAdmin() && rutaBloqueada()) return;   // la ruta solo registra con el día abierto
-  if(!isAdmin() && soloDiaActual()) return;
   const ren = renovacionId ? DB.renovaciones.find(r=>r.id===renovacionId) : null;
   const p = DB.prestamos.find(x=>x.id===(ren?ren.prestamoId:prestamoId)); if(!p) return;
   const e = estadoPrestamo(p), cl = clienteById(p.clienteId)||{};
@@ -1929,7 +1926,6 @@ function ejecutarRenovacion(p, saldo, d, ren, entrega){
 }
 function elegirRenovacion(){
   if(!isAdmin() && rutaBloqueada()) return;   // la ruta solo registra con el día abierto
-  if(!isAdmin() && soloDiaActual()) return;
   const ps=DB.prestamos.filter(p=>puedeRenovar(p)).sort((a,b)=>nombreCliente(a.clienteId).localeCompare(nombreCliente(b.clienteId)));
   if(!ps.length) return toast('No tienes préstamos activos para renovar');
   openModal(`<h3>Solicitar renovación</h3><p class="muted" style="margin-top:-8px">Escoge el cliente que quiere renovar.</p>
@@ -1940,7 +1936,6 @@ function elegirRenovacion(){
 }
 function marcarEntregada(id){
   if(!isAdmin() && rutaBloqueada()) return;   // la ruta solo registra con el día abierto
-  if(!isAdmin() && soloDiaActual()) return;
   const r=DB.renovaciones.find(x=>x.id===id); if(!r || r.estado!=='aprobada') return;
   openModal(`<h3>Entregar renovación · ${esc(nombreCliente(r.clienteId))}</h3>
   <p class="muted" style="margin-top:-8px">Valor a entregar: <b>${fmt(r.excedente)}</b></p>
@@ -2023,7 +2018,7 @@ function cuadreCobrador(uidC, fecha){
   return r;
 }
 VIEWS.cuadre = () => {
-  const fecha = viewState.fecha || (isAdmin() ? todayStr() : diaRuta());
+  const fecha = viewState.fecha || todayStr();
   const hoy = fecha===todayStr();
   const fechaInput = `<input type="date" class="input" style="width:auto" value="${fecha}" onchange="go('cuadre',Object.assign({},viewState,{fecha:this.value}))">`;
   if(!isAdmin()){
@@ -2042,7 +2037,7 @@ VIEWS.cuadre = () => {
       <div class="cr-fila total"><span>Debes tener en efectivo</span><b>${fmt(c.saldoFinal)}</b></div>
       <div class="cr-fila transf"><span>Cobrado por transferencia (${c.nTransfDia}) · va a la cuenta, no a tu mano</span><b>${fmt(c.transfDia)}</b></div>
       ${(()=>{ const ci=cierreDe(ME.uid, fecha); return ci ? `<div class="banner" style="margin:14px 0 0">Ruta cerrada a las ${new Date(ci.cerradoEn).toLocaleTimeString('es-CO',{hour:'numeric',minute:'2-digit'})}.<span class="spacer"></span><button class="btn sm" onclick="modalCierre(ME.uid,'${fecha}')">Ver cierre</button></div>`
-        : fecha===diaRuta() ? (aperturaDe(ME.uid, fecha) ? `<div class="row" style="margin-top:14px"><button class="btn sm" onclick="modalGastoRuta('gasto')">+ Gasto</button><button class="btn sm" onclick="modalGastoRuta('ingreso')">+ Ingreso</button><span class="spacer"></span><button class="btn sm pri" onclick="cerrarMiRuta()">Cerrar ruta del día</button></div>`
+        : hoy ? (aperturaDe(ME.uid, fecha) ? `<div class="row" style="margin-top:14px"><button class="btn sm" onclick="modalGastoRuta('gasto')">+ Gasto</button><button class="btn sm" onclick="modalGastoRuta('ingreso')">+ Ingreso</button><span class="spacer"></span><button class="btn sm pri" onclick="cerrarMiRuta()">Cerrar ruta del día</button></div>`
           : `<div class="row" style="margin-top:14px"><span class="muted">La ruta de hoy está sin abrir.</span><span class="spacer"></span><button class="btn sm pri" onclick="abrirMiRuta()">Abrir ruta de hoy</button></div>`) : ''; })()}
     </div>
     ${tablaMovRuta(ME.uid, fecha)}

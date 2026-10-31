@@ -616,11 +616,17 @@ function pasaFiltroCob(cobradorId){
   const v=viewState.cob||''; if(!v) return true;
   return v==='_yo' ? !cobradorId : cobradorId===v;
 }
+/* estado en la lista del día: si le toca cuota ese día se dice "Paga hoy", y la mora va al lado (no en vez de) */
+function pillDia(c){
+  if(c.e.estado==='En mora' && (c.hoyCobrar||0)>0.5){ const d=Math.max(1, c.e.diasMora||1);
+    return `<span class="pill p-hoy">Paga hoy</span> <span class="pill ${d<=3?'p-mora1':'p-mora'}">+ mora ${d} día${d>1?'s':''}</span>`; }
+  return pill(c.e);
+}
 function cobroCard(c, fecha){
   const cl=clienteById(c.p.clienteId)||{};
   const tel=(cl.tel1||'').replace(/[^\d+]/g,'');
   return `<div class="card cobro">
-    <div class="who" onclick="modalDetalle('${c.p.id}')" style="cursor:pointer">${ava(cl.nombre)}<div style="min-width:0;flex:1"><b>${esc(cl.nombre||'(sin cliente)')}</b><div class="muted" style="font-size:12.5px">${esc(cl.direccion||'Sin dirección')}</div></div>${pill(c.e)}</div>
+    <div class="who" onclick="modalDetalle('${c.p.id}')" style="cursor:pointer">${ava(cl.nombre)}<div style="min-width:0;flex:1"><b>${esc(cl.nombre||'(sin cliente)')}</b><div class="muted" style="font-size:12.5px">${esc(cl.direccion||'Sin dirección')}</div></div><span style="display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-end">${pillDia(c)}</span></div>
     <div class="cobro-nums">
       <div><span>Cuota</span><b>${fmt(c.p.valorCuota)}</b></div>
       <div><span>Cuota de hoy</span><b>${fmt(c.hoyCobrar||0)}</b>${c.mora>0.5?`<em style="font-style:normal;font-size:11.5px;display:block;color:var(--red)">+ mora ${fmt(c.mora)}</em>`:''}</div>
@@ -677,11 +683,11 @@ VIEWS.cobros = () => {
   ${!isAdmin()?bloqueRenovacionesCobrador():(DB.renovaciones.some(r=>r.estado==='pendiente')?`<div class="banner">Hay ${DB.renovaciones.filter(r=>r.estado==='pendiente').length} solicitud(es) de renovación esperando aprobación. <button class="btn sm" data-go="renovaciones">Revisar</button></div>`:'')}
   ${verPorRutas() && !viewState.cob && !q ? selectorRutas('cobros', fecha) : `${tabs}
   ${tarjetas ? (list.length? `<div class="cobros-grid">${list.map(c=>cobroCard(c,fecha)).join('')}</div>` : `<div class="card"><div class="empty">${vacio}</div></div>`) : `<div class="card">
-  ${list.length? `<div class="tablewrap"><table><thead><tr><th>Cliente</th><th>Teléfono / Dirección</th><th>Estado</th><th class="num">Cuota</th><th class="num">Pendiente</th><th class="num">Saldo</th><th class="num">Pagó</th><th></th></tr></thead><tbody>
+  ${list.length? `<div class="tablewrap"><table><thead><tr><th>Cliente</th><th>Teléfono / Dirección</th><th>Estado</th><th class="num">Cuota</th><th class="num">Cuota de hoy</th><th class="num">Saldo</th><th class="num">Pagó</th><th></th></tr></thead><tbody>
   ${list.map(c=>{const cl=clienteById(c.p.clienteId)||{};return `<tr>
     <td><div class="who">${ava(cl.nombre)}<div><b>${esc(cl.nombre||'(sin cliente)')}</b><div class="muted" style="font-size:12px">${c.p.periodo.toLowerCase()}${cobradores().length?' · '+esc(nombreRuta(c.p.cobradorId)):''}</div></div></div></td>
     <td>${esc(cl.tel1||'')}<div class="muted" style="font-size:12px">${esc(cl.direccion||'')}</div></td>
-    <td>${pill(c.e)}</td><td class="num">${fmt(c.p.valorCuota)}</td><td class="num" style="color:${c.e.atraso>0?'var(--red)':'inherit'}">${fmt(c.e.atraso)}</td>
+    <td>${pillDia(c)}</td><td class="num">${fmt(c.p.valorCuota)}</td><td class="num">${fmt(c.hoyCobrar||0)}${c.mora>0.5?`<div style="font-size:12px;color:var(--red)">+ mora ${fmt(c.mora)}</div>`:''}</td>
     <td class="num">${fmt(c.e.saldo)}</td><td class="num">${c.pagadoHoy?fmt(c.pagadoHoy):'—'}</td>
     <td class="right no-print" style="white-space:nowrap">${c.cobrar>0.5?`<button class="btn sm pri" onclick="modalPago('${c.p.id}',null,'${fecha}')">Cobrar</button>`:`${c.pagadoHoy?'<span class="pill p-ok">Cobrado</span> ':''}<button class="btn sm${c.pagadoHoy?'':' pri'}" onclick="modalPago('${c.p.id}',null,'${fecha}')">Abonar</button>`} <button class="btn sm" onclick="modalDetalle('${c.p.id}')">Ver</button></td></tr>`}).join('')}
   </tbody></table></div>` : `<div class="empty">${vacio}</div>`}

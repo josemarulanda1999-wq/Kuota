@@ -10,5 +10,13 @@
     "webContentsDebuggingEnabled": false,
     "allowMixedContent": false,
     "useLegacyBridge": true
+  },
+  "plugins": {
+    "CapacitorUpdater": {
+      "autoUpdate": false,
+      "statsUrl": "",
+      "appReadyTimeout": 15000,
+      "resetWhenUpdate": true
+    }
   }
 }

@@ -649,11 +649,15 @@ VIEWS.cobros = () => {
   const ordenC = c => Number((clienteById(c.p.clienteId)||{}).orden)||1e9;
   const dia = cobrosDelDia(fecha).filter(c=>pasaFiltroCob(c.p.cobradorId)).sort((a,b)=>ordenC(a)-ordenC(b) || b.e.atraso-a.e.atraso);
   const q = sinTildes(viewState.q||'').trim();
-  const tab = ['hechos','mora'].includes(viewState.tab) ? viewState.tab : 'pend';
+  const tab = ['hechos','mora','adel'].includes(viewState.tab) ? viewState.tab : 'pend';
   const porVisitar = dia.filter(c=>!rutaVisitado(c, fecha) && c.hoyCobrar>0.5);       // les toca cuota hoy
   const soloMora = dia.filter(c=>!rutaVisitado(c, fecha) && c.hoyCobrar<=0.5);        // no les toca hoy, solo deben mora
-  const hechos = dia.filter(c=>rutaVisitado(c, fecha));
-  const list = q ? buscarCobro(q, fecha) : (tab==='hechos' ? hechos : tab==='mora' ? soloMora : porVisitar);
+  // visitado de verdad: pagó, quedó como "no pagó" o se le dio el día. Los que ya tienen la cuota cubierta (abonos
+  // adelantados) no cuentan como visitados: van aparte como "Adelantados"
+  const visitaReal = c => c.pagadoHoy > 0.5 || !!visitaDe(c.p.id, fecha) || !!diaDado(c.p.id, fecha);
+  const hechos = dia.filter(visitaReal);
+  const adelantados = dia.filter(c=>!visitaReal(c) && rutaVisitado(c, fecha));
+  const list = q ? buscarCobro(q, fecha) : (tab==='hechos' ? hechos : tab==='mora' ? soloMora : tab==='adel' ? adelantados : porVisitar);
   const visitados = hechos.length;
   const tarjetas = !isAdmin() || movil();
   const totalCobrar = dia.filter(c=>!rutaVisitado(c, fecha)).reduce((s,c)=>s+(c.hoyCobrar||0),0);   // solo cuotas del día que faltan
@@ -663,16 +667,17 @@ VIEWS.cobros = () => {
     : !dia.length ? 'Nada que cobrar en esta fecha.'
     : tab==='hechos' ? 'Todavía no hay clientes visitados ni pagos en esta fecha.'
     : tab==='mora' ? 'No hay clientes que solo deban mora sin visitar.'
+    : tab==='adel' ? 'Nadie tiene la cuota de este día pagada por adelantado.'
     : (!isAdmin() && miRutaAbierta() && !miRutaCerrada(fecha) && fecha===todayStr()) ? '¡Listo! Visitaste a todos los clientes. Ya puedes cerrar la ruta del día.' : 'No queda nadie por visitar en esta fecha.';
   const tabBtn = (k, t, n) => `<button class="${tab===k?'on':''}" onclick="go('cobros',Object.assign({},viewState,{tab:'${k}'}))">${t} · ${n}</button>`;
-  const tabs = q ? '' : `<div class="seg" style="margin:0 0 14px;flex-wrap:wrap">${tabBtn('pend','Por cobrar hoy',porVisitar.length)}${soloMora.length||tab==='mora'?tabBtn('mora','En mora',soloMora.length):''}${tabBtn('hechos','Visitados y pagados',hechos.length)}</div>`;
+  const tabs = q ? '' : `<div class="seg" style="margin:0 0 14px;flex-wrap:wrap">${tabBtn('pend','Por cobrar hoy',porVisitar.length)}${soloMora.length||tab==='mora'?tabBtn('mora','En mora',soloMora.length):''}${tabBtn('hechos','Visitados y pagados',hechos.length)}${adelantados.length||tab==='adel'?tabBtn('adel','Adelantados',adelantados.length):''}</div>`;
   return `
   <div class="head"><div><h1>${isAdmin()?'Cobros del día':'Mi ruta'}</h1><p class="sub">Cuotas que vencen y préstamos atrasados. Marca el pago apenas cobres.</p></div>
   <div class="row">${isAdmin()?'':`${puedePrestarRuta()?`<button class="btn pri" onclick="modalPrestamo()">+ Crédito nuevo</button>`:''}<button class="btn ${puedePrestarRuta()?'':'pri'}" onclick="elegirRenovacion()">Solicitar renovación</button>`}${isAdmin()?'':`<button class="btn" onclick="go('prestamos',{dia:'${fecha}'})">Lo que presté ${fecha===todayStr()?'hoy':'ese día'}</button>`}${isAdmin()?'':'<button class="btn" onclick="modalEnrutar()">Orden de visita</button><button class="btn" data-go="avisos">Avisar a clientes</button>'}${filtroCobrador('cobros')}<input type="date" class="input" style="width:auto" value="${fecha}" onchange="go('cobros',Object.assign({},viewState,{fecha:this.value}))">${isNative()?'':'<button class="btn no-print" onclick="window.print()">Imprimir ruta</button>'}</div></div>
   ${bloqueAperturaRuta(fecha)}
   <div class="kpis">
     ${!isAdmin()?bloqueDisponibleRuta():''}
-    <div class="kpi sky"><div class="l">Visitados</div><div class="v">${visitados} de ${porVisitar.length+visitados}</div><div class="progress" style="margin-top:8px"><i style="width:${porVisitar.length+visitados?visitados/(porVisitar.length+visitados)*100:0}%"></i></div></div>
+    <div class="kpi sky"><div class="l">Visitados</div><div class="v">${visitados} de ${porVisitar.length+visitados}</div><div class="progress" style="margin-top:8px"><i style="width:${porVisitar.length+visitados?visitados/(porVisitar.length+visitados)*100:0}%"></i></div>${adelantados.length?`<div class="n">+ ${adelantados.length} con la cuota adelantada</div>`:''}</div>
     <div class="kpi cream"><div class="l">Cuotas por cobrar hoy</div><div class="v">${fmt(totalCobrar)}</div><div class="n">Solo las cuotas de este día</div></div>
     <div class="kpi"><div class="l">En mora (aparte)</div><div class="v" style="color:${totalMora>0.5?'var(--red)':'inherit'}">${fmt(totalMora)}</div><div class="n">De días anteriores · no suma al día</div></div>
     <div class="kpi hl"><div class="l">Cobrado ese día</div><div class="v">${fmt(totalPagado)}</div></div>
@@ -689,7 +694,7 @@ VIEWS.cobros = () => {
     <td>${esc(cl.tel1||'')}<div class="muted" style="font-size:12px">${esc(cl.direccion||'')}</div></td>
     <td>${pillDia(c)}</td><td class="num">${fmt(c.p.valorCuota)}</td><td class="num">${fmt(c.hoyCobrar||0)}${c.mora>0.5?`<div style="font-size:12px;color:var(--red)">+ mora ${fmt(c.mora)}</div>`:''}</td>
     <td class="num">${fmt(c.e.saldo)}</td><td class="num">${c.pagadoHoy?fmt(c.pagadoHoy):'—'}</td>
-    <td class="right no-print" style="white-space:nowrap">${c.cobrar>0.5?`<button class="btn sm pri" onclick="modalPago('${c.p.id}',null,'${fecha}')">Cobrar</button>`:`${c.pagadoHoy?'<span class="pill p-ok">Cobrado</span> ':''}<button class="btn sm${c.pagadoHoy?'':' pri'}" onclick="modalPago('${c.p.id}',null,'${fecha}')">Abonar</button>`} <button class="btn sm" onclick="modalDetalle('${c.p.id}')">Ver</button></td></tr>`}).join('')}
+    <td class="right no-print" style="white-space:nowrap">${c.pagadoHoy?'':chipVisita(c.p, fecha)+' '}${c.cobrar>0.5&&!c.pagadoHoy&&!visitaDe(c.p.id, fecha)?`<button class="btn sm" onclick="modalNoPago('${c.p.id}','${fecha}')">No pagó</button> `:''}${c.cobrar>0.5?`<button class="btn sm pri" onclick="modalPago('${c.p.id}',null,'${fecha}')">Cobrar</button>`:`${c.pagadoHoy?'<span class="pill p-ok">Cobrado</span> ':''}<button class="btn sm${c.pagadoHoy?'':' pri'}" onclick="modalPago('${c.p.id}',null,'${fecha}')">Abonar</button>`} <button class="btn sm" onclick="modalDetalle('${c.p.id}')">Ver</button></td></tr>`}).join('')}
   </tbody></table></div>` : `<div class="empty">${vacio}</div>`}
   </div>`}`}`;
 };

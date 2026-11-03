@@ -1457,7 +1457,7 @@ function modalPago(prestamoId, pagoId, fecha){
     <label class="f full">Nota<input class="input" id="gNot" value="${esc(pago?pago.nota:'')}" placeholder="Opcional"></label>
   </div>
   <div id="gInfo" class="calcbox" style="margin-top:14px"></div>
-  <div class="actions">${pago&&isCeo()?`<button class="btn danger" style="margin-right:auto" onclick="borrarPago('${pago.id}')">Borrar pago</button>`:''}<button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="gSave">Guardar pago</button></div>`);
+  <div class="actions">${pago&&puedeEditarPago(pago)?`<button class="btn danger" style="margin-right:auto" onclick="borrarPago('${pago.id}')">Borrar pago</button>`:''}<button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="gSave">Guardar pago</button></div>`);
   const info = ()=>{
     const id=document.getElementById('gPre').value; const box=document.getElementById('gInfo');
     if(!id){ box.style.display='none'; return; }
@@ -1558,7 +1558,10 @@ function modalPago(prestamoId, pagoId, fecha){
   };
 }
 async function borrarPago(id){
-  if(!await confirmar('¿Borrar este pago?')) return;
+  const x = DB.pagos.find(y=>y.id===id);
+  // la ruta solo borra los pagos que ella registró hoy, antes de cerrar el día (queda en la auditoría del dueño)
+  if(!puedeEditarPago(x)) return avisar('Solo puedes borrar los pagos que tú registraste hoy, antes de cerrar la ruta.');
+  if(!await confirmar(isCeo() ? '¿Borrar este pago?' : `¿Borrar este pago de ${fmt(x.monto)}? Úsalo solo si lo registraste por error. La oficina verá que lo borraste.`, {ok:'Borrar pago'})) return;
   dbDel('pagos',id); closeModal(); render(); toast('Pago borrado');
 }
 

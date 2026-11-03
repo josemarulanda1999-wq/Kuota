@@ -22,6 +22,31 @@ const BackgroundGeolocation = registerPlugin('BackgroundGeolocation');
 const LocalNotifications = registerPlugin('LocalNotifications');
 window.CapPlugins = { Filesystem, Directory, Encoding, Share, BackgroundGeolocation, Device, LocalNotifications };
 
+/* Actualizaciones automáticas de la app instalada: cada publicación deja en GitHub Pages un version.json y un
+   bundle.zip con la app web. El celular lo baja en segundo plano y lo aplica la próxima vez que la app pasa a
+   segundo plano y vuelve. Si cambió la parte nativa (plugins, permisos) no se aplica: hace falta el APK nuevo. */
+const CapacitorUpdater = registerPlugin('CapacitorUpdater');
+const URL_ACTUALIZAR = 'https://josemarulanda1999-wq.github.io/Kuota/';
+let _buscandoAct = false, _ultimaAct = 0;
+async function buscarActualizacion() {
+  if (_buscandoAct || Date.now() - _ultimaAct < 20 * 60000) return;
+  _buscandoAct = true; _ultimaAct = Date.now();
+  try {
+    const leer = u => fetch(u, { cache: 'no-store' }).then(r => r.ok ? r.json() : {});
+    const [actual, nueva] = await Promise.all([leer('version.json').catch(() => ({})), leer(URL_ACTUALIZAR + 'version.json?t=' + Date.now())]);
+    if (!(Number(nueva.version) > Number(actual.version || 0))) return;
+    if (!actual.nativo || nueva.nativo !== actual.nativo) return;
+    const b = await CapacitorUpdater.download({ url: URL_ACTUALIZAR + 'bundle.zip?v=' + nueva.version, version: String(nueva.version) });
+    await CapacitorUpdater.next({ id: b.id });
+  } catch (e) { console.warn('actualización automática', e); }
+  finally { _buscandoAct = false; }
+}
+if (Capacitor.isNativePlatform && Capacitor.isNativePlatform()) {
+  CapacitorUpdater.notifyAppReady().catch(() => {});   // confirma que esta versión abrió bien (si no, vuelve a la anterior)
+  setTimeout(buscarActualizacion, 5000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') buscarActualizacion(); });
+}
+
 const configured = !!(firebaseConfig && firebaseConfig.apiKey && !String(firebaseConfig.apiKey).startsWith('PEGA'));
 let app, auth, db;
 if (configured) {

@@ -201,7 +201,10 @@ service cloud.firestore {
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['monto', 'nota', 'medio', 'comprobante', 'editadoPor', 'editadoEn'])
               && request.resource.data.editadoPor == uid() && okPago(request.resource.data)
               && fechaCerca(resource.data.fecha) && abierta(eid, resource.data.fecha));
-        allow delete: if isSuper() || isCeo(eid);
+        allow delete: if isSuper() || isCeo(eid)
+          // la ruta borra un pago que ella misma registró por error, mientras su día siga abierto
+          || (isCob(eid) && own() && resource.data.get('registradoPor', '') == uid() && !('tipo' in resource.data)
+              && fechaCerca(resource.data.fecha) && abierta(eid, resource.data.fecha));
       }
       match /entregas/{id} {
         allow read: if isSuper() || isAdm(eid) || (isCob(eid) && own());

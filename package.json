@@ -14,7 +14,7 @@
     "@capacitor/filesystem": "6.0.2",
     "@capacitor/local-notifications": "6.1.0",
     "@capacitor/share": "6.0.3",
-    "@capgo/capacitor-updater": "6.51.23",
+    "@capgo/capacitor-updater": "6.3.18",
     "firebase": "10.14.1",
     "leaflet": "1.9.4"
   },

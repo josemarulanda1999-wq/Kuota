@@ -38,6 +38,7 @@ function migrateConfig(c){
   out.conceptosIngreso = lista(out.conceptosIngreso, defaultConfig().conceptosIngreso);
   out.mensajeRecibo = String(out.mensajeRecibo||'').slice(0,300);
   // qué hace lo que el cliente paga de más ('adelanta' = como el cuaderno). Antes se guardaba como 'excedente'
+  out.cobradoresPrestan = out.cobradoresPrestan===true;
   out.pagoExtra = (out.pagoExtra==='adelanta' || (c||{}).excedente==='adelanta') ? 'adelanta' : 'atrasadas'; delete out.excedente;
   if(out.plantillas && typeof out.plantillas==='object'){ const pl={}; for(const k of ['recordatorio','mora','pazysalvo']) if(typeof out.plantillas[k]==='string') pl[k]=out.plantillas[k].slice(0,500); out.plantillas=pl; } else delete out.plantillas;
   if(out.notif && typeof out.notif==='object'){ const n={}; for(const k of ['pagos','creditos','nopago','cierres']) n[k]=!!out.notif[k]; out.notif=n; } else delete out.notif;
@@ -1482,7 +1483,7 @@ function modalPrestamo(id, clienteId, preset){
       cobP = ME.uid; data.fuente = 'ruta';
       const max = Number(rutaCfg(ME.uid).maxPrestamo)||0;
       const capOk = await revisarCapitalAlPrestar(ME.uid, monto);
-      if(!puedePrestarRuta() || !max || monto > max || capOk==='solicitud'){   // sin permiso de prestar: queda como solicitud para la oficina
+      if(!puedePrestarRuta() || (max && monto > max) || capOk==='solicitud'){   // sin permiso, pasa el tope o sin capital: queda como solicitud para la oficina
         const pid = S.newId('prestamos');
         if(hayFotos(FOTOS_TMP)) guardarFotos(pid, cli, FOTOS_TMP).catch(falloNube);
         FOTOS_TMP = {};

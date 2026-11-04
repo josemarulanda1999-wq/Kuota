@@ -56,6 +56,8 @@ service cloud.firestore {
     // la ruta no puede registrar nada en un día que ya cerró
     function abierta(eid, f) { return !exists(/databases/$(database)/documents/empresas/$(eid)/cierres/$(uid() + '_' + f)); }
     function cfgRuta(eid) { return get(/databases/$(database)/documents/empresas/$(eid)/rutas/$(uid())).data; }
+    function cfgGen(eid) { return get(/databases/$(database)/documents/empresas/$(eid)/config/general).data; }
+    function hayRuta(eid) { return exists(/databases/$(database)/documents/empresas/$(eid)/rutas/$(uid())); }
     function prest(eid, pid) { return get(/databases/$(database)/documents/empresas/$(eid)/prestamos/$(pid)).data; }
 
     function okCliente(d) {
@@ -181,9 +183,10 @@ service cloud.firestore {
               && fechaCredito(request.resource.data.fecha)
               && request.resource.data.valorCuota * request.resource.data.cuotas >= request.resource.data.monto
               && (!('total' in request.resource.data) || numOk(request.resource.data.total, request.resource.data.monto, request.resource.data.monto * 5))
-              && exists(/databases/$(database)/documents/empresas/$(eid)/rutas/$(uid()))
-              && cfgRuta(eid).get('puedePrestar', false) == true && request.resource.data.monto <= cfgRuta(eid).get('maxPrestamo', 0)
-              && (cfgRuta(eid).get('maxCuotas', 0) == 0 || request.resource.data.cuotas <= cfgRuta(eid).get('maxCuotas', 0))
+              // permiso de la ruta, o de la empresa para todos los cobradores; el tope y el máximo de cuotas de la ruta (0 = sin tope)
+              && ((hayRuta(eid) && cfgRuta(eid).get('puedePrestar', false) == true) || cfgGen(eid).get('cobradoresPrestan', false) == true)
+              && (!hayRuta(eid) || cfgRuta(eid).get('maxPrestamo', 0) == 0 || request.resource.data.monto <= cfgRuta(eid).get('maxPrestamo', 0))
+              && (!hayRuta(eid) || cfgRuta(eid).get('maxCuotas', 0) == 0 || request.resource.data.cuotas <= cfgRuta(eid).get('maxCuotas', 0))
               && get(/databases/$(database)/documents/empresas/$(eid)/clientes/$(request.resource.data.clienteId)).data.cobradorId == uid());
         allow update: if isSuper() || isCeo(eid) || (soloAdmin(eid) && soloCambiaRuta() && idOVacio(request.resource.data.cobradorId))
           // la oficina cambia la fecha de la primera cuota de cualquier crédito ('' = la automática). La ruta solo la escoge al crear el crédito

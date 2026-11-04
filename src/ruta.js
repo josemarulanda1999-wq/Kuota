@@ -149,7 +149,7 @@ function disponibleRuta(uid){
   const efectivo = Math.max(0, cuadreCobrador(uid, todayStr()).saldoFinal || 0);
   const k = capitalRuta(uid), cfg = rutaCfg(uid);
   const capital = k.tiene ? Math.max(0, k.disponible) : null;
-  return { efectivo, capital, tope: Number(cfg.maxPrestamo)||0, puede: !!cfg.puedePrestar,
+  return { efectivo, capital, tope: Number(cfg.maxPrestamo)||0, puede: !!cfg.puedePrestar || !!DB.config.cobradoresPrestan,
     disponible: capital===null ? efectivo : Math.min(efectivo, capital) };
 }
 function bloqueDisponibleRuta(){
@@ -416,14 +416,15 @@ function guardarOrden(){
 }
 
 /* ---------- crédito nuevo desde la ruta (con tope y aprobación) ---------- */
-function puedePrestarRuta(){ return !isAdmin() && !!rutaCfg(ME.uid).puedePrestar; }
+// la ruta presta directo si su ruta tiene el permiso, o si la empresa se lo dio a todos los cobradores (Ajustes)
+function puedePrestarRuta(){ return !isAdmin() && (!!rutaCfg(ME.uid).puedePrestar || !!DB.config.cobradoresPrestan); }
 function tarjetaAprobacion(a){
   const est = {pendiente:'<span class="pill p-hoy">Pendiente</span>', aprobada:'<span class="pill p-ok">Aprobada</span>', rechazada:'<span class="pill p-mora">Rechazada</span>'}[a.estado]||'';
   const k = (a.cuotas ? calcularCuotas(a.monto, a.tasa, a.cuotas, a.periodo, a.modoInteres||'mensual') : calcular(a.monto, a.tasa, a.meses, a.periodo));
   return `<div class="card cobro">
     <div class="who">${ava(nombreCliente(a.clienteId))}<div style="min-width:0;flex:1"><b>${esc(nombreCliente(a.clienteId))}</b><div class="muted" style="font-size:12.5px">Crédito nuevo · ${esc(nombreRuta(a.cobradorId))} · ${fdate(a.fecha)}</div></div>${est}</div>
     <div class="cobro-nums"><div><span>Monto</span><b>${fmt(a.monto)}</b></div><div><span>Interés</span><b>${fmtN(a.tasa)}% · ${k.cuotas} ${(UNIDAD_CUOTA[a.periodo]||['',''])[1]}</b></div><div><span>Cuota</span><b>${fmt(k.valorCuota)}</b></div></div>
-    <div class="muted" style="font-size:12.5px">Tope de la ruta: ${fmt(rutaCfg(a.cobradorId).maxPrestamo||0)}${a.primeraCuota?` · primera cuota ${fdateShort(a.primeraCuota)}${a.periodo==='SEMANAL'?` (${losDias(parseD(a.primeraCuota).getDay())})`:''}`:''}${a.nota?' · '+esc(a.nota):''}</div>
+    <div class="muted" style="font-size:12.5px">Tope de la ruta: ${rutaCfg(a.cobradorId).maxPrestamo?fmt(rutaCfg(a.cobradorId).maxPrestamo):'sin tope'}${a.primeraCuota?` · primera cuota ${fdateShort(a.primeraCuota)}${a.periodo==='SEMANAL'?` (${losDias(parseD(a.primeraCuota).getDay())})`:''}`:''}${a.nota?' · '+esc(a.nota):''}</div>
     ${a.estado==='pendiente'&&isAdmin()?`<div class="row"><button class="btn sm danger" onclick="responderAprobacion('${a.id}',false)">Rechazar</button><span class="spacer"></span><button class="btn sm pri" onclick="responderAprobacion('${a.id}',true)">Aprobar crédito</button></div>`:''}
   </div>`;
 }
@@ -617,7 +618,7 @@ function bloqueCfgRuta(uid){
   return `<div class="f full"><span>Permisos de la ruta</span>
     <label class="chk"><input type="checkbox" id="rPrest" ${r.puedePrestar?'checked':''}> Puede crear créditos en la calle</label>
     <label class="chk"><input type="checkbox" id="rDom" ${r.puedeDominical?'checked':''}> Puede dar día (dominical) a un cliente por fuerza mayor</label></div>
-    <label class="f">Monto máximo por crédito<input class="input" id="rMax" inputmode="decimal" value="${r.maxPrestamo?fmtIn(r.maxPrestamo):''}" placeholder="Sin tope = pide aprobación siempre"></label>
+    <label class="f">Monto máximo por crédito<input class="input" id="rMax" inputmode="decimal" value="${r.maxPrestamo?fmtIn(r.maxPrestamo):''}" placeholder="Vacío = sin tope"></label>
     <label class="f">Gasto máximo por registro<input class="input" id="rGas" inputmode="decimal" value="${r.maxGasto?fmtIn(r.maxGasto):''}" placeholder="Sin límite"></label>`;
 }
 function guardarCfgRuta(uid){
@@ -640,6 +641,7 @@ function bloqueAjustesRuta(){
     <div class="form">
       <label class="f full">País y moneda<select class="input" id="sPais">${Object.entries(MONEDAS).map(([k,m])=>`<option value="${k}" ${c.pais===k?'selected':''}>${m.pais} (${m.simbolo})</option>`).join('')}</select></label>
       <label class="f full">Si una ruta no abre un día<select class="input" id="sSinA"><option value="sumar" ${c.sinAbrir!=='correr'?'selected':''}>Las cuotas de ese día se suman al día siguiente (cuenta como mora)</option><option value="correr" ${c.sinAbrir==='correr'?'selected':''}>Ese día no cuenta: las cuotas se corren un día y no generan mora</option></select></label>
+      <label class="chk full"><input type="checkbox" id="sCobP" ${c.cobradoresPrestan?'checked':''}> Los cobradores pueden hacer créditos sin aprobación de la oficina (se respeta el tope y el capital de cada ruta, si los tiene)</label>
       <label class="f full">Cuando un cliente paga más de su cuota del día<select class="input" id="sExc"><option value="atrasadas" ${c.pagoExtra!=='adelanta'?'selected':''}>Lo de más cubre primero las cuotas atrasadas</option><option value="adelanta" ${c.pagoExtra==='adelanta'?'selected':''}>Lo de más adelanta las cuotas siguientes (como en el cuaderno)</option></select></label>
       <label class="chk full"><input type="checkbox" id="sSim" ${verSimbolo()?'checked':''}> Mostrar el símbolo de la moneda junto a cada valor (ej. ${esc(MON().simbolo)} 1.500)</label>
       <label class="f full">Conceptos de gasto de las rutas (uno por línea)<textarea class="input" id="sConG" rows="5">${esc((c.conceptosGasto||[]).join('\n'))}</textarea></label>
@@ -655,6 +657,7 @@ function guardarAjustesRuta(){
   DB.config.verSimbolo = document.getElementById('sSim').checked;
   DB.config.sinAbrir = document.getElementById('sSinA').value==='correr' ? 'correr' : 'sumar';
   DB.config.pagoExtra = document.getElementById('sExc').value==='adelanta' ? 'adelanta' : 'atrasadas';
+  DB.config.cobradoresPrestan = document.getElementById('sCobP').checked;
   DB.config.conceptosGasto = lineas('sConG').length ? lineas('sConG') : defaultConfig().conceptosGasto;
   DB.config.conceptosIngreso = lineas('sConI').length ? lineas('sConI') : defaultConfig().conceptosIngreso;
   DB.config.mensajeRecibo = document.getElementById('sMsg').value.trim().slice(0,300);

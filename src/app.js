@@ -344,9 +344,10 @@ function multaDe(p){
 }
 /* reparto de los pagos en las cuotas, como en el cuaderno: el pago de un día cubre primero la cuota de ese
    mismo día, luego las cuotas atrasadas (las más viejas primero) y lo que sobre adelanta las siguientes.
+   Con el ajuste "adelanta" (como en el cuaderno) lo de más va primero a las cuotas siguientes y después a las atrasadas.
    Los pagos importados sin fecha real (de otro sistema) se reparten en orden desde la primera cuota. */
 function asignarPagos(p, e){
-  const vc = Number(p.valorCuota)||0, cron = e.cron, n = cron.length;
+  const vc = Number(p.valorCuota)||0, cron = e.cron, n = cron.length, adelanta = DB.config && DB.config.excedente==='adelanta';
   const res = cron.map(()=>({pag:0, fecha:''}));
   if(!vc) return res;
   const orden = e.pagos.slice().sort((a,b)=>{ const sa=(a.tipo==='importado'&&!a.ordenado)?0:1, sb=(b.tipo==='importado'&&!b.ordenado)?0:1;
@@ -356,6 +357,7 @@ function asignarPagos(p, e){
     let m = x.monto; const f = (x.tipo==='importado' && !x.ordenado) ? '' : x.fecha;
     if(f){
       for(let k=0;k<n && m>0.5;k++) if(cron[k].fecha===f) m = poner(k, m, f);   // la cuota de ese mismo día
+      if(adelanta) for(let k=0;k<n && m>0.5;k++) if(cron[k].fecha>f) m = poner(k, m, f);   // como el cuaderno: adelanta las siguientes
       for(let k=0;k<n && m>0.5;k++) if(cron[k].fecha<f) m = poner(k, m, f);     // las atrasadas
     }
     for(let k=0;k<n && m>0.5;k++) m = poner(k, m, f);                            // adelanta las siguientes
@@ -380,6 +382,12 @@ function estadoPrestamo(p, hoy=todayStr()){
   let atraso = Math.max(0, esperado - pagado); if(atraso<1) atraso=0;          // pendiente hasta hoy (incluye la cuota de hoy)
   const vencidasAntes = cron.filter(c=>c.fecha<hoy).length;
   let atrasoMora = Math.max(0, Math.min(totalReal, vencidasAntes*p.valorCuota) - pagado); if(atrasoMora<1) atrasoMora=0; // solo cuotas de días anteriores
+  // lo pendiente y la mora salen del mismo reparto día por día que muestra la tabla de cuotas (así nunca se contradicen)
+  if(pagos.length && p.valorCuota>0){
+    const asig = asignarPagos(p, {cron, pagos}); let a=0, am=0;
+    cron.forEach((c,k)=>{ const falta = Math.max(0, p.valorCuota - asig[k].pag); if(c.fecha<=hoy) a+=falta; if(c.fecha<hoy) am+=falta; });
+    atraso = a<1 ? 0 : Math.min(a, totalReal); atrasoMora = am<1 ? 0 : Math.min(am, totalReal);
+  }
   const cuotasAtraso = atrasoMora>0 ? Math.ceil(atrasoMora / p.valorCuota - 1e-6) : 0;
   const cuotasPagadas = Math.min(p.cuotas, Math.floor((pagado+1) / p.valorCuota));
   const proxima = cron.find(c=>c.n>cuotasPagadas);

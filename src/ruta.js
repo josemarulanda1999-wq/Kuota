@@ -640,6 +640,7 @@ function bloqueAjustesRuta(){
     <div class="form">
       <label class="f full">País y moneda<select class="input" id="sPais">${Object.entries(MONEDAS).map(([k,m])=>`<option value="${k}" ${c.pais===k?'selected':''}>${m.pais} (${m.simbolo})</option>`).join('')}</select></label>
       <label class="f full">Si una ruta no abre un día<select class="input" id="sSinA"><option value="sumar" ${c.sinAbrir!=='correr'?'selected':''}>Las cuotas de ese día se suman al día siguiente (cuenta como mora)</option><option value="correr" ${c.sinAbrir==='correr'?'selected':''}>Ese día no cuenta: las cuotas se corren un día y no generan mora</option></select></label>
+      <label class="f full">Cuando un cliente paga más de su cuota del día<select class="input" id="sExc"><option value="atrasadas" ${c.excedente!=='adelanta'?'selected':''}>Lo de más cubre primero las cuotas atrasadas</option><option value="adelanta" ${c.excedente==='adelanta'?'selected':''}>Lo de más adelanta las cuotas siguientes (como en el cuaderno)</option></select></label>
       <label class="chk full"><input type="checkbox" id="sSim" ${verSimbolo()?'checked':''}> Mostrar el símbolo de la moneda junto a cada valor (ej. ${esc(MON().simbolo)} 1.500)</label>
       <label class="f full">Conceptos de gasto de las rutas (uno por línea)<textarea class="input" id="sConG" rows="5">${esc((c.conceptosGasto||[]).join('\n'))}</textarea></label>
       <label class="f full">Conceptos de ingreso de las rutas (uno por línea)<textarea class="input" id="sConI" rows="3">${esc((c.conceptosIngreso||[]).join('\n'))}</textarea></label>
@@ -653,6 +654,7 @@ function guardarAjustesRuta(){
   DB.config.pais = document.getElementById('sPais').value;
   DB.config.verSimbolo = document.getElementById('sSim').checked;
   DB.config.sinAbrir = document.getElementById('sSinA').value==='correr' ? 'correr' : 'sumar';
+  DB.config.excedente = document.getElementById('sExc').value==='adelanta' ? 'adelanta' : 'atrasadas';
   DB.config.conceptosGasto = lineas('sConG').length ? lineas('sConG') : defaultConfig().conceptosGasto;
   DB.config.conceptosIngreso = lineas('sConI').length ? lineas('sConI') : defaultConfig().conceptosIngreso;
   DB.config.mensajeRecibo = document.getElementById('sMsg').value.trim().slice(0,300);

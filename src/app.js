@@ -236,15 +236,18 @@ function diaSiguienteHabil(d, excluirDomingos, libres){
   for(let i=0;i<60;i++){ n.setDate(n.getDate()+1); if((excluirDomingos && n.getDay()===0) || (libres && libres.has(ymd(n)))) continue; break; }
   return n;
 }
+// días de la semana (1=lunes … 6=sábado) que a este crédito no se le cobran, ej. su pico y placa
+const noCobroDe = p => new Set((Array.isArray(p.diasNoCobro) ? p.diasNoCobro : []).map(Number).filter(d=>d>=1 && d<=6).slice(0,3));
 function cronograma(p){
   const out=[]; let d=parseD(p.fecha);
-  const libres = diasLibres(p.id, p.cobradorId);
+  const dl = diasLibres(p.id, p.cobradorId), nc = noCobroDe(p);
+  const libres = nc.size ? { has: f => (dl && dl.has(f)) || nc.has(parseD(f).getDay()) } : dl;
   for(let i=1;i<=p.cuotas;i++){
     // primeraCuota: en renovaciones se puede dejar que siga cobrando el mismo día de siempre (ej. los jueves)
     if(i===1 && p.primeraCuota && p.primeraCuota>p.fecha) d=parseD(p.primeraCuota); else d=addPeriodo(d,p.periodo,p.excluirDomingos);
     if(libres && libres.has(ymd(d))){
       // diario: se corre todo el calendario un día; semanal/quincenal/mensual: solo esa cuota pasa al día siguiente
-      if(p.periodo==='DIARIO'){ while(libres.has(ymd(d))) d=addPeriodo(d,p.periodo,p.excluirDomingos); out.push({n:i,fecha:ymd(d)}); }
+      if(p.periodo==='DIARIO'){ for(let g=0; g<30 && libres.has(ymd(d)); g++) d=addPeriodo(d,p.periodo,p.excluirDomingos); out.push({n:i,fecha:ymd(d)}); }
       else out.push({n:i,fecha:ymd(diaSiguienteHabil(d,p.excluirDomingos,libres)), corrida:ymd(d)});
     } else out.push({n:i,fecha:ymd(d)});
   }
@@ -313,7 +316,7 @@ function multaPorDia(p, m){
   const hoy = todayStr(), todos = pagosDe(p.id);
   // lo pagado en el sistema anterior (importado) ya estaba pagado antes: cuenta desde el principio
   const pagos = todos.filter(x=>x.tipo!=='importado' || x.ordenado), previo = todos.filter(x=>x.tipo==='importado' && !x.ordenado).reduce((s,x)=>s+x.monto,0);
-  const key = [hoy, todos.length, todos.reduce((s,x)=>s+x.monto,0), p.fecha, p.cuotas, p.valorCuota, p.primeraCuota||'', m.desde||'', m.umbral, m.alto, m.bajo, (DB.config.festivos||[]).length, (DB.visitas||[]).length, (DB.aperturas||[]).length, DB.config.sinAbrir||''].join('|');
+  const key = [hoy, todos.length, todos.reduce((s,x)=>s+x.monto,0), p.fecha, p.cuotas, p.valorCuota, p.primeraCuota||'', (p.diasNoCobro||[]).join('.'), m.desde||'', m.umbral, m.alto, m.bajo, (DB.config.festivos||[]).length, (DB.visitas||[]).length, (DB.aperturas||[]).length, DB.config.sinAbrir||''].join('|');
   const c = _multaDia.get(p.id); if(c && c.key===key) return c.val;
   const unidad = (Number(p.monto)||0) > (Number(m.umbral)||500000) ? (Number(m.alto)||0) : (Number(m.bajo)||0);
   const cron = cronograma(p), vc = Number(p.valorCuota)||0, base = vc*(Number(p.cuotas)||0);
@@ -327,7 +330,7 @@ function multaPorDia(p, m){
       while(ic < cron.length && cron[ic].fecha < f) ic++;            // cuotas vencidas antes de este día
       while(ip < pagos.length && pagos[ip].fecha <= f){ pagado += pagos[ip].monto; ip++; }
       const esperado = Math.min(base, ic*vc);
-      const cuenta = (!m.desde || f >= m.desde) && !(p.excluirDomingos && d.getDay()===0) && !fest.has(f) && !libres.has(f);
+      const cuenta = (!m.desde || f >= m.desde) && !(p.excluirDomingos && d.getDay()===0) && !fest.has(f) && !libres.has(f) && !noCobroDe(p).has(d.getDay());
       if(cuenta && esperado - pagado > 1) dias++;
       if(pagado >= base - 0.5) break;
       d.setDate(d.getDate()+1);
@@ -1405,6 +1408,9 @@ function modalPrestamo(id, clienteId, preset){
     <label class="f">% de interés<input class="input" id="pTas" value="${esc(p.tasa)}" inputmode="decimal"></label>
     <label class="f">¿Cómo se cobra el interés?<select class="input" id="pMod"><option value="total" ${modoDe(p)==='total'?'selected':''}>Una vez sobre el préstamo</option><option value="mensual" ${modoDe(p)==='mensual'?'selected':''}>Mensual (según la duración)</option></select></label>
     <label class="chk" style="align-self:end;padding-bottom:8px"><input type="checkbox" id="pDom" ${p.excluirDomingos?'checked':''}> No cobrar domingos (diario)</label>
+    <div class="f full" style="display:block"><span style="display:block">Días que no se le cobra (dominical por pico y placa)</span>
+      <div class="row" style="gap:12px;margin-top:4px">${[1,2,3,4,5,6].map(d=>`<label class="chk"><input type="checkbox" class="pNoC" value="${d}" ${noCobroDe(p).has(d)?'checked':''}> ${DIAS_SEM[d].charAt(0).toUpperCase()+DIAS_SEM[d].slice(1,3)}</label>`).join('')}</div>
+      <div class="muted" style="font-size:12px;margin-top:2px">Ej.: a los que trabajan con carro (Uber), su día de pico y placa. Ese día no se cobra ni genera mora: la cuota pasa al día siguiente.</div></div>
     <label class="f full">Nota<input class="input" id="pNot" value="${esc(p.nota||'')}" placeholder="Opcional: fiador, garantía, etc."></label>
     ${id?'':`<label class="f">Seguro del crédito (opcional)<input class="input" id="pSeg" inputmode="decimal" placeholder="${Number(DB.config.seguroPct)?fmtN(DB.config.seguroPct)+'% del valor':'0'}"></label>`}
     ${id?'':bloqueFotos()}
@@ -1486,6 +1492,9 @@ function modalPrestamo(id, clienteId, preset){
     const meses = c.meses;
     const data = {clienteId:cli,fecha:g('pFec')||todayStr(),monto,tasa,meses,periodo,modoInteres:modo,excluirDomingos:document.getElementById('pDom').checked,nota:g('pNot').trim(),
       cuotas:c.cuotas,valorCuota:c.valorCuota,interesMes:c.interesMes,total:c.total};
+    const noC = [...document.querySelectorAll('.pNoC')].filter(x=>x.checked).map(x=>Number(x.value));
+    if(noC.length > 3) return toast('Máximo 3 días sin cobro por semana');
+    if(noC.length) data.diasNoCobro = noC; else if(id && noCobroDe(p).size) data.diasNoCobro = [];
     if(!isAdmin() && data.fecha < ymd(new Date(parseD(todayStr()).getTime()-DIAS_CREDITO_ATRAS*864e5))) return toast(`La fecha del crédito puede ser máximo ${DIAS_CREDITO_ATRAS} días atrás`);
     if(data.fecha > todayStr()) return toast('La fecha del préstamo no puede ser futura');
     const pri = g('pPri');
@@ -1507,7 +1516,7 @@ function modalPrestamo(id, clienteId, preset){
         if(hayFotos(FOTOS_TMP)) guardarFotos(pid, cli, FOTOS_TMP).catch(falloNube);
         FOTOS_TMP = {};
         dbAdd('aprobaciones', {tipo:'prestamo', cobradorId:ME.uid, clienteId:cli, monto, tasa, meses, cuotas:c.cuotas, modoInteres:modo, periodo, excluirDomingos:data.excluirDomingos, nota:data.nota, fecha:todayStr(), estado:'pendiente', prestamoId:pid,
-          ...(data.primeraCuota ? {primeraCuota:data.primeraCuota} : {})});
+          ...(data.primeraCuota ? {primeraCuota:data.primeraCuota} : {}), ...(data.diasNoCobro && data.diasNoCobro.length ? {diasNoCobro:data.diasNoCobro} : {})});
         closeModal(); render();
         return avisar(!puedePrestarRuta() ? 'Tu ruta no tiene permiso para prestar directo. Quedó como solicitud: la oficina la debe aprobar antes de entregar la plata.' : capOk==='solicitud' ? `Tu ruta no tiene capital disponible para este crédito (quedan ${fmt(Math.max(0,capitalRuta(ME.uid).disponible))}). Quedó como solicitud para que la oficina lo apruebe o le añada capital.`
           : max ? `El crédito pasa el tope de tu ruta (${fmt(max)}). Quedó como solicitud y la oficina lo debe aprobar antes de entregar la plata.` : 'Quedó como solicitud. La oficina la debe aprobar antes de entregar la plata.');
@@ -1760,7 +1769,7 @@ function modalDetalle(id, tab='cuotas'){
     <div><div class="l">Fecha</div><div class="v">${fdate(p.fecha)}</div></div>
     <div><div class="l">Valor prestado</div><div class="v">${fmt(p.monto)}</div></div>
     <div><div class="l">Interés</div><div class="v">${fmtN(p.tasa)}% ${p.modoInteres==='total'?'sobre el préstamo':'mensual · '+fmtN(p.meses)+' mes(es)'}</div></div>
-    <div><div class="l">Forma de pago</div><div class="v">${p.periodo.charAt(0)+p.periodo.slice(1).toLowerCase()} · ${p.cuotas} cuotas${textoDiaPago(p)}</div><div class="muted" style="font-size:12px">Primera cuota: ${fdate(primeraDe(p))}</div></div>
+    <div><div class="l">Forma de pago</div><div class="v">${p.periodo.charAt(0)+p.periodo.slice(1).toLowerCase()} · ${p.cuotas} cuotas${textoDiaPago(p)}</div><div class="muted" style="font-size:12px">Primera cuota: ${fdate(primeraDe(p))}${noCobroDe(p).size?`<br>No se cobra: ${[...noCobroDe(p)].sort().map(d=>DIAS_SEM[d]).join(', ')} (pico y placa)`:''}</div></div>
     <div><div class="l">Valor cuota</div><div class="v">${fmt(p.valorCuota)}</div></div>
     <div><div class="l">Total a pagar</div><div class="v">${fmt(e.totalReal - e.multa.valor)}</div></div>
     <div><div class="l">Pagado</div><div class="v" style="color:var(--green)">${fmt(e.pagado)}</div></div>

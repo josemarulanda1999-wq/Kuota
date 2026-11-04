@@ -474,7 +474,8 @@ function aprobarCredito(a, priElegida){
   const priAp = priElegida ? priElegida : !a.primeraCuota ? '' : a.primeraCuota>todayStr() ? a.primeraCuota
     : a.periodo==='SEMANAL' ? primeraSemanalDefecto(todayStr(), parseD(a.primeraCuota).getDay()) : '';
   const obj = {...(priAp && priAp!==ymd(addPeriodo(parseD(todayStr()), a.periodo, a.excluirDomingos)) ? {primeraCuota:priAp} : {}), clienteId:a.clienteId, fecha:todayStr(), monto:a.monto, tasa:a.tasa, meses:k.meses||a.meses, periodo:a.periodo, modoInteres:a.modoInteres||'mensual', excluirDomingos:!!a.excluirDomingos,
-    nota:a.nota||'', cuotas:k.cuotas, valorCuota:k.valorCuota, interesMes:k.interesMes, total:k.total, cobradorId:a.cobradorId, fuente:'ruta', creado:Date.now(), creadoPor:ME.uid};
+    nota:a.nota||'', cuotas:k.cuotas, valorCuota:k.valorCuota, interesMes:k.interesMes, total:k.total, cobradorId:a.cobradorId, fuente:'ruta', creado:Date.now(), creadoPor:ME.uid,
+    ...(Array.isArray(a.diasNoCobro) && a.diasNoCobro.length ? {diasNoCobro:a.diasNoCobro} : {})};
   DB.prestamos.push(Object.assign({id:pid}, obj)); S.set('prestamos', pid, obj).catch(falloNube);
   dbUpd('aprobaciones', a.id, {estado:'aprobada', prestamoId:pid, revisadoPor:ME.uid, revisadoEn:Date.now()});
   render(); toast('Crédito aprobado');

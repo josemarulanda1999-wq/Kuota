@@ -72,7 +72,8 @@ service cloud.firestore {
     }
     function okPrestamo(d) {
       return d.keys().hasOnly(['clienteId', 'fecha', 'monto', 'tasa', 'meses', 'periodo', 'excluirDomingos', 'nota', 'cuotas',
-                               'valorCuota', 'interesMes', 'total', 'cobradorId', 'renovacionDe', 'saldoCancelado', 'fuente', 'importado', 'castigado', 'modoInteres', 'primeraCuota', 'creado', 'creadoPor'])
+                               'valorCuota', 'interesMes', 'total', 'cobradorId', 'renovacionDe', 'saldoCancelado', 'fuente', 'importado', 'castigado', 'modoInteres', 'primeraCuota', 'diasNoCobro', 'creado', 'creadoPor'])
+        && (!('diasNoCobro' in d) || (d.diasNoCobro is list && d.diasNoCobro.size() <= 3))
         && (!('primeraCuota' in d) || fechaOk(d.primeraCuota))
         && (!('modoInteres' in d) || d.modoInteres in ['total', 'mensual'])
         && (!('fuente' in d) || d.fuente in ['ruta', 'oficina'])
@@ -344,7 +345,8 @@ service cloud.firestore {
       match /aprobaciones/{id} {
         allow read: if isSuper() || isAdm(eid) || (isCob(eid) && own());
         allow create: if isSuper() || isCeo(eid) || (isCob(eid) && idOk(id) && firma() && ownNew()
-          && request.resource.data.keys().hasOnly(['tipo', 'cobradorId', 'clienteId', 'monto', 'tasa', 'meses', 'cuotas', 'modoInteres', 'periodo', 'excluirDomingos', 'nota', 'fecha', 'estado', 'prestamoId', 'primeraCuota', 'creado', 'creadoPor'])
+          && request.resource.data.keys().hasOnly(['tipo', 'cobradorId', 'clienteId', 'monto', 'tasa', 'meses', 'cuotas', 'modoInteres', 'periodo', 'excluirDomingos', 'nota', 'fecha', 'estado', 'prestamoId', 'primeraCuota', 'diasNoCobro', 'creado', 'creadoPor'])
+          && (!('diasNoCobro' in request.resource.data) || (request.resource.data.diasNoCobro is list && request.resource.data.diasNoCobro.size() <= 3))
           && (!('primeraCuota' in request.resource.data) || fechaOk(request.resource.data.primeraCuota))
           && request.resource.data.tipo == 'prestamo' && request.resource.data.estado == 'pendiente' && idOk(request.resource.data.clienteId)
           && numOk(request.resource.data.monto, 1, 10000000000) && numOk(request.resource.data.tasa, 0, 100) && numOk(request.resource.data.meses, 0.001, 1000)

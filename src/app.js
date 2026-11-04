@@ -37,6 +37,8 @@ function migrateConfig(c){
   out.conceptosGasto = lista(out.conceptosGasto, defaultConfig().conceptosGasto);
   out.conceptosIngreso = lista(out.conceptosIngreso, defaultConfig().conceptosIngreso);
   out.mensajeRecibo = String(out.mensajeRecibo||'').slice(0,300);
+  // qué hace lo que el cliente paga de más ('adelanta' = como el cuaderno). Antes se guardaba como 'excedente'
+  out.pagoExtra = (out.pagoExtra==='adelanta' || (c||{}).excedente==='adelanta') ? 'adelanta' : 'atrasadas'; delete out.excedente;
   if(out.plantillas && typeof out.plantillas==='object'){ const pl={}; for(const k of ['recordatorio','mora','pazysalvo']) if(typeof out.plantillas[k]==='string') pl[k]=out.plantillas[k].slice(0,500); out.plantillas=pl; } else delete out.plantillas;
   if(out.notif && typeof out.notif==='object'){ const n={}; for(const k of ['pagos','creditos','nopago','cierres']) n[k]=!!out.notif[k]; out.notif=n; } else delete out.notif;
   for(const k of ['telDueno','mailDueno']) out[k]=String(out[k]||'').slice(0,120);
@@ -347,7 +349,7 @@ function multaDe(p){
    Con el ajuste "adelanta" (como en el cuaderno) lo de más va primero a las cuotas siguientes y después a las atrasadas.
    Los pagos importados sin fecha real (de otro sistema) se reparten en orden desde la primera cuota. */
 function asignarPagos(p, e){
-  const vc = Number(p.valorCuota)||0, cron = e.cron, n = cron.length, adelanta = DB.config && DB.config.excedente==='adelanta';
+  const vc = Number(p.valorCuota)||0, cron = e.cron, n = cron.length, adelanta = DB.config && DB.config.pagoExtra==='adelanta';
   const res = cron.map(()=>({pag:0, fecha:''}));
   if(!vc) return res;
   const orden = e.pagos.slice().sort((a,b)=>{ const sa=(a.tipo==='importado'&&!a.ordenado)?0:1, sb=(b.tipo==='importado'&&!b.ordenado)?0:1;

@@ -1433,14 +1433,16 @@ function modalPago(prestamoId, pagoId, fecha){
   const pago = pagoId ? DB.pagos.find(x=>x.id===pagoId) : null;
   if(!pago && !isAdmin() && rutaBloqueada()) return;
   if(pago && !puedeEditarPago(pago)) return avisar(isAdmin() ? 'Solo el dueño puede editar pagos.' : 'Solo puedes corregir los pagos que tú registraste hoy, antes de cerrar la ruta.');
-  const rutaEdita = !!pago && !isCeo();       // la ruta corrige valor, medio y nota; no cambia el préstamo ni la fecha
+  const rutaEdita = !!pago && !isAdmin();     // la ruta corrige valor, medio y nota; no cambia el préstamo ni la fecha
+  const oficinaEdita = !!pago && isAdmin();   // la oficina también le cambia la fecha, para que quede como en el cuaderno
   if(!isAdmin()) fecha = todayStr();          // la ruta solo registra pagos del día
   const activos = DB.prestamos.filter(p=>estadoPrestamo(p).estado!=='Pagado' || p.id===prestamoId);
   const sel = pago? pago.prestamoId : (prestamoId||'');
   openModal(`<h3>${pago?'Editar pago':'Registrar pago'}</h3>
   <div class="form">
-    <label class="f full">Préstamo<select class="input" id="gPre" ${rutaEdita?'disabled':''}><option value="">— Selecciona —</option>${activos.sort((a,b)=>nombreCliente(a.clienteId).localeCompare(nombreCliente(b.clienteId))).map(p=>`<option value="${p.id}" ${p.id===sel?'selected':''}>${esc(nombreCliente(p.clienteId))} · ${fmt(p.monto)} · ${p.periodo.toLowerCase()}</option>`).join('')}</select></label>
-    <label class="f full">Fecha del pago<input type="date" class="input" id="gFec" value="${pago?pago.fecha:(fecha||todayStr())}" ${isCeo()||(isAdmin()&&!pago)?'':'disabled'}></label>
+    <label class="f full">Préstamo<select class="input" id="gPre" ${pago&&!isCeo()?'disabled':''}><option value="">— Selecciona —</option>${activos.sort((a,b)=>nombreCliente(a.clienteId).localeCompare(nombreCliente(b.clienteId))).map(p=>`<option value="${p.id}" ${p.id===sel?'selected':''}>${esc(nombreCliente(p.clienteId))} · ${fmt(p.monto)} · ${p.periodo.toLowerCase()}</option>`).join('')}</select></label>
+    <label class="f full">Fecha del pago<input type="date" class="input" id="gFec" value="${pago?pago.fecha:(fecha||todayStr())}" ${isAdmin()?'':'disabled'}></label>
+    ${oficinaEdita?`<p class="muted full" style="margin:-6px 0 0;font-size:12.5px">Pon la fecha en que el cliente de verdad pagó (como en tu cuaderno). El sistema reacomoda las cuotas, la mora y el cuadre de ese día.</p>`:''}
     ${rutaEdita?`<p class="muted full" style="margin:0;font-size:12.5px">Pago registrado a las ${pago.creado?new Date(pago.creado).toLocaleTimeString('es-CO',{hour:'numeric',minute:'2-digit'}):'—'} por ${fmt(pago.monto)}. Corrige el valor si el cliente pagó más (por ejemplo, una cuota adelantada).</p>`:''}
     <label class="f">Cuotas que paga<div class="row" style="flex-wrap:nowrap;gap:6px"><button type="button" class="btn" id="gNMenos" style="padding:0 14px">−</button><input class="input" id="gNC" inputmode="numeric" style="text-align:center;min-width:0"><button type="button" class="btn" id="gNMas" style="padding:0 14px">+</button></div></label>
     <label class="f">Valor pagado<input class="input" id="gVal" inputmode="numeric" value="${pago?fmtIn(pago.monto):''}"></label>
@@ -1457,7 +1459,7 @@ function modalPago(prestamoId, pagoId, fecha){
     <label class="f full">Nota<input class="input" id="gNot" value="${esc(pago?pago.nota:'')}" placeholder="Opcional"></label>
   </div>
   <div id="gInfo" class="calcbox" style="margin-top:14px"></div>
-  <div class="actions">${pago&&puedeEditarPago(pago)?`<button class="btn danger" style="margin-right:auto" onclick="borrarPago('${pago.id}')">Borrar pago</button>`:''}<button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="gSave">Guardar pago</button></div>`);
+  <div class="actions">${pago&&puedeEditarPago(pago)&&(isCeo()||!isAdmin())?`<button class="btn danger" style="margin-right:auto" onclick="borrarPago('${pago.id}')">Borrar pago</button>`:''}<button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="gSave">Guardar pago</button></div>`);
   const info = ()=>{
     const id=document.getElementById('gPre').value; const box=document.getElementById('gInfo');
     if(!id){ box.style.display='none'; return; }
@@ -1536,7 +1538,12 @@ function modalPago(prestamoId, pagoId, fecha){
       if(viewState._reopen){ viewState._reopen=0; modalDetalle(pago.prestamoId); } else modalRecibo(pago.id);
       return;
     }
-    if(pago){ dbUpd('pagos',pago.id,{prestamoId:pid,fecha:f,monto,nota,cobradorId:p.cobradorId||'',medio,comprobante:conComp});
+    if(pago && f!==pago.fecha){
+      if(f > todayStr()) return toast('La fecha del pago no puede ser futura');
+      const cerrado = pago.cobradorId && cierreDe(pago.cobradorId, f), cerradoAntes = pago.cobradorId && cierreDe(pago.cobradorId, pago.fecha);
+      if((cerrado || cerradoAntes) && !await confirmar(`Vas a mover este pago del ${fdate(pago.fecha)} al ${fdate(f)}.${cerradoAntes?`\n\nEl ${fdate(pago.fecha)} ya está cerrado en el cuadre de ${nombreRuta(pago.cobradorId)}.`:''}${cerrado?`\n\nEl ${fdate(f)} ya está cerrado en el cuadre de ${nombreRuta(pago.cobradorId)}.`:''}\n\nEl cuadre guardado de ese día no cambia solo: si quieres que lo refleje, reábrelo y vuelve a cerrarlo.`, {ok:'Cambiar fecha'})) return;
+    }
+    if(pago){ dbUpd('pagos',pago.id,{...(isCeo()?{prestamoId:pid, cobradorId:p.cobradorId||''}:{}),fecha:f,monto,nota,medio,comprobante:conComp,editadoPor:ME.uid,editadoEn:Date.now()});
       if(COMP_TMP) guardarComprobante(pago.id, pid, p.cobradorId||''); }
     else {
       const bt=document.getElementById('gSave'); bt.disabled=true; bt.textContent='Registrando…';
@@ -1565,17 +1572,27 @@ async function borrarPago(id){
   dbDel('pagos',id); closeModal(); render(); toast('Pago borrado');
 }
 
+/* fecha en que quedó cubierta cada cuota, aplicando los pagos en orden de fecha (como en el cuaderno) */
+function fechasPagoCuotas(p, e){
+  const vc = Number(p.valorCuota)||0, out = []; if(!vc) return out;
+  const orden = e.pagos.slice().sort((a,b)=>a.fecha.localeCompare(b.fecha) || (a.creado||0)-(b.creado||0));
+  let acum = 0, i = 0;
+  for(const x of orden){ acum += x.monto; while(i < e.cron.length && acum >= (i+1)*vc - 0.5){ out[i] = {fecha: x.tipo==='importado' ? '' : x.fecha}; i++; } }
+  return out;
+}
 function modalDetalle(id, tab='cuotas'){
   const p = DB.prestamos.find(x=>x.id===id); if(!p) return;
   const e = estadoPrestamo(p), c = clienteById(p.clienteId)||{};
   const hoy=todayStr();
   let acum=0;
-  const cuotasHtml = e.cron.map(q=>{
+  const pagadaEl = fechasPagoCuotas(p, e);
+  const cuotasHtml = e.cron.map((q,k)=>{
     acum += p.valorCuota;
     const cubierta = e.pagado >= acum - 0.5;
     const parcial = !cubierta && e.pagado > acum - p.valorCuota + 0.5;
     const venc = q.fecha<=hoy;
-    let st = cubierta?'<span class="cuota-ok">Pagada</span>': parcial? '<span style="color:var(--amber)">Abono parcial</span>' : venc?'<span class="cuota-venc">Vencida</span>':'<span class="muted">Pendiente</span>';
+    const pe = pagadaEl[k], tarde = pe && pe.fecha ? diasEntre(q.fecha, pe.fecha) : 0;
+    let st = cubierta?`<span class="cuota-ok">Pagada${pe&&pe.fecha?' el '+fdateShort(pe.fecha):''}</span>${tarde>0?` <span class="muted" style="font-size:12px">(${tarde} día${tarde>1?'s':''} tarde)</span>`:pe&&pe.fecha&&tarde<0?` <span class="muted" style="font-size:12px">(adelantada)</span>`:''}`: parcial? '<span style="color:var(--amber)">Abono parcial</span>' : venc?'<span class="cuota-venc">Vencida</span>':'<span class="muted">Pendiente</span>';
     return `<tr><td>${q.n}</td><td>${fdate(q.fecha)}${q.fecha===hoy?' <span class="pill p-hoy">hoy</span>':''}</td><td class="num">${fmt(p.valorCuota)}</td><td class="num">${fmt(p.monto/p.cuotas)}</td><td class="num">${fmt(p.valorCuota - p.monto/p.cuotas)}</td><td>${st}</td></tr>`;
   }).join('');
   const pagosHtml = e.pagos.length? e.pagos.map(x=>`<tr><td>${fdate(x.fecha)}</td><td class="num">${fmt(x.monto)}</td><td>${esc(x.nota||'')}<div style="margin-top:3px">${etiquetaMedio(x)}</div></td><td class="muted" style="font-size:12px">${esc(nombreUsuario(x.registradoPor))}</td>${isAdmin()?`<td style="white-space:nowrap">${celdaGPSPago(x)}</td>`:''}<td class="right no-print" style="white-space:nowrap">${x.tipo!=='importado'&&x.tipo!=='renovacion'?`<button class="btn sm" onclick="modalRecibo('${x.id}')">Recibo</button> `:''}${puedeEditarPago(x)?`<button class="btn sm" onclick="viewState._reopen=1;modalPago(null,'${x.id}')">Editar</button>`:''}</td></tr>`).join('') : `<tr><td colspan="6" class="muted">Sin pagos todavía.</td></tr>`;

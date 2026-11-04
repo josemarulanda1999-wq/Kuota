@@ -196,6 +196,12 @@ service cloud.firestore {
                    && !exists(/databases/$(database)/documents/empresas/$(eid)/cierres/$(request.resource.data.cobradorId + '_' + request.resource.data.fecha)))
                   || (isCob(eid) && ownNew() && !('tipo' in request.resource.data) && fechaCerca(request.resource.data.fecha) && abierta(eid, request.resource.data.fecha))));
         allow update: if isSuper() || isCeo(eid) || (soloAdmin(eid) && soloCambiaRuta() && idOVacio(request.resource.data.cobradorId))
+          // el Admin corrige un pago normal: fecha, valor, medio y nota (para que quede como en el cuaderno)
+          || (soloAdmin(eid) && !('tipo' in resource.data)
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fecha', 'monto', 'nota', 'medio', 'comprobante', 'editadoPor', 'editadoEn'])
+              && request.resource.data.editadoPor == uid() && fechaOk(request.resource.data.fecha) && numOk(request.resource.data.monto, 1, 10000000000)
+              && optTxt(request.resource.data, 'nota', 300) && (!('medio' in request.resource.data) || request.resource.data.medio in ['efectivo', 'transferencia'])
+              && (!('comprobante' in request.resource.data) || request.resource.data.comprobante is bool))
           // la ruta corrige un pago que ella misma registró (p. ej. una cuota adelantada el mismo día), mientras su día siga abierto
           || (isCob(eid) && own() && resource.data.get('registradoPor', '') == uid() && !('tipo' in resource.data)
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['monto', 'nota', 'medio', 'comprobante', 'editadoPor', 'editadoEn'])

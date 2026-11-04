@@ -161,7 +161,7 @@ function bloqueDisponibleRuta(){
 function puedeEditarPago(x){
   if(!x || !ME) return false;
   if(isCeo()) return true;
-  if(isAdmin()) return false;
+  if(isAdmin()) return !x.tipo;          // el Admin corrige pagos normales (fecha, valor, medio, nota); no borra ni toca cruces de renovación
   return !x.tipo && x.registradoPor===ME.uid && x.fecha===todayStr() && !miRutaCerrada(x.fecha);
 }
 function modalDarDia(prestamoId, fecha){

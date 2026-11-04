@@ -1579,6 +1579,9 @@ function modalPago(prestamoId, pagoId, fecha){
         <button type="button" class="btn sm" data-v="${Math.min(p.valorCuota, e.saldo)}">1 cuota · ${fmt(Math.min(p.valorCuota, e.saldo))}</button>
         ${e.atraso>p.valorCuota+0.5?`<button type="button" class="btn sm" data-v="${Math.min(e.atraso, e.saldo)}">Todo lo atrasado · ${fmt(Math.min(e.atraso, e.saldo))}</button>`:''}
         ${e.saldo>Math.max(p.valorCuota, e.atraso)+0.5?`<button type="button" class="btn sm" data-v="${e.saldo}">Saldo total · ${fmt(e.saldo)}</button>`:''}</div>`}`;
+    // oficina: días atrasados a los que se les puede dar dominical (pico y placa, fuerza mayor) sin salir de aquí
+    if(isAdmin() && !pago) box.insertAdjacentHTML('beforeend', htmlDiasAtrasados(p, e));
+    box.querySelectorAll('button[data-dd]').forEach(b=>b.onclick=()=>{ darDiaRapido(p.id, b.dataset.dd); info(); syncCuotas(); });
     box.querySelectorAll('button[data-v]').forEach(b=>b.onclick=()=>{ const v=document.getElementById('gVal'); v.value=fmtIn(Number(b.dataset.v)); syncCuotas(); v.focus(); });
     // por defecto se sugiere UNA cuota (no todo lo atrasado), para no registrar de más por error
     const val=document.getElementById('gVal'); if(!pago && !val.value) val.value=fmtIn(Math.min(p.valorCuota, e.saldo));

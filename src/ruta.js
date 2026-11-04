@@ -132,7 +132,26 @@ function chipVisita(p, fecha){
 }
 
 /* ---------- dar día (dominical): fuerza mayor, la cuota pasa al día siguiente sin quedar en mora ---------- */
-const MOTIVOS_DIA = ['Fuerza mayor','Calamidad familiar','Enfermedad','Día festivo del cliente','Otro'];
+const MOTIVOS_DIA = ['Pico y placa','Fuerza mayor','Calamidad familiar','Enfermedad','Día festivo del cliente','Otro'];
+/* días que el cliente debe (de días anteriores), para darle dominical desde la ventana de pago */
+function htmlDiasAtrasados(p, e){
+  const vc = Number(p.valorCuota)||0, hoy = todayStr(); if(!vc) return '';
+  const a = asignarPagos(p, e), pend = e.cron.filter((q,k)=>q.fecha<hoy && a[k].pag < vc - 0.5 && !diaDado(p.id, q.fecha));
+  const dados = DB.visitas.filter(v=>v.prestamoId===p.id && v.resultado==='dominical' && v.fecha<hoy).sort((x,y)=>y.fecha.localeCompare(x.fecha)).slice(0,6);
+  if(!pend.length && !dados.length) return '';
+  const lista = pend.slice(-12).reverse();
+  return `<div style="grid-column:1/-1;border-top:1px dashed var(--line);padding-top:8px">
+    ${pend.length?`<div class="muted" style="font-size:12.5px;margin-bottom:6px">Días que debe (${pend.length}). Si alguno no se cobraba (pico y placa, fuerza mayor), dale <b>dominical</b> y no cuenta como mora:</div>
+    <div class="row" style="gap:6px">${lista.map(q=>`<span class="pill p-mora" style="display:inline-flex;align-items:center;gap:6px;padding-right:4px">${diaSem(q.fecha).slice(0,3)} ${fdateShort(q.fecha)}${a[e.cron.indexOf(q)].pag>0.5?' (abono)':''}<button type="button" class="btn sm" style="padding:2px 8px" data-dd="${q.fecha}">Dominical</button></span>`).join('')}${pend.length>12?`<span class="muted" style="font-size:12px">y ${pend.length-12} más antiguos (en "Dar día")</span>`:''}</div>`:''}
+    ${dados.length?`<div class="muted" style="font-size:12px;margin-top:6px">Días dados: ${dados.map(v=>`${fdateShort(v.fecha)} (${esc(v.motivo)})`).join(', ')}</div>`:''}
+  </div>`;
+}
+function darDiaRapido(prestamoId, fecha, motivo='Pico y placa'){
+  if(!isAdmin() || diaDado(prestamoId, fecha)) return;
+  const p = DB.prestamos.find(x=>x.id===prestamoId); if(!p) return;
+  dbAdd('visitas', {prestamoId:p.id, clienteId:p.clienteId, cobradorId:p.cobradorId||'', fecha, resultado:'dominical', motivo, volver:'', nota:''});
+  toast(`Dominical el ${fdateShort(fecha)}: no cuenta como mora`);
+}
 const diaDado = (prestamoId, fecha) => DB.visitas.find(v=>v.prestamoId===prestamoId && v.fecha===fecha && v.resultado==='dominical');
 function puedeDarDia(){ return isAdmin() || !!rutaCfg(ME.uid).puedeDominical; }
 

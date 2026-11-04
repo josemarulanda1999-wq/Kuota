@@ -126,6 +126,13 @@ window.S = {
   setConfig: data => setDoc(doc(db, ruta('config'), 'general'), clean(data)),
   setMarca: data => setDoc(doc(db, ruta('config'), 'marca'), clean(data)),
   setFinanzas: data => setDoc(doc(db, ruta('config'), 'finanzas'), clean(data)),
+  // guarda y borra varios documentos de una sola vez: o se aplica todo o nada
+  lote(sets, borrar) {
+    const b = writeBatch(db);
+    for (const o of sets) b.set(doc(db, ruta(o.col), o.id), clean(o.data));
+    for (const o of borrar) b.delete(doc(db, ruta(o.col), o.id));
+    return b.commit();
+  },
   async batchSet(ops) {
     for (let i = 0; i < ops.length; i += 400) {
       const b = writeBatch(db);

@@ -309,7 +309,7 @@ const _multaDia = new Map();
 function multaPorDia(p, m){
   const hoy = todayStr(), todos = pagosDe(p.id);
   // lo pagado en el sistema anterior (importado) ya estaba pagado antes: cuenta desde el principio
-  const pagos = todos.filter(x=>x.tipo!=='importado'), previo = todos.filter(x=>x.tipo==='importado').reduce((s,x)=>s+x.monto,0);
+  const pagos = todos.filter(x=>x.tipo!=='importado' || x.ordenado), previo = todos.filter(x=>x.tipo==='importado' && !x.ordenado).reduce((s,x)=>s+x.monto,0);
   const key = [hoy, todos.length, todos.reduce((s,x)=>s+x.monto,0), p.fecha, p.cuotas, p.valorCuota, p.primeraCuota||'', m.desde||'', m.umbral, m.alto, m.bajo, (DB.config.festivos||[]).length, (DB.visitas||[]).length, (DB.aperturas||[]).length, DB.config.sinAbrir||''].join('|');
   const c = _multaDia.get(p.id); if(c && c.key===key) return c.val;
   const unidad = (Number(p.monto)||0) > (Number(m.umbral)||500000) ? (Number(m.alto)||0) : (Number(m.bajo)||0);
@@ -342,6 +342,26 @@ function multaDe(p){
   const unidad = m.tipo==='fijo' ? (Number(m.valor)||0) : (Number(p.valorCuota)||0);
   return {valor: veces*unidad, n, veces};
 }
+/* reparto de los pagos en las cuotas, como en el cuaderno: el pago de un día cubre primero la cuota de ese
+   mismo día, luego las cuotas atrasadas (las más viejas primero) y lo que sobre adelanta las siguientes.
+   Los pagos importados sin fecha real (de otro sistema) se reparten en orden desde la primera cuota. */
+function asignarPagos(p, e){
+  const vc = Number(p.valorCuota)||0, cron = e.cron, n = cron.length;
+  const res = cron.map(()=>({pag:0, fecha:''}));
+  if(!vc) return res;
+  const orden = e.pagos.slice().sort((a,b)=>{ const sa=(a.tipo==='importado'&&!a.ordenado)?0:1, sb=(b.tipo==='importado'&&!b.ordenado)?0:1;
+    return sa-sb || a.fecha.localeCompare(b.fecha) || (a.creado||0)-(b.creado||0); });
+  const poner = (k, m, f) => { const a = Math.min(m, vc - res[k].pag); if(a<=0.0001) return m; res[k].pag += a; if(vc - res[k].pag < 0.5) res[k].fecha = f; return m - a; };
+  for(const x of orden){
+    let m = x.monto; const f = (x.tipo==='importado' && !x.ordenado) ? '' : x.fecha;
+    if(f){
+      for(let k=0;k<n && m>0.5;k++) if(cron[k].fecha===f) m = poner(k, m, f);   // la cuota de ese mismo día
+      for(let k=0;k<n && m>0.5;k++) if(cron[k].fecha<f) m = poner(k, m, f);     // las atrasadas
+    }
+    for(let k=0;k<n && m>0.5;k++) m = poner(k, m, f);                            // adelanta las siguientes
+  }
+  return res;
+}
 function pagosDe(id){ return DB.pagos.filter(x=>x.prestamoId===id).sort((a,b)=>a.fecha.localeCompare(b.fecha)); }
 function estadoPrestamo(p, hoy=todayStr()){
   const pagos = pagosDe(p.id);
@@ -371,7 +391,12 @@ function estadoPrestamo(p, hoy=todayStr()){
   if(saldo<1) estado='Pagado';
   else if(p.castigado) estado='Castigado';
   else if(atrasoMora>0) estado='En mora';
-  const diasMora = (estado==='En mora' && proxima) ? Math.max(0, Math.round((parseD(hoy)-parseD(proxima.fecha))/864e5)) : 0;
+  let diasMora = 0;
+  if(estado==='En mora'){
+    const asig = asignarPagos(p, {cron, pagos}), k = cron.findIndex((c,i)=>c.fecha<hoy && asig[i].pag < p.valorCuota - 0.5);
+    const desde = k>=0 ? cron[k] : proxima;
+    if(desde) diasMora = Math.max(0, Math.round((parseD(hoy)-parseD(desde.fecha))/864e5));
+  }
   if(p.castigado){ atraso=0; atrasoMora=0; }
   return { pagado, pagadoImp, multa, multaPend, multaCobrada, saldoCuotas, saldo, totalReal, atraso, atrasoMora, cuotasAtraso, cuotasPagadas, proxima, utilidad, estado, venceHoy, cron, pagos, diasMora,
            ultimoPago: pagos.length? pagos[pagos.length-1].fecha : null };
@@ -1237,14 +1262,11 @@ function reasignarCliente(clienteId, cob){
    Para cada cuota vencida se mira el día en que quedó cubierta con los pagos: a tiempo, tarde (cuántos días) o todavía sin pagar. */
 function comportamientoPrestamo(p){
   const e = estadoPrestamo(p), vc = Number(p.valorCuota)||0, hoy = todayStr();
-  const orden = e.pagos.slice().sort((a,b)=>a.fecha.localeCompare(b.fecha) || (a.creado||0)-(b.creado||0));
-  const cubierta = []; let acum = 0, i = 0;
-  for(const x of orden){ acum += x.monto;
-    while(i < e.cron.length && vc>0 && acum >= (i+1)*vc - 0.5){ cubierta[i] = x.tipo==='importado' ? null : x.fecha; i++; } }   // lo importado se toma como pagado a tiempo
+  const asig = asignarPagos(p, e), ok = k => vc>0 && asig[k].pag >= vc - 0.5;   // lo importado sin fecha se toma como pagado a tiempo
   let vencidas=0, aTiempo=0, tarde=0, sinPagar=0, maxAtraso=0, sumaAtraso=0, puntual=0;   // puntual = pagada hasta 2 días tarde
   e.cron.forEach((c,k)=>{
-    if(c.fecha > hoy || (c.fecha===hoy && k>=i)) return; vencidas++;   // la de hoy sin pagar todavía no cuenta: tiene el día para pagar
-    if(k < i){ const f = cubierta[k]; const d = f ? diasEntre(c.fecha, f) : 0;
+    if(c.fecha > hoy || (c.fecha===hoy && !ok(k))) return; vencidas++;   // la de hoy sin pagar todavía no cuenta: tiene el día para pagar
+    if(ok(k)){ const f = asig[k].fecha; const d = f ? diasEntre(c.fecha, f) : 0;
       if(d<=0) aTiempo++; else { tarde++; sumaAtraso+=d; maxAtraso=Math.max(maxAtraso,d); } if(d<=2) puntual++; }
     else { sinPagar++; const d = diasEntre(c.fecha, hoy); maxAtraso=Math.max(maxAtraso,d); }
   });
@@ -1625,12 +1647,61 @@ async function borrarPago(id){
 }
 
 /* fecha en que quedó cubierta cada cuota, aplicando los pagos en orden de fecha (como en el cuaderno) */
-function fechasPagoCuotas(p, e){
-  const vc = Number(p.valorCuota)||0, out = []; if(!vc) return out;
-  const orden = e.pagos.slice().sort((a,b)=>a.fecha.localeCompare(b.fecha) || (a.creado||0)-(b.creado||0));
-  let acum = 0, i = 0;
-  for(const x of orden){ acum += x.monto; while(i < e.cron.length && acum >= (i+1)*vc - 0.5){ out[i] = {fecha: x.tipo==='importado' ? '' : x.fecha}; i++; } }
-  return out;
+function fechasPagoCuotas(p, e){ return asignarPagos(p, e); }
+/* ---------- ordenar los pagos como en el cuaderno ----------
+   Lo que venía de otro sistema (pago "importado", sin días) se reparte en los días en que de verdad pagó.
+   Los pagos registrados en Kuota no se tocan aquí (se les cambia la fecha uno por uno en la pestaña Pagos).
+   Lo importado no es plata que entró a la caja de Kuota, así que esto no cambia ningún cuadre. */
+function modalOrdenarPagos(id){
+  if(!isAdmin()) return;
+  const p = DB.prestamos.find(x=>x.id===id); if(!p) return;
+  const e = estadoPrestamo(p), hoy = todayStr(), vc = Number(p.valorCuota)||0;
+  const imp = e.pagos.filter(x=>x.tipo==='importado'), totImp = imp.reduce((s,x)=>s+x.monto,0);
+  const fijos = {}; for(const x of e.pagos.filter(x=>x.tipo!=='importado')) fijos[x.fecha] = (fijos[x.fecha]||0) + x.monto;
+  const ya = {}; for(const x of imp.filter(x=>x.ordenado)) ya[x.fecha] = (ya[x.fecha]||0) + x.monto;
+  const dias = [...new Set([...e.cron.filter(q=>q.fecha<=hoy).map(q=>q.fecha), ...Object.keys(ya), ...Object.keys(fijos)])].sort();
+  const cuotaDe = f => (e.cron.find(q=>q.fecha===f)||{}).n;
+  const fila = f => `<tr data-f="${f}"><td style="white-space:nowrap">${cuotaDe(f)?`<b>${cuotaDe(f)}</b> · `:''}${diaSem(f).slice(0,3)} ${fdateShort(f)}</td>
+    <td class="num muted" style="font-size:12px">${fijos[f]?fmt(fijos[f])+' en Kuota':''}</td>
+    <td style="white-space:nowrap"><label class="chk" style="display:inline-flex;gap:6px"><input type="checkbox" class="opC" ${ya[f]?'checked':''}> Pagó</label></td>
+    <td><input class="input opV" inputmode="numeric" style="width:120px;text-align:right" value="${ya[f]?fmtIn(ya[f]):''}"></td></tr>`;
+  openModal(`<div class="row" style="margin-bottom:6px"><h3 style="margin:0">Ordenar pagos · ${esc(nombreCliente(p.clienteId))}</h3><span class="spacer"></span><button class="btn sm ghost" onclick="closeModal()">✕</button></div>
+  <p class="muted" style="margin:0 0 10px">Marca los días en que pagó según tu cuaderno. Lo que traía de otro sistema (<b>${fmt(totImp)}</b>) se reparte en esos días, y los días que no marques quedan como no pagados. Cuota: ${fmt(vc)}.</p>
+  <div class="row" style="margin-bottom:8px"><button type="button" class="btn sm" id="opLlenar">Llenar en orden</button><button type="button" class="btn sm ghost" id="opLimpiar">Quitar todo</button><span class="spacer"></span><span id="opTot" style="font-size:13px"></span></div>
+  <div class="tablewrap" style="max-height:48vh"><table><thead><tr><th>Día</th><th class="num">Ya en Kuota</th><th></th><th>Pagó (según cuaderno)</th></tr></thead><tbody id="opBody">${dias.map(fila).join('')}</tbody></table></div>
+  <div class="row" style="margin-top:8px"><span class="muted" style="font-size:12.5px">¿Pagó otro día?</span><input type="date" class="input" id="opOtro" style="width:auto" max="${hoy}" min="${p.fecha}"><button type="button" class="btn sm" id="opAdd">Agregar día</button></div>
+  <div class="actions"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="opOk">Guardar orden</button></div>`, true);
+  const body = document.getElementById('opBody');
+  const filas = () => [...body.querySelectorAll('tr')];
+  const total = () => filas().reduce((s,tr)=>s+num(tr.querySelector('.opV').value),0);
+  const pinta = () => { const t = total(), d = t - totImp;
+    document.getElementById('opTot').innerHTML = `Repartido <b>${fmt(t)}</b> de ${fmt(totImp)}${Math.abs(d)<0.5?' ✓':` · <span style="color:var(--red)">${d>0?'sobran':'faltan'} ${fmt(Math.abs(d))}</span>`}`; };
+  const enlazar = tr => { const c=tr.querySelector('.opC'), v=tr.querySelector('.opV');
+    c.onchange = ()=>{ if(c.checked && !num(v.value)){ const resta = Math.max(0, totImp - total()); v.value = fmtIn(Math.min(vc, resta||vc)); } if(!c.checked) v.value=''; pinta(); };
+    v.oninput = ()=>{ c.checked = num(v.value)>0; pinta(); }; v.onblur = ()=>{ const n=num(v.value); if(n) v.value=fmtIn(n); }; };
+  filas().forEach(enlazar);
+  document.getElementById('opLlenar').onclick = ()=>{ let resta = totImp;
+    filas().forEach(tr=>{ const v=tr.querySelector('.opV'), c=tr.querySelector('.opC'); const a = Math.min(vc, resta); v.value = a>0.5?fmtIn(a):''; c.checked = a>0.5; resta -= Math.max(0,a); }); pinta(); };
+  document.getElementById('opLimpiar').onclick = ()=>{ filas().forEach(tr=>{ tr.querySelector('.opV').value=''; tr.querySelector('.opC').checked=false; }); pinta(); };
+  document.getElementById('opAdd').onclick = ()=>{ const f = document.getElementById('opOtro').value; if(!f) return toast('Escoge el día');
+    if(f>hoy || f<p.fecha) return toast('Ese día no está entre la fecha del crédito y hoy'); if(filas().some(tr=>tr.dataset.f===f)) return toast('Ese día ya está en la lista');
+    const tmp=document.createElement('tbody'); tmp.innerHTML=fila(f); const tr=tmp.firstElementChild; const sig = filas().find(x=>x.dataset.f>f); body.insertBefore(tr, sig||null); enlazar(tr); pinta(); };
+  pinta();
+  document.getElementById('opOk').onclick = async ()=>{
+    const nuevos = filas().map(tr=>({f:tr.dataset.f, m:num(tr.querySelector('.opV').value)})).filter(x=>x.m>0.5);
+    const t = nuevos.reduce((s,x)=>s+x.m,0);
+    if(Math.abs(t-totImp)>=0.5 && !await confirmar(`Repartiste ${fmt(t)}, pero lo que venía del otro sistema era ${fmt(totImp)}.\n\nEl total pagado del crédito ${t>totImp?'sube':'baja'} ${fmt(Math.abs(t-totImp))} (no cambia ningún cuadre de caja).\n\n¿Guardar así?`, {ok:'Guardar'})) return;
+    if(nuevos.length + imp.length > 450) return avisar('Son demasiados días para guardarlos de una vez.');
+    const b = document.getElementById('opOk'); b.disabled = true; b.textContent = 'Guardando…';
+    const sets = nuevos.map(x=>({col:'pagos', id:S.newId('pagos'), data:{prestamoId:p.id, fecha:x.f, monto:x.m, tipo:'importado', ordenado:true, nota:'Importado · ordenado según cuaderno',
+      cobradorId:p.cobradorId||'', registradoPor:ME.uid, creado:Date.now(), creadoPor:ME.uid}}));
+    try{ await Promise.race([S.lote(sets, imp.map(x=>({col:'pagos', id:x.id}))), new Promise(r=>setTimeout(r, 8000))]); }   // sin señal queda en cola y sube al volver
+    catch(err){ b.disabled=false; b.textContent='Guardar orden';
+      return avisar(err && err.code==='permission-denied' ? 'Firebase no dejó guardar el orden: falta publicar las reglas nuevas.' : 'No se pudo guardar. Revisa la conexión e inténtalo de nuevo.'); }
+    const ids = new Set(imp.map(x=>x.id)); DB.pagos = DB.pagos.filter(x=>!ids.has(x.id)).concat(sets.map(o=>Object.assign({id:o.id}, o.data)));
+    if(typeof auditar==='function') auditar('ordenar', 'pagos', p.id, `${nombreCliente(p.clienteId)}: ${fmt(totImp)} importado repartido en ${nuevos.length} día(s)${Math.abs(t-totImp)>=0.5?' (total '+fmt(t)+')':''}`);
+    closeModal(); render(); toast('Pagos ordenados como el cuaderno'); modalDetalle(p.id);
+  };
 }
 function modalDetalle(id, tab='cuotas'){
   const p = DB.prestamos.find(x=>x.id===id); if(!p) return;
@@ -1640,8 +1711,8 @@ function modalDetalle(id, tab='cuotas'){
   const pagadaEl = fechasPagoCuotas(p, e);
   const cuotasHtml = e.cron.map((q,k)=>{
     acum += p.valorCuota;
-    const cubierta = e.pagado >= acum - 0.5;
-    const parcial = !cubierta && e.pagado > acum - p.valorCuota + 0.5;
+    const cubierta = pagadaEl[k] && pagadaEl[k].pag >= p.valorCuota - 0.5;
+    const parcial = !cubierta && pagadaEl[k] && pagadaEl[k].pag > 0.5;
     const venc = q.fecha<=hoy;
     const pe = pagadaEl[k], tarde = pe && pe.fecha ? diasEntre(q.fecha, pe.fecha) : 0;
     let st = cubierta?`<span class="cuota-ok">Pagada${pe&&pe.fecha?' el '+fdateShort(pe.fecha):''}</span>${tarde>0?` <span class="muted" style="font-size:12px">(${tarde} día${tarde>1?'s':''} tarde)</span>`:pe&&pe.fecha&&tarde<0?` <span class="muted" style="font-size:12px">(adelantada)</span>`:''}`: parcial? '<span style="color:var(--amber)">Abono parcial</span>' : venc?'<span class="cuota-venc">Vencida</span>':'<span class="muted">Pendiente</span>';
@@ -1662,13 +1733,14 @@ function modalDetalle(id, tab='cuotas'){
     <div><div class="l">Pagado</div><div class="v" style="color:var(--green)">${fmt(e.pagado)}</div></div>
     <div><div class="l">Saldo del crédito</div><div class="v">${fmt(e.saldoCuotas)}</div>${e.multa.valor?`<div class="muted" style="font-size:12px">Sin contar multas</div>`:''}</div>
     ${e.multa.valor?`<div><div class="l">Multas por cobrar</div><div class="v" style="color:var(--amber)">${fmt(e.multaPend)}</div><div class="muted" style="font-size:12px">${e.multa.tipo==='dia'?`${e.multa.n} día(s) de atraso × ${fmt(e.multa.porDia)}`:`${e.multa.veces} multa(s) por ${e.multa.n} no pagos`}${e.multaCobrada?' · ya cobradas '+fmt(e.multaCobrada):''}</div></div>`:''}
-    <div><div class="l">En mora</div><div class="v" style="color:${e.atrasoMora?'var(--red)':'inherit'}">${fmt(e.atrasoMora)}${e.diasMora?` · ${e.diasMora} días`:''}</div></div>
+    <div><div class="l">En mora</div><div class="v" style="color:${e.atrasoMora?'var(--red)':'inherit'}">${fmt(e.atrasoMora)}${e.diasMora?` · ${e.diasMora} días`:''}</div>${e.cuotasAtraso?`<div class="muted" style="font-size:12px">${e.cuotasAtraso} cuota${e.cuotasAtraso>1?'s':''} sin pagar</div>`:''}</div>
     <div><div class="l">Próxima cuota</div><div class="v">${e.proxima?fdate(e.proxima.fecha):'—'}</div></div>
   </div>
   <div class="progress" style="margin-bottom:16px"><i style="width:${Math.min(100,e.pagado/e.totalReal*100)}%"></i></div>
   ${listaDiasDados(p)}
   <div class="tabs no-print"><button class="${tab==='cuotas'?'on':''}" onclick="modalDetalle('${id}','cuotas')">Cuotas (${p.cuotas})</button><button class="${tab==='pagos'?'on':''}" onclick="modalDetalle('${id}','pagos')">Pagos (${e.pagos.length})</button><button class="${tab==='fotos'?'on':''}" onclick="modalDetalle('${id}','fotos')">Fotos</button></div>
   <div class="tablewrap" style="max-height:380px">
+  ${isAdmin()&&e.pagos.some(x=>x.tipo==='importado')?`<div class="banner no-print" style="margin:0 0 10px">Los pagos que vienen de otro sistema no tienen sus días.<span class="spacer"></span><button class="btn sm pri" onclick="modalOrdenarPagos('${p.id}')">Ordenar pagos como el cuaderno</button></div>`:''}
   ${tab==='cuotas'?`<table><thead><tr><th>#</th><th>Fecha</th><th class="num">Cuota</th><th class="num">Capital</th><th class="num">Interés</th><th>Estado</th></tr></thead><tbody>${cuotasHtml}</tbody></table>`
   :tab==='fotos'?`<div id="fotosBox" style="padding:4px 2px"><div class="empty">Cargando fotos…</div></div>`
   :`<table><thead><tr><th>Fecha</th><th class="num">Valor</th><th>Nota</th><th>Registró</th>${isAdmin()?'<th>GPS</th>':''}<th></th></tr></thead><tbody>${pagosHtml}</tbody></table>`}

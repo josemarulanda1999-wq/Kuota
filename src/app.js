@@ -347,7 +347,8 @@ function multaDe(p){
 }
 /* reparto de los pagos en las cuotas, como en el cuaderno: el pago de un día cubre primero la cuota de ese
    mismo día, luego las cuotas atrasadas (las más viejas primero) y lo que sobre adelanta las siguientes.
-   Con el ajuste "adelanta" (como en el cuaderno) lo de más va primero a las cuotas siguientes y después a las atrasadas.
+   Con el ajuste "adelanta" (como en el cuaderno): si paga de más en su día de cuota, lo de más adelanta las siguientes;
+   si paga un día que no es de cuota, cubre la cuota que venía debiendo más reciente y luego las anteriores.
    Los pagos importados sin fecha real (de otro sistema) se reparten en orden desde la primera cuota. */
 function asignarPagos(p, e){
   const vc = Number(p.valorCuota)||0, cron = e.cron, n = cron.length, adelanta = DB.config && DB.config.pagoExtra==='adelanta';
@@ -359,8 +360,12 @@ function asignarPagos(p, e){
   for(const x of orden){
     let m = x.monto; const f = (x.tipo==='importado' && !x.ordenado) ? '' : x.fecha;
     if(f){
+      const diaDeCuota = cron.some(q=>q.fecha===f);
       for(let k=0;k<n && m>0.5;k++) if(cron[k].fecha===f) m = poner(k, m, f);   // la cuota de ese mismo día
-      if(adelanta) for(let k=0;k<n && m>0.5;k++) if(cron[k].fecha>f) m = poner(k, m, f);   // como el cuaderno: adelanta las siguientes
+      if(adelanta){
+        if(diaDeCuota){ for(let k=0;k<n && m>0.5;k++){ if(cron[k].fecha>f) m = poner(k, m, f); } }   // pagó de más en su día: adelanta las siguientes
+        else { for(let k=n-1;k>=0 && m>0.5;k--){ if(cron[k].fecha<f) m = poner(k, m, f); } }         // pagó otro día: es la cuota que venía debiendo (la más reciente primero)
+      }
       for(let k=0;k<n && m>0.5;k++) if(cron[k].fecha<f) m = poner(k, m, f);     // las atrasadas
     }
     for(let k=0;k<n && m>0.5;k++) m = poner(k, m, f);                            // adelanta las siguientes

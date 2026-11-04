@@ -402,14 +402,18 @@ function estadoPrestamo(p, hoy=todayStr()){
   if(saldo<1) estado='Pagado';
   else if(p.castigado) estado='Castigado';
   else if(atrasoMora>0) estado='En mora';
-  let diasMora = 0;
+  /* días de mora: en los diarios son los días de cobro que no pagó (como en el cuaderno: 1 fecha sin pagar = 1 día);
+     en semanal, quincenal y mensual se cuentan las cuotas sin pagar y los días de calendario desde la primera */
+  let diasMora = 0, diasCalendario = 0, cuotasSinPagar = 0;
   if(estado==='En mora'){
-    const asig = asignarPagos(p, {cron, pagos}), k = cron.findIndex((c,i)=>c.fecha<hoy && asig[i].pag < p.valorCuota - 0.5);
-    const desde = k>=0 ? cron[k] : proxima;
-    if(desde) diasMora = Math.max(0, Math.round((parseD(hoy)-parseD(desde.fecha))/864e5));
+    const asig = asignarPagos(p, {cron, pagos}), pend = cron.filter((c,i)=>c.fecha<hoy && asig[i].pag < p.valorCuota - 0.5);
+    const desde = pend[0] || proxima;
+    if(desde) diasCalendario = Math.max(0, Math.round((parseD(hoy)-parseD(desde.fecha))/864e5));
+    cuotasSinPagar = Math.max(1, pend.length);
+    diasMora = p.periodo==='DIARIO' ? cuotasSinPagar : diasCalendario;
   }
   if(p.castigado){ atraso=0; atrasoMora=0; }
-  return { pagado, pagadoImp, multa, multaPend, multaCobrada, saldoCuotas, saldo, totalReal, atraso, atrasoMora, cuotasAtraso, cuotasPagadas, proxima, utilidad, estado, venceHoy, cron, pagos, diasMora,
+  return { periodo: p.periodo, diasCalendario, cuotasSinPagar, pagado, pagadoImp, multa, multaPend, multaCobrada, saldoCuotas, saldo, totalReal, atraso, atrasoMora, cuotasAtraso, cuotasPagadas, proxima, utilidad, estado, venceHoy, cron, pagos, diasMora,
            ultimoPago: pagos.length? pagos[pagos.length-1].fecha : null };
 }
 function resumen(){
@@ -631,12 +635,21 @@ function ava(nombre){
   return `<span class="ava" style="background:${AVA_COL[h%AVA_COL.length]}">${esc(ini)}</span>`;
 }
 
+// "3 días" en los diarios (días de cobro sin pagar); "2 cuotas" en semanal, quincenal y mensual
+function textoMora(e){
+  if(e.periodo && e.periodo!=='DIARIO'){ const n=Math.max(1, e.cuotasSinPagar||e.cuotasAtraso||1); return `${n} cuota${n>1?'s':''}`; }
+  const d=Math.max(1, e.diasMora||1); return `${d} día${d>1?'s':''}`;
+}
+function textoMoraLargo(e){
+  const n=Math.max(1, e.cuotasSinPagar||e.cuotasAtraso||1);
+  return `${n} cuota${n>1?'s':''} sin pagar · la primera hace ${e.diasCalendario||0} día${e.diasCalendario===1?'':'s'}`;
+}
+const moraLeve = e => (e.periodo && e.periodo!=='DIARIO') ? (e.cuotasSinPagar||1)<=1 : Math.max(1, e.diasMora||1)<=3;
 function pill(e){
   if(e.estado==='Pagado') return '<span class="pill p-pag">Pagado</span>';
   if(e.estado==='Castigado') return '<span class="pill p-mora">Castigado</span>';
   // al día en verde · mora de 1 a 3 días en naranja · más de 3 días en rojo
-  if(e.estado==='En mora'){ const d=Math.max(1, e.diasMora||1);
-    return `<span class="pill ${d<=3?'p-mora1':'p-mora'}" title="${e.cuotasAtraso} cuota${e.cuotasAtraso>1?'s':''} atrasada${e.cuotasAtraso>1?'s':''}">Mora · ${d} día${d>1?'s':''}</span>`; }
+  if(e.estado==='En mora') return `<span class="pill ${moraLeve(e)?'p-mora1':'p-mora'}" title="${esc(textoMoraLargo(e))}">Mora · ${textoMora(e)}</span>`;
   if(e.venceHoy && e.atraso>0) return '<span class="pill p-hoy">Paga hoy</span>';
   return '<span class="pill p-ok">Al día</span>';
 }
@@ -654,8 +667,8 @@ function pasaFiltroCob(cobradorId){
 }
 /* estado en la lista del día: si le toca cuota ese día se dice "Paga hoy", y la mora va al lado (no en vez de) */
 function pillDia(c){
-  if(c.e.estado==='En mora' && (c.hoyCobrar||0)>0.5){ const d=Math.max(1, c.e.diasMora||1);
-    return `<span class="pill p-hoy">Paga hoy</span> <span class="pill ${d<=3?'p-mora1':'p-mora'}">+ mora ${d} día${d>1?'s':''}</span>`; }
+  if(c.e.estado==='En mora' && (c.hoyCobrar||0)>0.5)
+    return `<span class="pill p-hoy">Paga hoy</span> <span class="pill ${moraLeve(c.e)?'p-mora1':'p-mora'}" title="${esc(textoMoraLargo(c.e))}">+ mora ${textoMora(c.e)}</span>`;
   return pill(c.e);
 }
 function cobroCard(c, fecha){
@@ -1744,7 +1757,7 @@ function modalDetalle(id, tab='cuotas'){
     <div><div class="l">Pagado</div><div class="v" style="color:var(--green)">${fmt(e.pagado)}</div></div>
     <div><div class="l">Saldo del crédito</div><div class="v">${fmt(e.saldoCuotas)}</div>${e.multa.valor?`<div class="muted" style="font-size:12px">Sin contar multas</div>`:''}</div>
     ${e.multa.valor?`<div><div class="l">Multas por cobrar</div><div class="v" style="color:var(--amber)">${fmt(e.multaPend)}</div><div class="muted" style="font-size:12px">${e.multa.tipo==='dia'?`${e.multa.n} día(s) de atraso × ${fmt(e.multa.porDia)}`:`${e.multa.veces} multa(s) por ${e.multa.n} no pagos`}${e.multaCobrada?' · ya cobradas '+fmt(e.multaCobrada):''}</div></div>`:''}
-    <div><div class="l">En mora</div><div class="v" style="color:${e.atrasoMora?'var(--red)':'inherit'}">${fmt(e.atrasoMora)}${e.diasMora?` · ${e.diasMora} días`:''}</div>${e.cuotasAtraso?`<div class="muted" style="font-size:12px">${e.cuotasAtraso} cuota${e.cuotasAtraso>1?'s':''} sin pagar</div>`:''}</div>
+    <div><div class="l">En mora</div><div class="v" style="color:${e.atrasoMora?'var(--red)':'inherit'}">${fmt(e.atrasoMora)}${e.estado==='En mora'?` · ${textoMora(e)}`:''}</div>${e.estado==='En mora'?`<div class="muted" style="font-size:12px">${textoMoraLargo(e)}</div>`:''}</div>
     <div><div class="l">Próxima cuota</div><div class="v">${e.proxima?fdate(e.proxima.fecha):'—'}</div></div>
   </div>
   <div class="progress" style="margin-bottom:16px"><i style="width:${Math.min(100,e.pagado/e.totalReal*100)}%"></i></div>

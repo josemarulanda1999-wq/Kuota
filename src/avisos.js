@@ -157,7 +157,7 @@ VIEWS.avisos = () => {
   return `<div class="head"><div><h1>Avisos a clientes</h1><p class="sub">Envía recordatorios, cobros de mora y paz y salvo por WhatsApp o correo con un toque. Los mensajes se editan en Ajustes.</p></div>
   <div class="row">${filtroCobrador('avisos')}</div></div>
   <div class="tabs" style="margin-bottom:16px">${tb('hoy','Pagan hoy')}${tb('mora','En mora')}${tb('pazysalvo','Terminaron de pagar')}</div>
-  ${L.length?`<div class="cobros-grid">${L.map(({p,e})=>filaAviso(p, tipo, t==='mora'?`<span class="pill p-mora">${e.diasMora} días</span>`:'')).join('')}</div>`:'<div class="card"><div class="empty">No hay clientes en esta lista.</div></div>'}`;
+  ${L.length?`<div class="cobros-grid">${L.map(({p,e})=>filaAviso(p, tipo, t==='mora'?`<span class="pill p-mora">${textoMora(e)}</span>`:'')).join('')}</div>`:'<div class="card"><div class="empty">No hay clientes en esta lista.</div></div>'}`;
 };
 
 /* recibo por correo (complementa el de WhatsApp) */

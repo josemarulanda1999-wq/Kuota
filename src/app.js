@@ -505,7 +505,7 @@ function menu(){
   return { main:[['cobros','Mi ruta'],['clientes','Clientes'],['prestamos','Préstamos'],['cuadre','Cuadre'],['calculadora','Calcular']], mas:[] };
 }
 function renderNav(){
-  const n = cobrosDelDia().filter(c=>c.hoyCobrar>0.5 && !(typeof rutaVisitado==='function' && rutaVisitado(c, todayStr()))).length;
+  const n = cobrosDelDia().filter(c=>c.cobrar>0.5 && !(typeof rutaVisitado==='function' && rutaVisitado(c, todayStr()))).length;
   const nRen = isAdmin() ? DB.renovaciones.filter(r=>r.estado==='pendiente').length + DB.aprobaciones.filter(a=>a.estado==='pendiente').length : 0;
   const pend = isCeo() ? DB.users.filter(u=>u.estado==='pendiente').length : 0;
   let M = menu();
@@ -703,9 +703,10 @@ VIEWS.cobros = () => {
   const ordenC = c => Number((clienteById(c.p.clienteId)||{}).orden)||1e9;
   const dia = cobrosDelDia(fecha).filter(c=>pasaFiltroCob(c.p.cobradorId)).sort((a,b)=>ordenC(a)-ordenC(b) || b.e.atraso-a.e.atraso);
   const q = sinTildes(viewState.q||'').trim();
-  const tab = ['hechos','mora','adel'].includes(viewState.tab) ? viewState.tab : 'pend';
-  const porVisitar = dia.filter(c=>!rutaVisitado(c, fecha) && c.hoyCobrar>0.5);       // les toca cuota hoy
-  const soloMora = dia.filter(c=>!rutaVisitado(c, fecha) && c.hoyCobrar<=0.5);        // no les toca hoy, solo deben mora
+  const tab = ['hechos','adel'].includes(viewState.tab) ? viewState.tab : 'pend';
+  // en la ruta del día salen todos los que deben algo: la cuota de hoy y los que están en mora (el que no paga vuelve a salir al día siguiente)
+  const porVisitar = dia.filter(c=>!rutaVisitado(c, fecha));
+  const soloMora = [];
   // visitado de verdad: pagó, quedó como "no pagó" o se le dio el día. Los que ya tienen la cuota cubierta (abonos
   // adelantados) no cuentan como visitados: van aparte como "Adelantados"
   const visitaReal = c => c.pagadoHoy > 0.5 || !!visitaDe(c.p.id, fecha) || !!diaDado(c.p.id, fecha);
@@ -724,7 +725,7 @@ VIEWS.cobros = () => {
     : tab==='adel' ? 'Nadie tiene la cuota de este día pagada por adelantado.'
     : (!isAdmin() && miRutaAbierta() && !miRutaCerrada(fecha) && fecha===todayStr()) ? '¡Listo! Visitaste a todos los clientes. Ya puedes cerrar la ruta del día.' : 'No queda nadie por visitar en esta fecha.';
   const tabBtn = (k, t, n) => `<button class="${tab===k?'on':''}" onclick="go('cobros',Object.assign({},viewState,{tab:'${k}'}))">${t} · ${n}</button>`;
-  const tabs = q ? '' : `<div class="seg" style="margin:0 0 14px;flex-wrap:wrap">${tabBtn('pend','Por cobrar hoy',porVisitar.length)}${soloMora.length||tab==='mora'?tabBtn('mora','En mora',soloMora.length):''}${tabBtn('hechos','Visitados y pagados',hechos.length)}${adelantados.length||tab==='adel'?tabBtn('adel','Adelantados',adelantados.length):''}</div>`;
+  const tabs = q ? '' : `<div class="seg" style="margin:0 0 14px;flex-wrap:wrap">${tabBtn('pend','Por visitar',porVisitar.length)}${tabBtn('hechos','Visitados y pagados',hechos.length)}${adelantados.length||tab==='adel'?tabBtn('adel','Adelantados',adelantados.length):''}</div>`;
   return `
   <div class="head"><div><h1>${isAdmin()?'Cobros del día':'Mi ruta'}</h1><p class="sub">Cuotas que vencen y préstamos atrasados. Marca el pago apenas cobres.</p></div>
   <div class="row">${isAdmin()?'':`${puedePrestarRuta()?`<button class="btn pri" onclick="modalPrestamo()">+ Crédito nuevo</button>`:''}<button class="btn ${puedePrestarRuta()?'':'pri'}" onclick="elegirRenovacion()">Solicitar renovación</button>`}${isAdmin()?'':`<button class="btn" onclick="go('prestamos',{dia:'${fecha}'})">Lo que presté ${fecha===todayStr()?'hoy':'ese día'}</button>`}${isAdmin()?'':'<button class="btn" onclick="modalEnrutar()">Orden de visita</button><button class="btn" data-go="avisos">Avisar a clientes</button>'}${filtroCobrador('cobros')}<input type="date" class="input" style="width:auto" value="${fecha}" onchange="go('cobros',Object.assign({},viewState,{fecha:this.value}))">${isNative()?'':'<button class="btn no-print" onclick="window.print()">Imprimir ruta</button>'}</div></div>

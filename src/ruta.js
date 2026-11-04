@@ -140,9 +140,9 @@ function puedeDarDia(){ return isAdmin() || !!rutaCfg(ME.uid).puedeDominical; }
 function rutaVisitado(c, fecha){
   return c.pagadoHoy > 0.5 || c.cobrar <= 0.5 || !!visitaDe(c.p.id, fecha) || !!diaDado(c.p.id, fecha);
 }
-// para cerrar la ruta hay que visitar a los que les toca cuota ese día (los que solo deben mora van aparte)
+// para cerrar la ruta hay que visitar a todos los de la ruta del día: los que tienen cuota hoy y los que están en mora
 function faltanPorVisitar(uid, fecha){
-  return cobrosDelDia(fecha).filter(c=>c.p.cobradorId===uid && !rutaVisitado(c, fecha) && c.hoyCobrar>0.5);
+  return cobrosDelDia(fecha).filter(c=>c.p.cobradorId===uid && !rutaVisitado(c, fecha));
 }
 /* cuánto puede seguir prestando la ruta: el efectivo que tiene en la mano, sin pasarse del capital asignado */
 function disponibleRuta(uid){
@@ -784,7 +784,7 @@ function verPorRutas(){ return isAdmin() && cobradores().length > 0; }
 function datosRutaHoy(id, fecha){
   const deRuta = cob => id==='_yo' ? !cob : cob===id;
   const mios = cobrosDelDia(fecha).filter(c=>deRuta(c.p.cobradorId));
-  return { porVisitar: mios.filter(c=>!rutaVisitado(c, fecha) && c.hoyCobrar>0.5).length, visitados: mios.filter(c=>rutaVisitado(c, fecha)).length,
+  return { porVisitar: mios.filter(c=>!rutaVisitado(c, fecha)).length, visitados: mios.filter(c=>rutaVisitado(c, fecha)).length,
     pendiente: mios.reduce((s,c)=>s+(rutaVisitado(c, fecha)?0:(c.hoyCobrar||0)),0), mora: mios.reduce((s,c)=>s+(c.mora||0),0), cobrado: mios.reduce((s,c)=>s+c.pagadoHoy,0),
     clientes: DB.clientes.filter(c=>deRuta(c.cobradorId)).length,
     estado: id==='_yo' ? '' : cierreDe(id, fecha) ? '<span class="pill p-pag">Cerrada</span>' : aperturaDe(id, fecha) ? '<span class="pill p-ok">Abierta</span>' : '<span class="pill p-hoy">Sin abrir</span>' };

@@ -423,7 +423,7 @@ function tarjetaAprobacion(a){
   return `<div class="card cobro">
     <div class="who">${ava(nombreCliente(a.clienteId))}<div style="min-width:0;flex:1"><b>${esc(nombreCliente(a.clienteId))}</b><div class="muted" style="font-size:12.5px">Crédito nuevo · ${esc(nombreRuta(a.cobradorId))} · ${fdate(a.fecha)}</div></div>${est}</div>
     <div class="cobro-nums"><div><span>Monto</span><b>${fmt(a.monto)}</b></div><div><span>Interés</span><b>${fmtN(a.tasa)}% · ${k.cuotas} ${(UNIDAD_CUOTA[a.periodo]||['',''])[1]}</b></div><div><span>Cuota</span><b>${fmt(k.valorCuota)}</b></div></div>
-    <div class="muted" style="font-size:12.5px">Tope de la ruta: ${fmt(rutaCfg(a.cobradorId).maxPrestamo||0)}${a.periodo==='SEMANAL'&&a.primeraCuota?` · paga ${losDias(parseD(a.primeraCuota).getDay())}`:''}${a.nota?' · '+esc(a.nota):''}</div>
+    <div class="muted" style="font-size:12.5px">Tope de la ruta: ${fmt(rutaCfg(a.cobradorId).maxPrestamo||0)}${a.primeraCuota?` · primera cuota ${fdateShort(a.primeraCuota)}${a.periodo==='SEMANAL'?` (${losDias(parseD(a.primeraCuota).getDay())})`:''}`:''}${a.nota?' · '+esc(a.nota):''}</div>
     ${a.estado==='pendiente'&&isAdmin()?`<div class="row"><button class="btn sm danger" onclick="responderAprobacion('${a.id}',false)">Rechazar</button><span class="spacer"></span><button class="btn sm pri" onclick="responderAprobacion('${a.id}',true)">Aprobar crédito</button></div>`:''}
   </div>`;
 }
@@ -450,8 +450,10 @@ function aprobarCredito(a, priElegida){
   const k = (a.cuotas ? calcularCuotas(a.monto, a.tasa, a.cuotas, a.periodo, a.modoInteres||'mensual') : calcular(a.monto, a.tasa, a.meses, a.periodo));
   const pid = a.prestamoId || S.newId('prestamos');
   // si la ruta escogió día de pago (semanal), se respeta; si esa fecha ya pasó, se toma el mismo día de la semana siguiente
-  const priAp = priElegida ? priElegida : a.periodo==='SEMANAL' && a.primeraCuota ? (a.primeraCuota>todayStr() ? a.primeraCuota : primeraSemanalDefecto(todayStr(), parseD(a.primeraCuota).getDay())) : '';
-  const obj = {...(priAp && priAp!==ymd(addPeriodo(parseD(todayStr()),'SEMANAL')) ? {primeraCuota:priAp} : {}), clienteId:a.clienteId, fecha:todayStr(), monto:a.monto, tasa:a.tasa, meses:k.meses||a.meses, periodo:a.periodo, modoInteres:a.modoInteres||'mensual', excluirDomingos:!!a.excluirDomingos,
+  // la primera cuota que escogió la ruta se respeta; si ya pasó, en semanal se toma el mismo día de la semana siguiente
+  const priAp = priElegida ? priElegida : !a.primeraCuota ? '' : a.primeraCuota>todayStr() ? a.primeraCuota
+    : a.periodo==='SEMANAL' ? primeraSemanalDefecto(todayStr(), parseD(a.primeraCuota).getDay()) : '';
+  const obj = {...(priAp && priAp!==ymd(addPeriodo(parseD(todayStr()), a.periodo, a.excluirDomingos)) ? {primeraCuota:priAp} : {}), clienteId:a.clienteId, fecha:todayStr(), monto:a.monto, tasa:a.tasa, meses:k.meses||a.meses, periodo:a.periodo, modoInteres:a.modoInteres||'mensual', excluirDomingos:!!a.excluirDomingos,
     nota:a.nota||'', cuotas:k.cuotas, valorCuota:k.valorCuota, interesMes:k.interesMes, total:k.total, cobradorId:a.cobradorId, fuente:'ruta', creado:Date.now(), creadoPor:ME.uid};
   DB.prestamos.push(Object.assign({id:pid}, obj)); S.set('prestamos', pid, obj).catch(falloNube);
   dbUpd('aprobaciones', a.id, {estado:'aprobada', prestamoId:pid, revisadoPor:ME.uid, revisadoEn:Date.now()});
@@ -805,34 +807,42 @@ function tablaRutasHoy(){
     <td class="right"><button class="btn sm">Entrar</button></td></tr>`; }).join('')}</tbody></table></div>`;
 }
 
-/* ---------- cambiar el día de pago de un semanal (oficina o la ruta) ---------- */
+/* ---------- cambiar la fecha de cobro de un crédito (solo la oficina; la ruta la escoge al crear el crédito) ----------
+   Se cambia la fecha de la primera cuota y todo el calendario se corre con ella. En semanal también se puede escoger el día. */
 function modalDiaPago(id){
-  if(!isAdmin() && rutaBloqueada()) return;   // la ruta solo registra con el día abierto
-  const p = DB.prestamos.find(x=>x.id===id); if(!p || p.periodo!=='SEMANAL') return;
-  if(!isAdmin() && p.cobradorId!==ME.uid) return;
-  const actual = primeraDe(p), dowAct = parseD(actual).getDay();
-  openModal(`<h3>Día de pago · ${esc(nombreCliente(p.clienteId))}</h3>
-  <p class="muted" style="margin-top:-8px">Ahora paga <b>${losDias(dowAct)}</b>. Escoge el nuevo día y todas las cuotas quedan ese día de la semana.</p>
-  <div class="form"><label class="f full">Nuevo día de pago<select class="input" id="dpDia">${opcionesDiaSemana(dowAct)}</select></label></div>
+  if(!isAdmin()) return avisar('La fecha de cobro solo se escoge al crear el crédito. Para cambiarla, pídeselo a la oficina.');
+  const p = DB.prestamos.find(x=>x.id===id); if(!p) return;
+  const actual = primeraDe(p), sem = p.periodo==='SEMANAL', auto = ymd(addPeriodo(parseD(p.fecha), p.periodo, p.excluirDomingos));
+  const cada = {DIARIO:'cada día', SEMANAL:'cada semana', QUINCENAL:'cada 15 días', MENSUAL:'cada mes'}[p.periodo]||'';
+  openModal(`<h3>Fecha de cobro · ${esc(nombreCliente(p.clienteId))}</h3>
+  <p class="muted" style="margin-top:-8px">Crédito del ${fdate(p.fecha)} · ${p.periodo.toLowerCase()}. Hoy la primera cuota es el <b>${fdate(actual)}</b>${sem?` (paga ${losDias(parseD(actual).getDay())})`:''}. Al cambiarla, todas las cuotas se corren con ella (luego ${cada}).</p>
+  <div class="form">
+    ${sem?`<label class="f">Día de pago<select class="input" id="dpDia">${opcionesDiaSemana(parseD(actual).getDay())}</select></label>`:''}
+    <label class="f ${sem?'':'full'}">Primera cuota<input type="date" class="input" id="dpPri" value="${actual}" min="${ymd(new Date(parseD(p.fecha).getTime()+864e5))}"></label>
+  </div>
   <div class="calcbox" id="dpInfo" style="margin-top:12px"></div>
-  <div class="actions"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="dpOk">Guardar día</button></div>`);
-  // se toma la fecha con ese día más cercana a la primera cuota actual, para mover el calendario lo menos posible
-  const nuevaPrimera = dow => { let d = parseD(actual); let delta = (dow - dowAct + 7) % 7; if(delta > 3) delta -= 7; d.setDate(d.getDate()+delta); if(ymd(d) <= p.fecha) d.setDate(d.getDate()+7); return ymd(d); };
+  <div class="actions">${actual!==auto?`<button class="btn ghost" style="margin-right:auto" id="dpAuto">Volver a la automática (${fdateShort(auto)})</button>`:''}<button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="dpOk">Guardar</button></div>`);
+  const $pri = document.getElementById('dpPri'), $dia = document.getElementById('dpDia');
+  // semanal: la fecha con ese día más cercana a la primera cuota actual, para mover el calendario lo menos posible
+  const nuevaPrimera = dow => { const dowAct = parseD(actual).getDay(); let d = parseD(actual); let delta = (dow - dowAct + 7) % 7; if(delta > 3) delta -= 7; d.setDate(d.getDate()+delta); if(ymd(d) <= p.fecha) d.setDate(d.getDate()+7); return ymd(d); };
   const info = ()=>{
-    const dow = Number(document.getElementById('dpDia').value), np = nuevaPrimera(dow);
+    const np = $pri.value; if($dia && np) $dia.value = String(parseD(np).getDay());
+    if(!np || np<=p.fecha){ document.getElementById('dpInfo').innerHTML = `<div><div class="l" style="color:var(--red)">La primera cuota debe ser después del ${fdate(p.fecha)}</div></div>`; return; }
     const e = estadoPrestamo(p), antes = e.cron, desp = cronograma(Object.assign({}, p, {primeraCuota:np}));
     const i = Math.max(0, antes.findIndex(c=>c.n > e.cuotasPagadas));
-    document.getElementById('dpInfo').innerHTML = dow===dowAct ? `<div><div class="l">Sin cambios</div><div class="v" style="font-size:14px">Ya paga ese día.</div></div>` :
+    document.getElementById('dpInfo').innerHTML = np===actual ? `<div><div class="l">Sin cambios</div><div class="v" style="font-size:14px">Ya está en esa fecha.</div></div>` :
       `<div><div class="l">Próxima cuota (Nº ${antes[i].n})</div><div class="v" style="font-size:15px">${fdate(antes[i].fecha)} → <b>${fdate(desp[i].fecha)}</b></div></div>
-       <div><div class="l">Última cuota</div><div class="v" style="font-size:15px">${fdate(desp[desp.length-1].fecha)}</div></div>`;
+       <div><div class="l">Última cuota</div><div class="v" style="font-size:15px">${fdate(antes[antes.length-1].fecha)} → <b>${fdate(desp[desp.length-1].fecha)}</b></div></div>`;
   };
-  document.getElementById('dpDia').addEventListener('change', info); info();
+  if($dia) $dia.addEventListener('change', ()=>{ $pri.value = nuevaPrimera(Number($dia.value)); info(); });
+  $pri.addEventListener('change', info); info();
+  const b = document.getElementById('dpAuto'); if(b) b.onclick = ()=>{ $pri.value = auto; info(); };
   document.getElementById('dpOk').onclick = ()=>{
-    const dow = Number(document.getElementById('dpDia').value);
-    if(dow===dowAct) return closeModal();
-    const np = nuevaPrimera(dow);
-    dbUpd('prestamos', p.id, {primeraCuota:np});
-    closeModal(); render(); toast(`Listo: ahora paga ${losDias(dow)}`); modalDetalle(p.id);
+    const np = $pri.value;
+    if(!np || np<=p.fecha) return toast('La primera cuota debe ser después de la fecha del préstamo');
+    if(np===actual) return closeModal();
+    dbUpd('prestamos', p.id, {primeraCuota: np===auto ? '' : np});
+    closeModal(); render(); toast(`Listo: primera cuota el ${fdate(np)}`); modalDetalle(p.id);
   };
 }
 

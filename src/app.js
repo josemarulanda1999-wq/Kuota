@@ -842,13 +842,14 @@ VIEWS.clientes = () => {
   }
   const tituloG = g => g.id===null ? '' : g.id==='' ? 'Sin ruta (oficina)' : g.id==='?' ? 'Ruta que ya no existe' : rutaCompleta(userById(g.id));
   const cabG = (g, cols) => g.id===null ? '' : `<tr class="grupo-ruta"><td colspan="${cols}"><div class="row" style="gap:10px"><b>${esc(tituloG(g))}</b><span class="muted">${g.rows.length} cliente(s) · saldo ${fmt(g.rows.reduce((s,c)=>s+saldoCliente(c),0))}</span></div></td></tr>`;
-  const cols = isAdmin()?10:9;
+  const cols = isAdmin()?12:11;
   const fila = c=>{const ps=DB.prestamos.filter(p=>p.clienteId===c.id);const saldo=saldoCliente(c);return `<tr>
     <td><div class="who">${ava(c.nombre)}<div><b>${esc(c.nombre)}</b>${c.obs?`<div class="muted" style="font-size:12px">${esc(c.obs)}</div>`:''}${chipOtrasRutas(c)?`<div style="margin-top:3px">${chipOtrasRutas(c)}</div>`:''}</div></div></td><td>${esc(c.cedula)}</td><td>${esc(c.tel1)}</td><td>${esc(c.tel2)}</td>
-    <td>${esc(c.direccion)}</td><td>${esc(c.ciudad)}</td>${isAdmin()?`<td>${esc(nombreRuta(c.cobradorId))}</td>`:''}<td class="num">${ps.length}</td><td class="num">${fmt(saldo)}</td>
+    <td>${esc(c.direccion)}</td><td>${esc(c.ciudad)}</td>${isAdmin()?`<td>${esc(nombreRuta(c.cobradorId))}</td>`:''}<td class="num">${ps.length}</td><td class="num">${fmt(saldo)}</td>${(()=>{ const f=perfilCliente(c.id); return `<td title="${esc(f.motivo)}">${f.pill}</td><td class="num" style="color:${f.cupo===0?'var(--red)':'inherit'}">${f.cupoTxt}</td>`; })()}
     <td class="right" style="white-space:nowrap"><button class="btn sm" onclick="modalHistorialCliente('${c.id}')">Historial</button> <button class="btn sm" onclick="modalPrestamo(null,'${c.id}')">Prestar</button> <button class="btn sm" onclick="modalCliente('${c.id}')">Editar</button></td></tr>`};
   const tarjeta = c=>{const ps=DB.prestamos.filter(p=>p.clienteId===c.id);const saldo=saldoCliente(c);const tel=(c.tel1||'').replace(/[^\d+]/g,'');return `<div class="card cobro">
       <div class="who">${ava(c.nombre)}<div style="min-width:0;flex:1"><b>${esc(c.nombre)}</b><div class="muted" style="font-size:12.5px">${esc(c.direccion||c.tel1||'')}</div>${chipOtrasRutas(c)}</div></div>
+      ${(()=>{ const f=perfilCliente(c.id); return `<div class="row" style="gap:8px;font-size:12.5px">${f.pill}<span class="muted">Puede prestarle:</span><b style="color:${f.cupo===0?'var(--red)':'inherit'}">${f.cupoTxt}</b></div>`; })()}
       <div class="cobro-nums"><div><span>Préstamos</span><b>${ps.length}</b></div><div><span>Saldo</span><b>${fmt(saldo)}</b></div><div><span>${isAdmin()?'Ruta':'Cédula'}</span><b style="font-size:13px">${esc(isAdmin()?nombreRuta(c.cobradorId):(c.cedula||'—'))}</b></div></div>
       <div class="row">${tel?`<a class="btn sm" href="tel:${esc(tel)}">Llamar</a>`:''}${btnComoLlegar(c)}<span class="spacer"></span>${(()=>{const act=ps.find(p=>puedeRenovar(p)); return act?`<button class="btn sm" onclick="modalRenovacion('${act.id}')">Renovar</button>`:'';})()}<button class="btn sm" onclick="modalHistorialCliente('${c.id}')">Historial</button> <button class="btn sm" onclick="modalPrestamo(null,'${c.id}')">Prestar</button><button class="btn sm" onclick="modalCliente('${c.id}')">Editar</button></div></div>`};
   const vacio = `<div class="empty">${DB.clientes.length?(soloDup?'Ningún cliente está en más de una ruta.':'Sin resultados.'):'Aún no hay clientes registrados.'}</div>`;
@@ -859,7 +860,7 @@ VIEWS.clientes = () => {
   <div class="toolbar"><input class="input search" id="qCli" placeholder="Buscar nombre, cédula o teléfono" value="${esc(viewState.q||'')}">${filtroCobrador('clientes')}
     ${isAdmin()?`<button class="btn sm ${soloDup?'pri':''}" onclick="go('clientes',Object.assign({},viewState,{dup:${soloDup?0:1}}))">En varias rutas${nDup?` (${nDup})`:''}</button>`:''}</div>
   ${verPorRutas() && !viewState.cob && !q && !soloDup ? selectorRutas('clientes') : movil() ? (rows.length ? grupos.map(g=>`${g.id!==null?`<h2 style="margin:18px 0 8px;font-size:16px">${esc(tituloG(g))} <span class="muted" style="font-size:13px;font-weight:500">· ${g.rows.length} · ${fmt(g.rows.reduce((s,c)=>s+saldoCliente(c),0))}</span></h2>`:''}<div class="cobros-grid">${g.rows.map(tarjeta).join('')}</div>`).join('') : `<div class="card">${vacio}</div>`) : `<div class="card">
-  ${rows.length? `<div class="tablewrap"><table><thead><tr><th>Nombre</th><th># Identificación</th><th>Teléfono 1</th><th>Teléfono 2</th><th>Dirección</th><th>Ciudad</th>${isAdmin()?'<th>Ruta</th>':''}<th class="num">Préstamos</th><th class="num">Saldo</th><th></th></tr></thead><tbody>
+  ${rows.length? `<div class="tablewrap"><table><thead><tr><th>Nombre</th><th># Identificación</th><th>Teléfono 1</th><th>Teléfono 2</th><th>Dirección</th><th>Ciudad</th>${isAdmin()?'<th>Ruta</th>':''}<th class="num">Préstamos</th><th class="num">Saldo</th><th>Calificación</th><th class="num">Puede prestarle</th><th></th></tr></thead><tbody>
   ${grupos.map(g=>cabG(g,cols)+g.rows.map(fila).join('')).join('')}
   </tbody></table></div>` : vacio}
   </div>`}`;
@@ -1240,21 +1241,21 @@ function comportamientoPrestamo(p){
   const cubierta = []; let acum = 0, i = 0;
   for(const x of orden){ acum += x.monto;
     while(i < e.cron.length && vc>0 && acum >= (i+1)*vc - 0.5){ cubierta[i] = x.tipo==='importado' ? null : x.fecha; i++; } }   // lo importado se toma como pagado a tiempo
-  let vencidas=0, aTiempo=0, tarde=0, sinPagar=0, maxAtraso=0, sumaAtraso=0;
+  let vencidas=0, aTiempo=0, tarde=0, sinPagar=0, maxAtraso=0, sumaAtraso=0, puntual=0;   // puntual = pagada hasta 2 días tarde
   e.cron.forEach((c,k)=>{
     if(c.fecha > hoy || (c.fecha===hoy && k>=i)) return; vencidas++;   // la de hoy sin pagar todavía no cuenta: tiene el día para pagar
     if(k < i){ const f = cubierta[k]; const d = f ? diasEntre(c.fecha, f) : 0;
-      if(d<=0) aTiempo++; else { tarde++; sumaAtraso+=d; maxAtraso=Math.max(maxAtraso,d); } }
+      if(d<=0) aTiempo++; else { tarde++; sumaAtraso+=d; maxAtraso=Math.max(maxAtraso,d); } if(d<=2) puntual++; }
     else { sinPagar++; const d = diasEntre(c.fecha, hoy); maxAtraso=Math.max(maxAtraso,d); }
   });
   const noPago = DB.visitas.filter(v=>v.prestamoId===p.id && v.resultado!=='dominical').length;
   const pct = vencidas ? Math.round(aTiempo/vencidas*100) : 100;
-  return { e, vencidas, aTiempo, tarde, sinPagar, maxAtraso, promAtraso: tarde ? Math.round(sumaAtraso/tarde*10)/10 : 0, noPago, pct };
+  return { e, vencidas, aTiempo, puntual, tarde, sinPagar, maxAtraso, promAtraso: tarde ? Math.round(sumaAtraso/tarde*10)/10 : 0, noPago, pct };
 }
 function calificacion(pct, maxAtraso, castigado){
   if(castigado) return '<span class="pill p-mora">Castigado</span>';
-  if(pct>=90 && maxAtraso<=3) return '<span class="pill p-ok">Buen pagador</span>';
-  if(pct>=70 && maxAtraso<=10) return '<span class="pill p-hoy">Regular</span>';
+  if(pct>=90 && maxAtraso<=5) return '<span class="pill p-ok">Buen pagador</span>';
+  if(pct>=60 && maxAtraso<=10) return '<span class="pill p-hoy">Regular</span>';
   return '<span class="pill p-mora">Mal pagador</span>';
 }
 // todos los créditos del cliente (y de otras fichas con su misma cédula)
@@ -1263,6 +1264,47 @@ function creditosDelCliente(clienteId){
   const ids = new Set([clienteId, ...(ced ? DB.clientes.filter(x=>cedNorm(x)===ced).map(x=>x.id) : [])]);
   return DB.prestamos.filter(p=>ids.has(p.clienteId)).sort((a,b)=>b.fecha.localeCompare(a.fecha));
 }
+/* ---------- perfil del cliente: buen o mal pagador, capacidad de pago y cuánto se le puede volver a prestar ----------
+   Puntual = cuota pagada a tiempo o máximo 2 días tarde.
+   Bueno (90% o más de cuotas puntuales y nunca más de 5 días tarde): hasta 1,5 veces su crédito más grande.
+   Regular (60% o más puntuales y nunca más de 10 días tarde): lo mismo de su último crédito.
+   Malo: la mitad de su último crédito. Castigado o con mora de más de 15 días ahora: no prestarle. */
+const redondeoCupo = v => v>=100000 ? Math.floor(v/10000)*10000 : Math.floor(v/1000)*1000;
+const PERIODO_TXT = {DIARIO:'diaria', SEMANAL:'semanal', QUINCENAL:'quincenal', MENSUAL:'mensual'};
+function perfilCliente(clienteId, excluirId){
+  const ps = creditosDelCliente(clienteId).filter(p=>p.id!==excluirId);
+  const cs = ps.map(p=>({p, k:comportamientoPrestamo(p)}));
+  const venc = cs.reduce((s,x)=>s+x.k.vencidas,0), at = cs.reduce((s,x)=>s+x.k.puntual,0);
+  const pct = venc ? Math.round(at/venc*100) : 100, peor = Math.max(0,...cs.map(x=>x.k.maxAtraso));
+  const activos = cs.filter(x=>x.k.e.estado!=='Pagado' && x.k.e.estado!=='Castigado');
+  const moraAhora = Math.max(0, ...activos.map(x=>x.k.e.estado==='En mora' ? (x.k.e.diasMora||1) : 0));
+  const saldoActivo = activos.reduce((s,x)=>s+x.k.e.saldo,0);
+  const ultimo = cs[0] ? cs[0].p.monto : 0, mayor = Math.max(0, ...cs.map(x=>x.p.monto));
+  // capacidad de pago: la cuota más alta que ha pagado bien (al menos 2 cuotas vencidas y 90% a tiempo)
+  const bien = cs.filter(x=>x.k.vencidas>=2 && x.k.puntual/x.k.vencidas>=0.9).sort((a,b)=>b.p.valorCuota-a.p.valorCuota)[0];
+  const capacidad = bien ? `Ha pagado bien cuotas de ${fmt(bien.p.valorCuota)} (${PERIODO_TXT[bien.p.periodo]||bien.p.periodo.toLowerCase()})` : '';
+  let nivel, cupo, motivo;
+  if(!cs.length){ nivel='nuevo'; cupo=null; motivo='Cliente nuevo: no tiene historial de pagos.'; }
+  else if(cs.some(x=>x.k.e.estado==='Castigado')){ nivel='castigado'; cupo=0; motivo='Tiene un crédito castigado.'; }
+  else if(!venc){ nivel='nuevo'; cupo=null; motivo='Todavía no se le ha vencido ninguna cuota: no hay cómo calificarlo.'; }
+  else if(pct>=90 && peor<=5){ nivel='bueno'; cupo=redondeoCupo(mayor*1.5); motivo=`Paga puntual el ${pct}% de sus cuotas y nunca se ha atrasado más de ${peor} día(s).`; }
+  else if(pct>=60 && peor<=10){ nivel='regular'; cupo=redondeoCupo(ultimo); motivo=`Paga puntual el ${pct}% de sus cuotas; su peor atraso fue de ${peor} día(s).`; }
+  else { nivel='malo'; cupo=redondeoCupo(ultimo*0.5); motivo=`Solo paga puntual el ${pct}% de sus cuotas; su peor atraso fue de ${peor} día(s).`; }
+  if(moraAhora>15 && cupo){ cupo=0; motivo += ` Ahora está en mora hace ${moraAhora} días: que se ponga al día antes de prestarle.`; }
+  const pill = {nuevo:'<span class="pill">Cliente nuevo</span>', bueno:'<span class="pill p-ok">Buen cliente</span>', regular:'<span class="pill p-hoy">Cliente regular</span>',
+    malo:'<span class="pill p-mora">Mal cliente</span>', castigado:'<span class="pill p-mora">Castigado</span>'}[nivel];
+  const cupoTxt = cupo===null ? 'Sin historial' : cupo>0 ? fmt(cupo) : 'No prestarle';
+  return { nivel, pill, cupo, cupoTxt, motivo, capacidad, pct, peor, creditos:cs.length, saldoActivo, moraAhora,
+    entregaRenov: cupo>0 && saldoActivo>0 ? Math.max(0, cupo - saldoActivo) : null };
+}
+function htmlPerfilCliente(clienteId, excluirId){
+  const f = perfilCliente(clienteId, excluirId);
+  return `<div class="calcbox" style="margin-top:8px">
+    <div><div class="l">Calificación</div><div class="v" style="font-size:15px">${f.pill}</div></div>
+    <div><div class="l">Se le puede prestar hasta</div><div class="v" style="color:${f.cupo===0?'var(--red)':'inherit'}">${f.cupoTxt}</div>${f.entregaRenov!==null?`<div class="muted" style="font-size:11.5px">Renovando, le entregaría ${fmt(f.entregaRenov)}</div>`:''}</div>
+    ${f.capacidad?`<div style="grid-column:span 2"><div class="l">Capacidad de pago</div><div style="font-size:13.5px;font-weight:600">${f.capacidad}</div></div>`:''}
+    <div style="grid-column:1/-1;font-size:12.5px" class="muted">${f.motivo}</div></div>`;
+}
 function htmlHistorialCliente(clienteId, excluirId, detalle){
   const ps = creditosDelCliente(clienteId).filter(p=>p.id!==excluirId);
   if(!ps.length) return `<div class="muted" style="font-size:13px">Primer crédito de este cliente: no tiene historial.</div>`;
@@ -1270,15 +1312,15 @@ function htmlHistorialCliente(clienteId, excluirId, detalle){
   const venc = cs.reduce((s,x)=>s+x.k.vencidas,0), at = cs.reduce((s,x)=>s+x.k.aTiempo,0);
   const pct = venc ? Math.round(at/venc*100) : 100, peor = Math.max(0,...cs.map(x=>x.k.maxAtraso)), noPago = cs.reduce((s,x)=>s+x.k.noPago,0);
   const activos = cs.filter(x=>x.k.e.estado!=='Pagado' && x.k.e.estado!=='Castigado');
-  const resumen = `<div class="row" style="gap:8px;align-items:center">${calificacion(pct, peor, cs.some(x=>x.k.e.estado==='Castigado'))}
+  const resumen = `<div class="row" style="gap:8px;align-items:center">
     <span style="font-size:13px"><b>${ps.length}</b> crédito(s) antes · <b>${pct}%</b> de cuotas a tiempo · peor atraso <b>${peor}</b> día(s) · ${noPago} visita(s) sin pago</span></div>
     ${activos.length?`<div class="banner" style="margin:8px 0 0">Tiene ${activos.length} crédito(s) activo(s) con saldo de ${fmt(activos.reduce((s,x)=>s+x.k.e.saldo,0))}${activos.some(x=>x.k.e.estado==='En mora')?' y está en mora':''}.</div>`:''}`;
-  if(!detalle) return resumen;
-  return resumen + `<div class="tablewrap" style="margin-top:10px"><table><thead><tr><th>Crédito</th><th>Estado</th><th class="num">Cuotas a tiempo</th><th class="num">Tarde</th><th class="num">Peor atraso</th><th class="num">No pagó</th><th>Calificación</th></tr></thead><tbody>
+  if(!detalle) return resumen + htmlPerfilCliente(clienteId, excluirId);
+  return resumen + htmlPerfilCliente(clienteId, excluirId) + `<div class="tablewrap" style="margin-top:10px"><table><thead><tr><th>Crédito</th><th>Estado</th><th class="num">Cuotas a tiempo</th><th class="num">Tarde</th><th class="num">Peor atraso</th><th class="num">No pagó</th><th>Calificación</th></tr></thead><tbody>
     ${cs.map(({p,k})=>`<tr class="click" onclick="closeModal();modalDetalle('${p.id}')"><td><b>${fmt(p.monto)}</b><div class="muted" style="font-size:12px">${fdate(p.fecha)} · ${p.cuotas} ${p.periodo.toLowerCase()}${p.renovacionDe?' · renovación':''}${p.cobradorId?' · '+esc(nombreRuta(p.cobradorId)):''}</div></td>
       <td>${pill(k.e)}<div class="muted" style="font-size:12px">${k.e.cuotasPagadas}/${p.cuotas} pagadas</div></td>
       <td class="num">${k.aTiempo} de ${k.vencidas}${k.vencidas?` <span class="muted">(${k.pct}%)</span>`:''}</td><td class="num">${k.tarde}${k.tarde?` <span class="muted">· prom. ${k.promAtraso} d</span>`:''}</td>
-      <td class="num" style="color:${k.maxAtraso>3?'var(--red)':'inherit'}">${k.maxAtraso} d</td><td class="num">${k.noPago}</td><td>${calificacion(k.pct, k.maxAtraso, k.e.estado==='Castigado')}</td></tr>`).join('')}
+      <td class="num" style="color:${k.maxAtraso>3?'var(--red)':'inherit'}">${k.maxAtraso} d</td><td class="num">${k.noPago}</td><td>${k.vencidas?calificacion(Math.round(k.puntual/k.vencidas*100), k.maxAtraso, k.e.estado==='Castigado'):'<span class="pill">Sin cuotas vencidas</span>'}</td></tr>`).join('')}
   </tbody></table></div>`;
 }
 function modalHistorialCliente(clienteId){
@@ -1299,13 +1341,13 @@ function modalPrestamo(id, clienteId, preset){
     <div class="banner full" id="pDup" style="display:none;margin:0"></div>
     <div class="full" id="pHistW" style="display:none;background:var(--panel-2);border-radius:var(--r-md);padding:12px 14px"><div class="row" style="margin-bottom:6px"><b>Historial del cliente</b><span class="spacer"></span><button type="button" class="btn sm ghost" id="pHistBtn">Ver cada crédito</button></div><div id="pHist"></div></div>
     <label class="f full" id="pFueW" style="display:none">¿De dónde sale la plata?<select class="input" id="pFue"><option value="ruta" ${p.fuente!=='oficina'?'selected':''}>De la caja de la ruta (la entrega el cobrador)</option><option value="oficina" ${p.fuente==='oficina'?'selected':''}>De la oficina</option></select></label>
-    <label class="f">Fecha del préstamo<input type="date" class="input" id="pFec" value="${esc(isAdmin()?p.fecha:todayStr())}" ${isAdmin()?'':'disabled'}></label>
+    <label class="f">Fecha del préstamo<input type="date" class="input" id="pFec" value="${esc(isAdmin()?p.fecha:todayStr())}" max="${todayStr()}" ${isAdmin()?'':'disabled'}></label>
     <label class="f">Valor del préstamo *<input class="input" id="pMon" value="${p.monto?fmtIn(p.monto):''}" inputmode="numeric" placeholder="Ej: 500.000"></label>
     <label class="f">Forma de pago<select class="input" id="pPer">${PERIODOS.map(x=>`<option ${x===p.periodo?'selected':''}>${x}</option>`).join('')}</select></label>
-    <div class="f full" id="pDiaW" style="display:none;margin:0"><div class="row" style="gap:12px;align-items:flex-end;flex-wrap:wrap">
-      <label class="f" style="flex:1;min-width:150px">Día de pago<select class="input" id="pDia"></select></label>
-      <label class="f" style="flex:1;min-width:190px">Primera cuota<select class="input" id="pPri"></select></label></div>
-      <div class="muted" style="font-size:12px;margin-top:4px">Todas las cuotas quedan ese día de la semana.</div></div>
+    <div class="f full" id="pDiaW" style="margin:0"><div class="row" style="gap:12px;align-items:flex-end;flex-wrap:wrap">
+      <label class="f" id="pDiaL" style="flex:1;min-width:150px">Día de pago<select class="input" id="pDia"></select></label>
+      <label class="f" style="flex:1;min-width:170px">Primera cuota<input type="date" class="input" id="pPri"></label></div>
+      <div class="muted" id="pPriTxt" style="font-size:12px;margin-top:4px"></div></div>
     <label class="f"><span id="pCuoL">Número de cuotas</span><input class="input" id="pCuo" value="${esc(p.cuotas || Math.max(1,Math.round((Number(p.meses)||1)*(DB.config.factores[p.periodo]||1))))}" inputmode="numeric"></label>
     <label class="f">% de interés<input class="input" id="pTas" value="${esc(p.tasa)}" inputmode="decimal"></label>
     <label class="f">¿Cómo se cobra el interés?<select class="input" id="pMod"><option value="total" ${modoDe(p)==='total'?'selected':''}>Una vez sobre el préstamo</option><option value="mensual" ${modoDe(p)==='mensual'?'selected':''}>Mensual (según la duración)</option></select></label>
@@ -1330,19 +1372,26 @@ function modalPrestamo(id, clienteId, preset){
       <div><div class="l">Total a pagar</div><div class="v">${fmt(c.valorCuota*c.cuotas)}</div></div>`;
   };
   const g = k=>document.getElementById(k).value;
-  // semanal: día fijo de pago
-  const priOrig = id && p.periodo==='SEMANAL' ? primeraDe(p) : '';
-  document.getElementById('pDia').innerHTML = opcionesDiaSemana(parseD(priOrig || ymd(addPeriodo(parseD(g('pFec')||todayStr()),'SEMANAL'))).getDay());
-  const verDia = ()=>{
-    const sem = g('pPer')==='SEMANAL'; document.getElementById('pDiaW').style.display = sem ? '' : 'none'; if(!sem) return;
-    const f = g('pFec')||todayStr(), dow = Number(g('pDia')), ant = g('pPri');
-    let ops = opcionesPrimeraSemanal(f, dow);
-    if(priOrig && parseD(priOrig).getDay()===dow && priOrig>f && !ops.includes(priOrig)) ops = [priOrig, ...ops];
-    const def = ops.includes(ant) ? ant : (priOrig && ops.includes(priOrig) ? priOrig : primeraSemanalDefecto(f, dow));
-    document.getElementById('pPri').innerHTML = ops.map(x=>{ const n=diasEntre(f,x); return `<option value="${x}" ${x===def?'selected':''}>${fdate(x)} · ${n===1?'mañana':'en '+n+' días'}</option>`; }).join('');
+  /* primera cuota: sale sola (fecha del préstamo + un periodo) y se puede cambiar. En semanal, el día de la semana la mueve */
+  const $pri = document.getElementById('pPri'), $dia = document.getElementById('pDia');
+  const priAuto = ()=>ymd(addPeriodo(parseD(g('pFec')||todayStr()), g('pPer'), document.getElementById('pDom').checked));
+  const verPri = ()=>{
+    const f = g('pFec')||todayStr(), sem = g('pPer')==='SEMANAL', pr = $pri.value;
+    $pri.min = ymd(new Date(parseD(f).getTime()+864e5));
+    document.getElementById('pDiaL').style.display = sem ? '' : 'none';
+    if(sem && pr) $dia.value = String(parseD(pr).getDay());
+    const cada = {DIARIO:'cada día', SEMANAL:'cada semana', QUINCENAL:'cada 15 días', MENSUAL:'cada mes'}[g('pPer')]||'';
+    document.getElementById('pPriTxt').innerHTML = pr ? (pr<=f ? '<span style="color:var(--red)">La primera cuota debe ser después de la fecha del préstamo.</span>'
+      : `Primera cuota el <b>${diaSem(pr)} ${fdate(pr)}</b> (${diasEntre(f,pr)} día${diasEntre(f,pr)>1?'s':''} después del préstamo) y luego ${cada}${sem?`: paga <b>${losDias(parseD(pr).getDay())}</b>`:''}.${pr!==priAuto()?' <a href="#" id="pPriAuto">Volver a la automática</a>':''}`) : '';
+    const a = document.getElementById('pPriAuto'); if(a) a.onclick = e=>{ e.preventDefault(); $pri.value = priAuto(); verPri(); };
   };
-  ['pPer','pDia','pFec'].forEach(k=>document.getElementById(k).addEventListener('change',verDia));
-  verDia();
+  $dia.innerHTML = opcionesDiaSemana(0);
+  $pri.value = id ? primeraDe(p) : priAuto();
+  // al cambiar la fecha del préstamo o la forma de pago, la primera cuota se vuelve a calcular sola
+  ['pFec','pPer','pDom'].forEach(k=>document.getElementById(k).addEventListener('change',()=>{ $pri.value = priAuto(); verPri(); }));
+  $dia.addEventListener('change',()=>{ $pri.value = primeraSemanalDefecto(g('pFec')||todayStr(), Number($dia.value)); verPri(); });
+  $pri.addEventListener('change', verPri);
+  verPri();
   ['pMon','pTas','pCuo','pPer','pMod'].forEach(k=>{ const el=document.getElementById(k); el.addEventListener('input',upd); el.addEventListener('change',upd); });
   const seg=document.getElementById('pSeg'); let segTocado=false;
   if(seg){ seg.addEventListener('input',()=>segTocado=true);
@@ -1385,9 +1434,11 @@ function modalPrestamo(id, clienteId, preset){
     const data = {clienteId:cli,fecha:g('pFec')||todayStr(),monto,tasa,meses,periodo,modoInteres:modo,excluirDomingos:document.getElementById('pDom').checked,nota:g('pNot').trim(),
       cuotas:c.cuotas,valorCuota:c.valorCuota,interesMes:c.interesMes,total:c.total};
     if(!isAdmin()) data.fecha = todayStr();
-    const pri = periodo==='SEMANAL' ? g('pPri') : '';
-    if(pri && pri>data.fecha && pri!==ymd(addPeriodo(parseD(data.fecha),'SEMANAL'))) data.primeraCuota = pri;
-    else if(id && p.primeraCuota && (periodo==='SEMANAL' || periodo!==p.periodo)) data.primeraCuota = '';   // vuelve a contar desde la fecha del préstamo
+    if(data.fecha > todayStr()) return toast('La fecha del préstamo no puede ser futura');
+    const pri = g('pPri');
+    if(pri && pri<=data.fecha) return toast('La primera cuota debe ser después de la fecha del préstamo');
+    if(pri && pri!==ymd(addPeriodo(parseD(data.fecha), periodo, data.excluirDomingos))) data.primeraCuota = pri;
+    else if(id && p.primeraCuota) data.primeraCuota = '';   // vuelve a la automática
     let cobP = (clienteById(cli)||{}).cobradorId || '';
     data.fuente = document.getElementById('pFueW').style.display==='none' ? 'oficina' : document.getElementById('pFue').value;
     if(!isAdmin()){
@@ -1598,13 +1649,13 @@ function modalDetalle(id, tab='cuotas'){
   const pagosHtml = e.pagos.length? e.pagos.map(x=>`<tr><td>${fdate(x.fecha)}</td><td class="num">${fmt(x.monto)}</td><td>${esc(x.nota||'')}<div style="margin-top:3px">${etiquetaMedio(x)}</div></td><td class="muted" style="font-size:12px">${esc(nombreUsuario(x.registradoPor))}</td>${isAdmin()?`<td style="white-space:nowrap">${celdaGPSPago(x)}</td>`:''}<td class="right no-print" style="white-space:nowrap">${x.tipo!=='importado'&&x.tipo!=='renovacion'?`<button class="btn sm" onclick="modalRecibo('${x.id}')">Recibo</button> `:''}${puedeEditarPago(x)?`<button class="btn sm" onclick="viewState._reopen=1;modalPago(null,'${x.id}')">Editar</button>`:''}</td></tr>`).join('') : `<tr><td colspan="6" class="muted">Sin pagos todavía.</td></tr>`;
   openModal(`
   <div class="row" style="margin-bottom:6px">${ava(c.nombre)}<h3 style="margin:0">${esc(c.nombre||'(sin cliente)')}</h3>${pill(e)}<span class="spacer"></span>
-    ${isNative()?'':'<button class="btn sm" onclick="window.print()">Imprimir</button>'}<button class="btn sm" onclick="modalHistorialCliente('${p.clienteId}')">Historial</button>${isCeo()?`<button class="btn sm" onclick="modalPrestamo('${p.id}')">Editar</button>`:''}${isCeo()&&e.estado!=='Pagado'?`<button class="btn sm ${p.castigado?'':'danger'}" onclick="castigarPrestamo('${p.id}',${p.castigado?'true':'false'})">${p.castigado?'Reactivar':'Castigar'}</button>`:''}${puedeRenovar(p)?`<button class="btn sm" onclick="modalRenovacion('${p.id}')">${isAdmin()?'Renovar':'Solicitar renovación'}</button>`:''}${e.estado!=='Pagado'&&puedeDarDia()?`<button class="btn sm" onclick="modalDarDia('${p.id}')">Dar día</button>`:''}${p.periodo==='SEMANAL'&&e.estado!=='Pagado'&&e.estado!=='Castigado'?`<button class="btn sm" onclick="modalDiaPago('${p.id}')">Día de pago</button>`:''}<button class="btn sm pri" onclick="viewState._reopen=1;modalPago('${p.id}')">Registrar pago</button><button class="btn sm ghost" onclick="closeModal()">✕</button></div>
+    ${isNative()?'':'<button class="btn sm" onclick="window.print()">Imprimir</button>'}<button class="btn sm" onclick="modalHistorialCliente('${p.clienteId}')">Historial</button>${isCeo()?`<button class="btn sm" onclick="modalPrestamo('${p.id}')">Editar</button>`:''}${isCeo()&&e.estado!=='Pagado'?`<button class="btn sm ${p.castigado?'':'danger'}" onclick="castigarPrestamo('${p.id}',${p.castigado?'true':'false'})">${p.castigado?'Reactivar':'Castigar'}</button>`:''}${puedeRenovar(p)?`<button class="btn sm" onclick="modalRenovacion('${p.id}')">${isAdmin()?'Renovar':'Solicitar renovación'}</button>`:''}${e.estado!=='Pagado'&&puedeDarDia()?`<button class="btn sm" onclick="modalDarDia('${p.id}')">Dar día</button>`:''}${isAdmin()&&e.estado!=='Pagado'&&e.estado!=='Castigado'?`<button class="btn sm" onclick="modalDiaPago('${p.id}')">Fecha de cobro</button>`:''}<button class="btn sm pri" onclick="viewState._reopen=1;modalPago('${p.id}')">Registrar pago</button><button class="btn sm ghost" onclick="closeModal()">✕</button></div>
   <p class="muted" style="margin:0 0 14px">${esc(c.cedula||'')} ${c.tel1?'· '+esc(c.tel1):''} ${c.direccion?'· '+esc(c.direccion):''} ${btnComoLlegar(c)}${p.nota?'<br>Nota: '+esc(p.nota):''}</p>
   <div class="detail-grid">
     <div><div class="l">Fecha</div><div class="v">${fdate(p.fecha)}</div></div>
     <div><div class="l">Valor prestado</div><div class="v">${fmt(p.monto)}</div></div>
     <div><div class="l">Interés</div><div class="v">${fmtN(p.tasa)}% ${p.modoInteres==='total'?'sobre el préstamo':'mensual · '+fmtN(p.meses)+' mes(es)'}</div></div>
-    <div><div class="l">Forma de pago</div><div class="v">${p.periodo.charAt(0)+p.periodo.slice(1).toLowerCase()} · ${p.cuotas} cuotas${textoDiaPago(p)}</div></div>
+    <div><div class="l">Forma de pago</div><div class="v">${p.periodo.charAt(0)+p.periodo.slice(1).toLowerCase()} · ${p.cuotas} cuotas${textoDiaPago(p)}</div><div class="muted" style="font-size:12px">Primera cuota: ${fdate(primeraDe(p))}</div></div>
     <div><div class="l">Valor cuota</div><div class="v">${fmt(p.valorCuota)}</div></div>
     <div><div class="l">Total a pagar</div><div class="v">${fmt(e.totalReal - e.multa.valor)}</div></div>
     <div><div class="l">Pagado</div><div class="v" style="color:var(--green)">${fmt(e.pagado)}</div></div>

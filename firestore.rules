@@ -181,10 +181,9 @@ service cloud.firestore {
               && get(/databases/$(database)/documents/empresas/$(eid)/clientes/$(request.resource.data.clienteId)).data.cobradorId == uid()
               && abierta(eid, request.resource.data.fecha));
         allow update: if isSuper() || isCeo(eid) || (soloAdmin(eid) && soloCambiaRuta() && idOVacio(request.resource.data.cobradorId))
-          // semanales: la oficina o la ruta dueña del crédito cambian el día de pago (solo la fecha de la primera cuota)
-          || ((soloAdmin(eid) || (isCob(eid) && own())) && resource.data.periodo == 'SEMANAL'
-              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['primeraCuota'])
-              && fechaOk(request.resource.data.primeraCuota) && request.resource.data.primeraCuota > resource.data.fecha);
+          // la oficina cambia la fecha de la primera cuota de cualquier crédito ('' = la automática). La ruta solo la escoge al crear el crédito
+          || (soloAdmin(eid) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['primeraCuota'])
+              && (request.resource.data.primeraCuota == '' || (fechaOk(request.resource.data.primeraCuota) && request.resource.data.primeraCuota > resource.data.fecha)));
         allow delete: if isSuper() || isCeo(eid);
       }
       match /pagos/{id} {

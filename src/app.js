@@ -555,6 +555,16 @@ function render(){
 /* ---------- vistas ---------- */
 const VIEWS = {}, AFTER = {};
 
+/* la caja sale negativa cuando nunca se registró el capital con que empezó el negocio: se guarda un ajuste
+   de capital por la diferencia y desde hoy la caja arranca en 0 (se ve en Movimientos y se puede borrar) */
+async function arrancarCajaEnCero(){
+  if(!isCeo()) return;
+  const r = resumen(); if(r.caja >= -0.5) return toast('La caja no está en negativo');
+  const v = Math.round(-r.caja);
+  if(!await confirmar(`La caja está en ${fmt(r.caja)} porque no se registró con cuánta plata empezó el negocio.\n\nSe guarda un ajuste de capital de ${fmt(v)} con fecha de hoy y el disponible queda en $ 0. Desde ahí suma lo que se cobre y resta lo que se preste y se gaste.\n\nQueda en Movimientos como "Ajuste de arranque"; si te equivocas, lo puedes borrar ahí.`, {ok:'Empezar en 0'})) return;
+  dbAdd('capital', {fecha: todayStr(), concepto: 'Ajuste de arranque: la caja empieza en 0', valor: v});
+  render(); toast('Listo: la caja empieza en 0 desde hoy');
+}
 VIEWS.panel = () => {
   const r = resumen();
   const dias = [];
@@ -584,6 +594,7 @@ VIEWS.panel = () => {
       <div class="l">Disponible para nuevos créditos</div>
       <div class="v" style="${r.caja<0?'color:var(--red)':''}">${fmt(r.caja)}</div>
       <div class="n">Plata real en mano: capital + lo cobrado + ingresos − lo prestado − gastos${cobradores().length?'<br>Es la suma de la caja de la oficina y la de cada ruta (abajo).':''}</div>
+      ${isCeo()&&r.caja<-0.5?`<div class="no-print" style="margin-top:10px"><button class="btn sm" onclick="arrancarCajaEnCero()">Empezar la caja en 0 desde hoy</button><div class="muted" style="font-size:11.5px;margin-top:4px">Sale negativo porque no se registró con cuánta plata empezó el negocio.</div></div>`:''}
       <div class="acciones">
         <button class="accion main" onclick="modalPrestamo()"><i>${ic.plus}</i>Prestar</button>
         <button class="accion" onclick="modalPago()"><i>${ic.cobrar}</i>Cobrar</button>

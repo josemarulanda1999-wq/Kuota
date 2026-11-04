@@ -1341,7 +1341,8 @@ function modalPrestamo(id, clienteId, preset){
     <div class="banner full" id="pDup" style="display:none;margin:0"></div>
     <div class="full" id="pHistW" style="display:none;background:var(--panel-2);border-radius:var(--r-md);padding:12px 14px"><div class="row" style="margin-bottom:6px"><b>Historial del cliente</b><span class="spacer"></span><button type="button" class="btn sm ghost" id="pHistBtn">Ver cada crédito</button></div><div id="pHist"></div></div>
     <label class="f full" id="pFueW" style="display:none">¿De dónde sale la plata?<select class="input" id="pFue"><option value="ruta" ${p.fuente!=='oficina'?'selected':''}>De la caja de la ruta (la entrega el cobrador)</option><option value="oficina" ${p.fuente==='oficina'?'selected':''}>De la oficina</option></select></label>
-    <label class="f">Fecha del préstamo<input type="date" class="input" id="pFec" value="${esc(isAdmin()?p.fecha:todayStr())}" max="${todayStr()}" ${isAdmin()?'':'disabled'}></label>
+    <label class="f">Fecha del préstamo<input type="date" class="input" id="pFec" value="${esc(isAdmin()?p.fecha:todayStr())}" max="${todayStr()}" ${isAdmin()?'':(id?'disabled':`min="${ymd(new Date(parseD(todayStr()).getTime()-DIAS_CREDITO_ATRAS*864e5))}"`)}></label>
+    ${!isAdmin()&&!id?`<p class="muted full" style="margin:-6px 0 0;font-size:12.5px">Si se te olvidó registrar un crédito, pon la fecha real (hasta ${DIAS_CREDITO_ATRAS} días atrás). La plata se descuenta de tu cuadre de hoy.</p>`:''}
     <label class="f">Valor del préstamo *<input class="input" id="pMon" value="${p.monto?fmtIn(p.monto):''}" inputmode="numeric" placeholder="Ej: 500.000"></label>
     <label class="f">Forma de pago<select class="input" id="pPer">${PERIODOS.map(x=>`<option ${x===p.periodo?'selected':''}>${x}</option>`).join('')}</select></label>
     <div class="f full" id="pDiaW" style="margin:0"><div class="row" style="gap:12px;align-items:flex-end;flex-wrap:wrap">
@@ -1433,7 +1434,7 @@ function modalPrestamo(id, clienteId, preset){
     const meses = c.meses;
     const data = {clienteId:cli,fecha:g('pFec')||todayStr(),monto,tasa,meses,periodo,modoInteres:modo,excluirDomingos:document.getElementById('pDom').checked,nota:g('pNot').trim(),
       cuotas:c.cuotas,valorCuota:c.valorCuota,interesMes:c.interesMes,total:c.total};
-    if(!isAdmin()) data.fecha = todayStr();
+    if(!isAdmin() && data.fecha < ymd(new Date(parseD(todayStr()).getTime()-DIAS_CREDITO_ATRAS*864e5))) return toast(`La fecha del crédito puede ser máximo ${DIAS_CREDITO_ATRAS} días atrás`);
     if(data.fecha > todayStr()) return toast('La fecha del préstamo no puede ser futura');
     const pri = g('pPri');
     if(pri && pri<=data.fecha) return toast('La primera cuota debe ser después de la fecha del préstamo');
@@ -1446,7 +1447,7 @@ function modalPrestamo(id, clienteId, preset){
       if(rutaBloqueada()) return;
       const maxC = Number(rutaCfg(ME.uid).maxCuotas)||0;
       if(maxC && c.cuotas > maxC) return avisar(`Tu ruta permite máximo ${maxC} cuotas por crédito. Este tiene ${c.cuotas}.`);
-      cobP = ME.uid; data.fuente = 'ruta'; data.fecha = todayStr();
+      cobP = ME.uid; data.fuente = 'ruta';
       const max = Number(rutaCfg(ME.uid).maxPrestamo)||0;
       const capOk = await revisarCapitalAlPrestar(ME.uid, monto);
       if(!puedePrestarRuta() || !max || monto > max || capOk==='solicitud'){   // sin permiso de prestar: queda como solicitud para la oficina
@@ -2072,6 +2073,10 @@ function bloqueRenovacionesCobrador(){
 /* ---------- cuadre de caja por cobrador ---------- */
 /* ---------- cuadre de cada ruta ----------
    Plata de la ruta = base recibida + cobrado − préstamos entregados por la ruta − renovaciones entregadas − lo devuelto a la oficina */
+/* un crédito de la ruta sale de la caja el día en que se registró (si se anotó tarde con la fecha real,
+   no cambia cuadres que ya se cerraron: se descuenta del cuadre del día en que se registró) */
+const DIAS_CREDITO_ATRAS = 7;
+const fechaCaja = p => p.creado ? (ymd(new Date(p.creado)) > p.fecha ? ymd(new Date(p.creado)) : p.fecha) : p.fecha;
 function cuadreCobrador(uidC, fecha){
   const tot = a=>a.reduce((s,x)=>s+(Number(x.monto ?? x.valor)||0),0);
   const totR = a=>a.reduce((s,r)=>s+(Number(r.excedente)||0),0);
@@ -2081,7 +2086,7 @@ function cuadreCobrador(uidC, fecha){
   const todasE = DB.entregas.filter(x=>x.cobradorId===uidC);
   const entregas = todasE.filter(x=>x.tipo!=='base'), bases = todasE.filter(x=>x.tipo==='base');
   const renov = DB.renovaciones.filter(r=>r.estado==='entregada' && r.entregadoPor===uidC && r.medioEntrega!=='transferencia');   // por transferencia no sale del efectivo
-  const prest = DB.prestamos.filter(p=>p.fuente==='ruta' && p.cobradorId===uidC && !p.renovacionDe);
+  const prest = DB.prestamos.filter(p=>p.fuente==='ruta' && p.cobradorId===uidC && !p.renovacionDe).map(p=>Object.assign({}, p, {fecha: fechaCaja(p)}));
   const mr = DB.movruta.filter(x=>x.cobradorId===uidC), gastos = mr.filter(x=>x.tipo==='gasto'), ingresos = mr.filter(x=>x.tipo==='ingreso');
   const saldo = cond => tot(bases.filter(x=>cond(x.fecha))) + tot(pagos.filter(x=>cond(x.fecha))) - tot(entregas.filter(x=>cond(x.fecha)))
                       - totR(renov.filter(r=>cond(fRen(r)))) - tot(prest.filter(x=>cond(x.fecha)))
@@ -2161,7 +2166,7 @@ VIEWS.cuadre = () => {
 /* ---------- créditos y renovaciones que la ruta entregó ese día (detalle del cuadre) ---------- */
 function creditosDia(uid, fecha){
   const fRen = r=>r.entregadoEn ? ymd(new Date(r.entregadoEn)) : (r.fechaRenovacion||'');
-  const nuevos = DB.prestamos.filter(p=>p.fuente==='ruta' && p.cobradorId===uid && !p.renovacionDe && p.fecha===fecha);
+  const nuevos = DB.prestamos.filter(p=>p.fuente==='ruta' && p.cobradorId===uid && !p.renovacionDe && fechaCaja(p)===fecha);
   const renov = DB.renovaciones.filter(r=>r.estado==='entregada' && r.entregadoPor===uid && fRen(r)===fecha);
   return {nuevos, renov};
 }
@@ -2177,7 +2182,7 @@ function modalCreditosDia(uid, fecha){
   <p class="muted" style="margin:0 0 12px">Lo que la ruta prestó y renovó con su plata ese día. Toca uno para ver el crédito.</p>
   <h2 style="font-size:16px;margin:4px 0 8px">Créditos nuevos <span class="muted" style="font-weight:500">· ${nuevos.length} · ${fmt(totN)}</span></h2>
   ${nuevos.length?`<div class="tablewrap"><table><tbody>${nuevos.map(p=>`<tr class="click" onclick="closeModal();modalDetalle('${p.id}')">
-    <td><div class="who">${ava(nombreCliente(p.clienteId))}<div><b>${esc(nombreCliente(p.clienteId))}</b><div class="muted" style="font-size:12px">${hora(p.creado)} · ${p.cuotas} cuotas ${p.periodo.toLowerCase()} de ${fmt(p.valorCuota)}${textoDiaPago(p)}</div></div></div></td>
+    <td><div class="who">${ava(nombreCliente(p.clienteId))}<div><b>${esc(nombreCliente(p.clienteId))}</b><div class="muted" style="font-size:12px">${hora(p.creado)} · ${p.cuotas} cuotas ${p.periodo.toLowerCase()} de ${fmt(p.valorCuota)}${textoDiaPago(p)}${p.fecha!==fecha?` · <b>crédito del ${fdate(p.fecha)}</b>, registrado tarde`:''}</div></div></div></td>
     <td class="num"><b>${fmt(p.monto)}</b></td></tr>`).join('')}</tbody></table></div>`:'<p class="muted" style="margin:0 0 8px">No hizo créditos nuevos ese día.</p>'}
   <h2 style="font-size:16px;margin:16px 0 8px">Renovaciones entregadas <span class="muted" style="font-weight:500">· ${renov.length}</span></h2>
   ${renov.length?`<div class="tablewrap"><table><thead><tr><th>Cliente</th><th class="num">Nuevo crédito</th><th class="num">Debía</th><th class="num">Entregó</th></tr></thead><tbody>${renov.map(r=>`<tr class="click" onclick="closeModal();modalDetalle('${r.nuevoPrestamoId||r.prestamoId}')">

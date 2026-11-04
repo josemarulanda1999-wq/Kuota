@@ -44,6 +44,11 @@ service cloud.firestore {
     function coordsOk(d) { return optNum(d, 'lat', -90, 90) && optNum(d, 'lng', -180, 180); }
     function img(d, k) { return !(k in d) || (d[k] is string && d[k].size() < 340000 && d[k].matches('data:image/jpeg;base64,[A-Za-z0-9+/=]+')); }
     // fecha cerca de hoy: de anteayer a mañana (en UTC; cubre la diferencia horaria de Colombia)
+    // fecha de un crédito que la ruta registra tarde: hasta 8 días atrás y no futura (en UTC)
+    function fechaCredito(f) {
+      return fechaOk(f) && timestamp.date(int(f[0:4]), int(f[5:7]), int(f[8:10])) > request.time - duration.value(9, 'd')
+        && timestamp.date(int(f[0:4]), int(f[5:7]), int(f[8:10])) < request.time + duration.value(1, 'd');
+    }
     function fechaCerca(f) {
       return fechaOk(f) && timestamp.date(int(f[0:4]), int(f[5:7]), int(f[8:10])) > request.time - duration.value(3, 'd')
         && timestamp.date(int(f[0:4]), int(f[5:7]), int(f[8:10])) < request.time + duration.value(1, 'd');
@@ -172,14 +177,13 @@ service cloud.firestore {
           || (isCob(eid) && idOk(id) && firma() && okPrestamo(request.resource.data) && ownNew()
               && request.resource.data.get('fuente', '') == 'ruta' && !('renovacionDe' in request.resource.data)
               && !request.resource.data.keys().hasAny(['castigado', 'importado', 'saldoCancelado'])
-              && fechaCerca(request.resource.data.fecha)
+              && fechaCredito(request.resource.data.fecha)
               && request.resource.data.valorCuota * request.resource.data.cuotas >= request.resource.data.monto
               && (!('total' in request.resource.data) || numOk(request.resource.data.total, request.resource.data.monto, request.resource.data.monto * 5))
               && exists(/databases/$(database)/documents/empresas/$(eid)/rutas/$(uid()))
               && cfgRuta(eid).get('puedePrestar', false) == true && request.resource.data.monto <= cfgRuta(eid).get('maxPrestamo', 0)
               && (cfgRuta(eid).get('maxCuotas', 0) == 0 || request.resource.data.cuotas <= cfgRuta(eid).get('maxCuotas', 0))
-              && get(/databases/$(database)/documents/empresas/$(eid)/clientes/$(request.resource.data.clienteId)).data.cobradorId == uid()
-              && abierta(eid, request.resource.data.fecha));
+              && get(/databases/$(database)/documents/empresas/$(eid)/clientes/$(request.resource.data.clienteId)).data.cobradorId == uid());
         allow update: if isSuper() || isCeo(eid) || (soloAdmin(eid) && soloCambiaRuta() && idOVacio(request.resource.data.cobradorId))
           // la oficina cambia la fecha de la primera cuota de cualquier crédito ('' = la automática). La ruta solo la escoge al crear el crédito
           || (soloAdmin(eid) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['primeraCuota'])

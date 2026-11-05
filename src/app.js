@@ -558,34 +558,43 @@ const VIEWS = {}, AFTER = {};
 /* la caja sale negativa cuando nunca se registró el capital con que empezó el negocio: se escoge desde qué día
    arranca en 0 y se guarda un ajuste de capital el día anterior por lo que había en la caja hasta ese día.
    Todo lo de ese día en adelante (cobros, préstamos, gastos) sí queda sumado. Se ve en Movimientos y se puede borrar. */
-function cajaHasta(f){   // la caja como estaba al empezar el día f (solo movimientos de días anteriores)
-  const antes = x => (x||'') < f, ids = new Set(DB.prestamos.map(p=>p.id));
-  const capital = (Number(DB.config.capitalInicial)||0) + DB.capital.filter(x=>antes(x.fecha)).reduce((s,x)=>s+(Number(x.valor)||0),0);
-  const prestado = DB.prestamos.filter(p=>!p.importado && antes(p.fecha)).reduce((s,p)=>s+p.monto,0);
-  const cobrado = DB.pagos.filter(x=>ids.has(x.prestamoId) && x.tipo!=='importado' && antes(x.fecha)).reduce((s,x)=>s+x.monto,0);
-  const ingresos = DB.ingresos.filter(x=>antes(x.fecha)).reduce((s,x)=>s+x.valor,0) + DB.movruta.filter(x=>x.tipo==='ingreso' && antes(x.fecha)).reduce((s,x)=>s+x.valor,0);
-  const gastos = DB.salidas.filter(x=>antes(x.fecha)).reduce((s,x)=>s+x.valor,0) + DB.movruta.filter(x=>x.tipo==='gasto' && antes(x.fecha)).reduce((s,x)=>s+x.valor,0);
-  return capital - prestado + cobrado + ingresos - gastos;
+// la caja con lo que se registró en la app ANTES de ese momento (según la hora en que se metió cada cosa)
+function cajaAntesDe(ts){
+  const antes = x => (Number(x.creado)||0) < ts, ids = new Set(DB.prestamos.map(p=>p.id));
+  const capital = (Number(DB.config.capitalInicial)||0) + DB.capital.filter(antes).reduce((s,x)=>s+(Number(x.valor)||0),0);
+  const prestado = DB.prestamos.filter(p=>!p.importado && antes(p)).reduce((s,p)=>s+p.monto,0);
+  const cobrado = DB.pagos.filter(x=>ids.has(x.prestamoId) && x.tipo!=='importado' && antes(x)).reduce((s,x)=>s+x.monto,0);
+  const ingresos = DB.ingresos.filter(antes).reduce((s,x)=>s+x.valor,0) + DB.movruta.filter(x=>x.tipo==='ingreso' && antes(x)).reduce((s,x)=>s+x.valor,0);
+  const gastos = DB.salidas.filter(antes).reduce((s,x)=>s+x.valor,0) + DB.movruta.filter(x=>x.tipo==='gasto' && antes(x)).reduce((s,x)=>s+x.valor,0);
+  return { caja: capital - prestado + cobrado + ingresos - gastos };
 }
+function cajaHasta(f){ return cajaAntesDe(parseD(f).getTime()).caja; }
 function arrancarCajaEnCero(){
   if(!isCeo()) return;
   const hoy = todayStr();
   openModal(`<h3>Empezar la caja en 0</h3>
-  <p class="muted" style="margin-top:-6px">La caja sale negativa porque no se registró con cuánta plata empezó el negocio. Escoge desde qué día quieres que arranque en $ 0: lo de ese día en adelante (cobros, préstamos y gastos) sí queda sumado.</p>
-  <div class="form"><label class="f full">La caja empieza en 0 el día<input type="date" class="input" id="c0Fec" value="${hoy}" max="${hoy}"></label></div>
+  <p class="muted" style="margin-top:-6px">La caja sale negativa porque no se registró con cuánta plata empezó el negocio. Escoge desde qué momento arranca en $ 0: lo que se haya metido en la app desde esa hora (cobros, préstamos y gastos) sí cuenta como plata real; lo de antes queda por fuera.</p>
+  <div class="form"><label class="f full">La caja empieza en 0 desde<input type="datetime-local" class="input" id="c0Fec" value="${hoy}T12:00"></label></div>
   <div class="calcbox" id="c0Info" style="margin-top:12px"></div>
   <div class="actions"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" id="c0Ok">Empezar en 0</button></div>`);
-  const calc = () => { const f = document.getElementById('c0Fec').value || hoy, base = cajaHasta(f), ajuste = Math.round(-base), queda = resumen().caja + ajuste;
-    document.getElementById('c0Info').innerHTML = `<div><div class="l">Caja al empezar el ${fdate(f)}</div><div class="v" style="color:${base<0?'var(--red)':'inherit'}">${fmt(base)}</div></div>
+  const calc = () => { const v = document.getElementById('c0Fec').value || (hoy+'T12:00'), ts = new Date(v).getTime();
+    const base = cajaAntesDe(ts).caja, ajuste = Math.round(-base), queda = resumen().caja + ajuste;
+    const desde = x => (Number(x.creado)||0) >= ts, ids = new Set(DB.prestamos.map(p=>p.id));
+    const cob = DB.pagos.filter(x=>ids.has(x.prestamoId) && x.tipo!=='importado' && desde(x)), pre = DB.prestamos.filter(p=>!p.importado && desde(p));
+    const hora = new Date(ts).toLocaleString('es-CO',{day:'numeric',month:'short',hour:'numeric',minute:'2-digit'});
+    document.getElementById('c0Info').innerHTML = `<div><div class="l">Desde ${hora} se metió</div><div style="font-size:13px;line-height:1.6">${cob.length} pago(s): <b>${fmt(cob.reduce((s,x)=>s+x.monto,0))}</b><br>${pre.length} préstamo(s): <b>${fmt(pre.reduce((s,p)=>s+p.monto,0))}</b></div></div>
       <div><div class="l">Ajuste que se guarda</div><div class="v">${fmt(ajuste)}</div></div>
-      <div><div class="l">Disponible queda en</div><div class="v">${fmt(queda)}</div><div class="muted" style="font-size:11.5px">lo movido desde el ${fdateShort(f)}</div></div>`;
-    return {f, ajuste}; };
-  document.getElementById('c0Fec').addEventListener('change', calc); calc();
-  document.getElementById('c0Ok').onclick = () => { const {f, ajuste} = calc();
-    if(Math.abs(ajuste) < 0.5) return toast('La caja ya estaba en 0 ese día');
-    const dia = ymd(new Date(parseD(f).getTime() - 864e5));   // el ajuste va el día anterior, para que todo lo de ese día cuente
-    dbAdd('capital', {fecha: dia, concepto: `Ajuste de arranque: la caja empieza en 0 el ${fdate(f)}`, valor: ajuste});
-    closeModal(); render(); toast(`Listo: la caja empieza en 0 el ${fdate(f)}`); };
+      <div><div class="l">Disponible queda en</div><div class="v">${fmt(queda)}</div></div>`;
+    return {ts, ajuste}; };
+  document.getElementById('c0Fec').addEventListener('change', calc); document.getElementById('c0Fec').addEventListener('input', calc); calc();
+  document.getElementById('c0Ok').onclick = () => { const {ts, ajuste} = calc();
+    if(!isFinite(ts)) return toast('Escoge el día y la hora');
+    if(Math.abs(ajuste) < 0.5) return toast('La caja ya estaba en 0 en ese momento');
+    const hora = new Date(ts).toLocaleString('es-CO',{day:'numeric',month:'short',hour:'numeric',minute:'2-digit'});
+    // el ajuste queda registrado justo antes de esa hora, para que todo lo de después cuente
+    const id = S.newId('capital'), obj = {fecha: ymd(new Date(ts)), concepto: `Ajuste de arranque: la caja empieza en 0 desde ${hora}`, valor: ajuste, creado: ts - 1, creadoPor: ME.uid};
+    DB.capital.push(Object.assign({id}, obj)); S.set('capital', id, obj).catch(falloNube);
+    closeModal(); render(); toast(`Listo: la caja empieza en 0 desde ${hora}`); };
 }
 VIEWS.panel = () => {
   const r = resumen();

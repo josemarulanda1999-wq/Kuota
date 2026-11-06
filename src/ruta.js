@@ -275,8 +275,9 @@ function resumenCierre(uid, fecha){
 /* ---------- detalle del cierre: quién pagó, quién quedó pendiente y el recorrido del día ---------- */
 function listasDia(uid, fecha){
   const mios = new Set(DB.prestamos.filter(p=>p.cobradorId===uid).map(p=>p.id));
-  const pagaron = DB.pagos.filter(x=>x.fecha===fecha && efectivo(x) && (mios.has(x.prestamoId) || x.cobradorId===uid))
-    .map(x=>{ const p=DB.prestamos.find(y=>y.id===x.prestamoId)||{}; return {c:nombreCliente(p.clienteId).slice(0,60), m:Math.round(x.monto*100)/100, t:x.medio==='transferencia'?'T':'E', h:x.creado?new Date(x.creado).toLocaleTimeString('es-CO',{hour:'numeric',minute:'2-digit'}):''}; })
+  const pagaron = DB.pagos.filter(x=>x.fecha===fecha && efectivo(x) && (mios.has(x.prestamoId) || x.cobradorId===uid || x.registradoPor===uid))
+    .map(x=>{ const p=DB.prestamos.find(y=>y.id===x.prestamoId)||{}; return {c:nombreCliente(p.clienteId).slice(0,60), m:Math.round(x.monto*100)/100, t:x.medio==='transferencia'?'T':'E', h:x.creado?new Date(x.creado).toLocaleTimeString('es-CO',{hour:'numeric',minute:'2-digit'}):'',
+      p: x.registradoPor && x.registradoPor!==uid ? String(nombreUsuario(x.registradoPor)||'').slice(0,40) : ''}; })
     .slice(0,300);
   const pendientes = cobrosDelDia(fecha).filter(c=>c.p.cobradorId===uid && c.pagadoHoy<0.5 && c.cobrar>0.5)
     .map(c=>{ const v=visitaDe(c.p.id, fecha), dd=diaDado(c.p.id, fecha); return {c:nombreCliente(c.p.clienteId).slice(0,60), d:Math.round(c.cobrar*100)/100, r:(dd?'Día dado: '+dd.motivo:v?'No pagó: '+v.motivo:'Sin visita').slice(0,60)}; })
@@ -316,7 +317,7 @@ async function modalCierre(uid, fecha){
       ${r.rPuntos&&isAdmin()?`<button class="btn sm" onclick="closeModal();go('mapa',{ruta:'${uid}',fecha:'${fecha}'})">Ver en el mapa</button>`:''}</div></div>
     <div class="grid2" style="gap:12px">
       <div class="card pad" style="background:var(--panel-2)"><div class="row" style="margin-bottom:8px"><b>Pagaron</b><span class="pill p-ok">${pag.length}</span><span class="spacer"></span><b>${fmt(tot(pag,'m'))}</b></div>
-        ${pag.length?`<div class="tablewrap" style="max-height:300px"><table><tbody>${pag.map(x=>`<tr><td>${esc(x.c)}</td><td class="muted" style="font-size:12px">${esc(x.h||'')}${x.t==='T'?' · transf.':''}</td><td class="num">${fmt(x.m)}</td></tr>`).join('')}</tbody></table></div>`:'<p class="muted" style="margin:0">Nadie pagó este día.</p>'}</div>
+        ${pag.length?`<div class="tablewrap" style="max-height:300px"><table><tbody>${pag.map(x=>`<tr><td>${esc(x.c)}${x.p?`<div class="muted" style="font-size:11.5px">Lo registró ${esc(x.p)}</div>`:''}</td><td class="muted" style="font-size:12px">${esc(x.h||'')}${x.t==='T'?' · transf.':''}</td><td class="num">${fmt(x.m)}</td></tr>`).join('')}</tbody></table></div>`:'<p class="muted" style="margin:0">Nadie pagó este día.</p>'}</div>
       ${seccionPrestadoDia(uid, fecha)}
       <div class="card pad" style="background:var(--panel-2)"><div class="row" style="margin-bottom:8px"><b>Quedaron pendientes</b><span class="pill p-mora">${pen.length}</span><span class="spacer"></span><b style="color:var(--red)">${fmt(tot(pen,'d'))}</b></div>
         ${pen.length?`<div class="tablewrap" style="max-height:300px"><table><tbody>${pen.map(x=>`<tr><td>${esc(x.c)}<div class="muted" style="font-size:12px">${esc(x.r||'')}</div></td><td class="num">${fmt(x.d)}</td></tr>`).join('')}</tbody></table></div>`:'<p class="muted" style="margin:0">Todos pagaron. 🎉</p>'}</div>

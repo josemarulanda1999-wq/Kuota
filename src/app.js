@@ -2251,17 +2251,28 @@ function bloqueRenovacionesCobrador(){
    no cambia cuadres que ya se cerraron: se descuenta del cuadre del día en que se registró) */
 const DIAS_CREDITO_ATRAS = 7;
 const fechaCaja = p => p.creado ? (ymd(new Date(p.creado)) > p.fecha ? ymd(new Date(p.creado)) : p.fecha) : p.fecha;
+/* arranque en 0 de una ruta: la base "Ajuste de arranque" más reciente. El cuadre cuenta desde el día siguiente a ella */
+function arranqueRuta(uid){
+  const a = DB.entregas.filter(x=>x.cobradorId===uid && x.tipo==='base' && /^Ajuste de arranque/.test(x.nota||'')).sort((x,y)=>y.fecha.localeCompare(x.fecha))[0];
+  return a ? { id:a.id, desde: ymd(new Date(parseD(a.fecha).getTime()+864e5)), creado: Number(a.creado)||0 } : null;
+}
 function cuadreCobrador(uidC, fecha){
   const tot = a=>a.reduce((s,x)=>s+(Number(x.monto ?? x.valor)||0),0);
   const totR = a=>a.reduce((s,r)=>s+(Number(r.excedente)||0),0);
   const fRen = r=>r.entregadoEn ? ymd(new Date(r.entregadoEn)) : (r.fechaRenovacion||'');
-  const todosPagos = DB.pagos.filter(x=>(x.registradoPor||'')===uidC && efectivo(x));
+  // si la ruta se empezó en 0, solo cuenta desde ese día (lo registrado después del ajuste con fecha anterior cuenta ese día)
+  const arr = arranqueRuta(uidC);
+  const desdeArr = l => !arr ? l : l.filter(x=>x.id!==arr.id).map(x=>(x.fecha||'')>=arr.desde ? x : ((Number(x.creado)||0)>=arr.creado ? Object.assign({}, x, {fecha:arr.desde}) : null)).filter(Boolean);
+  // todo lo que pagan los clientes de la ruta entra en su cuadre, sin importar quién lo registró
+  const mios = new Set(DB.prestamos.filter(p=>p.cobradorId===uidC).map(p=>p.id));
+  const rutaDe = new Map(DB.prestamos.map(p=>[p.id, p.cobradorId||'']));
+  const todosPagos = desdeArr(DB.pagos.filter(x=>efectivo(x) && (mios.has(x.prestamoId) || ((x.registradoPor||'')===uidC && !esRutaViva(rutaDe.get(x.prestamoId))))));
   const pagos = todosPagos.filter(enEfectivo), transf = todosPagos.filter(porTransferencia);
-  const todasE = DB.entregas.filter(x=>x.cobradorId===uidC);
+  const todasE = desdeArr(DB.entregas.filter(x=>x.cobradorId===uidC));
   const entregas = todasE.filter(x=>x.tipo!=='base'), bases = todasE.filter(x=>x.tipo==='base');
-  const renov = DB.renovaciones.filter(r=>r.estado==='entregada' && r.entregadoPor===uidC && r.medioEntrega!=='transferencia');   // por transferencia no sale del efectivo
-  const prest = DB.prestamos.filter(p=>p.fuente==='ruta' && p.cobradorId===uidC && !p.renovacionDe).map(p=>Object.assign({}, p, {fecha: fechaCaja(p)}));
-  const mr = DB.movruta.filter(x=>x.cobradorId===uidC), gastos = mr.filter(x=>x.tipo==='gasto'), ingresos = mr.filter(x=>x.tipo==='ingreso');
+  const renov = DB.renovaciones.filter(r=>r.estado==='entregada' && r.entregadoPor===uidC && r.medioEntrega!=='transferencia' && (!arr || fRen(r)>=arr.desde));   // por transferencia no sale del efectivo
+  const prest = desdeArr(DB.prestamos.filter(p=>p.fuente==='ruta' && p.cobradorId===uidC && !p.renovacionDe).map(p=>Object.assign({}, p, {fecha: fechaCaja(p)})));
+  const mr = desdeArr(DB.movruta.filter(x=>x.cobradorId===uidC)), gastos = mr.filter(x=>x.tipo==='gasto'), ingresos = mr.filter(x=>x.tipo==='ingreso');
   const saldo = cond => tot(bases.filter(x=>cond(x.fecha))) + tot(pagos.filter(x=>cond(x.fecha))) - tot(entregas.filter(x=>cond(x.fecha)))
                       - totR(renov.filter(r=>cond(fRen(r)))) - tot(prest.filter(x=>cond(x.fecha)))
                       - tot(gastos.filter(x=>cond(x.fecha))) + tot(ingresos.filter(x=>cond(x.fecha)));
@@ -2302,7 +2313,7 @@ VIEWS.cuadre = () => {
           : `<div class="row" style="margin-top:14px"><span class="muted">La ruta de hoy está sin abrir.</span><span class="spacer"></span><button class="btn sm pri" onclick="abrirMiRuta()">Abrir ruta de hoy</button></div>`) : ''; })()}
     </div>
     ${tablaMovRuta(ME.uid, fecha)}
-    ${tablaPagosDia(c.pagosDia)}
+    ${tablaPagosDia(c.pagosDia, true)}
     ${historialCuadres()}`;
   }
   const filas = cobradores().map(u=>({u,c:cuadreCobrador(u.id,fecha)}));

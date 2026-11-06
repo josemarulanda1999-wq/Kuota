@@ -2313,6 +2313,7 @@ VIEWS.cuadre = () => {
     ${(()=>{ const ci=cierreDe(u.id, fecha); return ci ? `<div class="row" style="margin-top:10px"><span class="pill p-ok">Cerrada ${new Date(ci.cerradoEn).toLocaleTimeString('es-CO',{hour:'numeric',minute:'2-digit'})}</span><span class="spacer"></span><button class="btn sm pri" onclick="modalCierre('${u.id}','${fecha}')">Ver cierre</button><button class="btn sm" onclick="reabrirRuta('${u.id}','${fecha}')">Reabrir</button></div>`
       : aperturaDe(u.id, fecha) ? `<div class="row" style="margin-top:10px"><span class="pill p-hoy">Abierta ${new Date(aperturaDe(u.id, fecha).abiertaEn).toLocaleTimeString('es-CO',{hour:'numeric',minute:'2-digit'})}</span><span class="spacer"></span><button class="btn sm" onclick="modalCierre('${u.id}','${fecha}')">Ver el día</button><button class="btn sm ghost" onclick="cerrarRutaOficina('${u.id}','${fecha}')">Cerrar</button></div>`
       : `<div class="row" style="margin-top:10px"><span class="pill p-mora">Sin abrir</span><span class="spacer"></span><button class="btn sm ghost" onclick="abrirMiRuta('${u.id}','${fecha}')">Abrir</button></div>`; })()}
+    ${isAdmin()&&c.saldoInicial<-0.5?`<div class="banner" style="margin:10px 0 0;display:block;font-size:12.5px">La ruta abrió en negativo por los créditos y pagos viejos que se cargaron. <button class="btn sm pri" style="margin-top:6px" onclick="arrancarRutaEnCero('${u.id}','${fecha}')">Empezar la ruta en 0 este día</button></div>`:''}
     <div class="row" style="margin-top:10px"><button class="btn sm" onclick="modalBase('${u.id}','${fecha}')">Asignar base</button><button class="btn sm" onclick="modalGastoRuta('gasto','${u.id}','${fecha}')">+ Gasto</button><button class="btn sm" onclick="modalGastoRuta('ingreso','${u.id}','${fecha}')">+ Ingreso</button><button class="btn sm ghost" onclick="modalNota('${u.id}')">Nota</button><span class="spacer"></span><button class="btn sm pri" onclick="modalEntrega('${u.id}','${fecha}')">Recibir plata</button></div>
   </div>`).join('')}</div>`:`<div class="card"><div class="empty">Aún no tienes rutas. Solicítalas en Usuarios.</div></div>`}
   ${(()=>{const es=DB.entregas.filter(x=>x.fecha===fecha); return es.length?`<div class="card pad" style="margin:16px 0"><h2>Bases y entregas de ese día</h2><div class="tablewrap"><table><tbody>${es.map(x=>`<tr><td>${x.tipo==='base'?'<span class="pill p-pag">Base</span>':'<span class="pill p-ok">Entrega</span>'}</td><td>${esc(nombreRuta(x.cobradorId))}</td><td>${esc(x.nota||'')}</td><td class="num">${fmt(x.valor)}</td><td class="muted">${esc(nombreUsuario(x.creadoPor))}</td><td class="right">${isCeo()?`<button class="btn sm danger" onclick="borrarEntrega('${x.id}')">Borrar</button>`:''}</td></tr>`).join('')}</tbody></table></div></div>`:'<div style="height:16px"></div>';})()}
@@ -2380,6 +2381,17 @@ function tablaPagosDia(pagos, conCobrador){
   </tbody></table></div></div>`;
 }
 function modalEntrega(cobradorId, fecha){ modalMovRuta(cobradorId, fecha, 'entrega'); }
+/* la ruta abre en negativo cuando se cargaron créditos y pagos viejos: se guarda una base de ajuste el día anterior
+   para que ese día abra en 0 y solo cuente lo de ese día en adelante (se ve en el cuadre y se puede borrar) */
+async function arrancarRutaEnCero(uid, fecha){
+  if(!isAdmin()) return;
+  const c = cuadreCobrador(uid, fecha), v = Math.round(-c.saldoInicial);
+  if(v < 1) return toast('La ruta no abrió en negativo ese día');
+  if(!await confirmar(`${nombreRuta(uid)} abrió el ${fdate(fecha)} con ${fmt(c.saldoInicial)} por los créditos y pagos viejos que se cargaron.\n\nSe guarda una base de ajuste de ${fmt(v)} el día anterior y la ruta abre ese día en $ 0. Desde ahí solo cuenta lo que se cobre, preste y gaste ese día en adelante (queda debiendo ${fmt(c.saldoFinal + v)} en efectivo).\n\nSi te equivocas, borra el ajuste en las bases del cuadre del día anterior.`, {ok:'Empezar en 0'})) return;
+  const dia = ymd(new Date(parseD(fecha).getTime() - 864e5));
+  dbAdd('entregas', {cobradorId: uid, fecha: dia, valor: v, tipo: 'base', nota: `Ajuste de arranque: la ruta empieza en 0 el ${fdate(fecha)}`});
+  render(); toast(`${nombreRuta(uid)} abre en 0 el ${fdate(fecha)}`);
+}
 function modalBase(cobradorId, fecha){ modalMovRuta(cobradorId, fecha, 'base'); }
 function modalMovRuta(cobradorId, fecha, tipo){
   const c=cuadreCobrador(cobradorId), base = tipo==='base';

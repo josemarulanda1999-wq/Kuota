@@ -1088,6 +1088,18 @@ function primeraFecha(){
   const fs=[...DB.prestamos,...DB.pagos,...DB.salidas,...DB.capital,...DB.ingresos].map(x=>x.fecha).filter(Boolean).sort();
   return fs[0] || todayStr();
 }
+// momento desde el que la caja empezó en 0 (el "Ajuste de arranque" más reciente); 0 si nunca se hizo
+function arranqueCaja(){
+  return DB.capital.filter(x=>/^Ajuste de arranque/.test(x.concepto||'')).reduce((m,x)=>Math.max(m, (Number(x.creado)||0)+1), 0);
+}
+async function deshacerArranque(){
+  if(!isCeo()) return;
+  const aj = DB.capital.filter(x=>/^Ajuste de arranque/.test(x.concepto||''));
+  if(!aj.length) return;
+  if(!await confirmar(`La caja se empezó en $ 0 con un ajuste de ${fmt(aj.reduce((s,x)=>s+x.valor,0))}.\n\n¿Quitar ese ajuste? La caja vuelve a contar todo desde el inicio (y puede volver a salir negativa).`, {ok:'Quitar ajuste'})) return;
+  for(const x of aj) dbDel('capital', x.id);
+  render(); toast('Se quitó el arranque en 0');
+}
 function movimientos(){
   const L=[];
   const cap = Number(DB.config.capitalInicial)||0;
@@ -1112,12 +1124,18 @@ function movimientos(){
     else L.push({key:'r'+x.id,id:x.id,fecha:x.fecha,orden:2,creado:x.creado||0,tipo:'ingreso',concepto:x.concepto+' · '+nombreRuta(x.cobradorId),detalle:'Ingreso de la ruta'+(x.nota?' — '+x.nota:''),ent:x.valor,sal:0,por:x.creadoPor});
   }
   for(const x of DB.ingresos) L.push({key:'i'+x.id,id:x.id,fecha:x.fecha,orden:2,creado:x.creado||0,tipo:'ingreso',concepto:x.concepto+(esRutaViva(x.cobradorId)?' · '+nombreRuta(x.cobradorId):''),detalle:'Ingreso extra',ent:x.valor,sal:0,por:x.creadoPor});
-  L.sort((a,b)=>a.fecha.localeCompare(b.fecha)||a.orden-b.orden||a.creado-b.creado);
-  let s=0; for(const m of L){ s+=m.ent-m.sal; m.saldo=s; }
-  return L;
+  // si la caja se empezó en 0, solo se muestra lo que se metió en la app desde ese momento (lo anterior y el ajuste quedan por fuera)
+  const arr = arranqueCaja();
+  const M = arr ? L.filter(m=>(Number(m.creado)||0) >= arr) : L;
+  if(arr) M.push({key:'arranque', fecha: ymd(new Date(arr)), orden:-1, creado: arr, tipo:'capital', concepto:'La caja empieza en $ 0',
+    detalle:`Desde ${new Date(arr).toLocaleString('es-CO',{day:'numeric',month:'short',hour:'numeric',minute:'2-digit'})}: lo anterior no cuenta en la caja`, ent:0, sal:0});
+  M.sort((a,b)=>a.fecha.localeCompare(b.fecha)||a.orden-b.orden||a.creado-b.creado);
+  let s=0; for(const m of M){ s+=m.ent-m.sal; m.saldo=s; }
+  return M;
 }
 function abrirMov(key){
   const m=movimientos().find(x=>x.key===key); if(!m) return;
+  if(m.key==='arranque') return deshacerArranque();
   if(m.key.startsWith('r')) return modalVerMov(m);
   if(m.tipo==='prestamo') return modalDetalle(m.id);
   if(!isCeo()) return modalVerMov(m);
